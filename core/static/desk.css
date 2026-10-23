@@ -1,0 +1,1693 @@
+
+.panel{background:var(--card);border:1px solid var(--line);border-radius:13px}
+.tk .sub:last-of-type{border-bottom:0;padding-bottom:0}
+/* A card is one ticket. The bar across the top and the tinted header block are
+   there so the eye never has to work out where one ticket ends. */
+.tk{padding:0 22px 20px;margin-bottom:20px;scroll-margin-top:96px;
+border-top:4px solid var(--line);overflow:hidden}
+.tk.mine{border-top-color:var(--red)}
+.tk.theirs{border-top-color:#8fbcf7}
+.tk.clear{border-top-color:var(--green)}
+/* The header block is tinted from its own status colour, fading to the card
+   over the first 70% so the title sits on plain paper and stays as readable as
+   any other line. The tint is the only thing that says whose ticket this is
+   before a word is read. */
+.tk-head{margin:0 -22px;padding:14px 22px 15px;border-bottom:1px solid var(--line);
+background:linear-gradient(180deg,var(--hair),var(--card) 76%)}
+.tk.mine .tk-head{background:
+linear-gradient(180deg,var(--red-bg),var(--card) 72%)}
+.tk.theirs .tk-head{background:
+linear-gradient(180deg,var(--blue-bg),var(--card) 72%)}
+.tk.clear .tk-head{background:
+linear-gradient(180deg,var(--green-bg),var(--card) 72%)}
+.tk-id{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:7px}
+.tk-id .tag{margin:0;font-size:14px;padding:3px 11px;vertical-align:0}
+.tk-kind{font-size:10px;text-transform:uppercase;letter-spacing:.05em;
+color:var(--soft);font-weight:620}
+.tk-head h2{margin:0;font-size:18.5px;letter-spacing:-.018em;line-height:1.3;
+font-weight:700}
+.tk-ja{margin:4px 0 0;font-size:14px;color:var(--mut)}
+/* The plain-English "what this ticket is about", from prep.issue, sitting above
+   Where it stands so someone who has never seen the ticket gets it in a line. */
+.tk-about{margin:14px 0 0;font-size:14px;line-height:1.55;color:var(--mut)}
+.tk-meta{margin:10px 0 0;display:flex;gap:7px;align-items:center;flex-wrap:wrap;
+font-size:12px;color:var(--soft)}
+.tk-chip{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:6px;
+background:var(--hair);color:var(--mut);border:1px solid var(--line)}
+/* Labelled, because a bare status word beside a bare Issue is two unexplained words. */
+.tk-chip b{font-weight:700;font-size:10px;text-transform:uppercase;
+letter-spacing:.06em;color:#9aa3b2;margin-right:5px}
+/* Work the owner is carrying that Asana has never heard of. It belongs on the board
+   the same as a ticket, and the card has to say which one it is. */
+.tk-noticket{margin:10px 0 0;padding:8px 11px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:8px;font-size:13px;
+line-height:1.5;color:var(--amber-ink)}
+.tk-noticket b{display:block;font-size:10.5px;text-transform:uppercase;
+letter-spacing:.07em;color:var(--amber);margin-bottom:2px}
+.tk-chip.warn{background:var(--red-bg);color:var(--red);border-color:var(--red-line)}
+.tk-chip.warn b{color:var(--red)}
+/* The Kraken build sits inside Where it stands, because "queued behind an
+   engineer" is half the answer to where a client ticket is. Sentence case
+   throughout: this is read, not scanned, and small capitals in a block this
+   dense read as noise. */
+.bld{margin:12px 0 0;border:1px solid var(--line);border-radius:10px;
+background:var(--hair);overflow:hidden}
+.bld-head{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;
+padding:9px 13px;background:var(--card);border-bottom:1px solid var(--line)}
+.bld-k{flex:none;font-size:11.5px;font-weight:700;color:var(--soft)}
+.bld-kt{font-size:13px;font-weight:700;color:var(--ink);
+font-variant-numeric:tabular-nums}
+.bld-head .keep{margin-left:auto;font-size:11.5px;font-weight:600;
+color:var(--amber)}
+.bld-body{padding:12px 13px}
+/* Six stops, left to right, so the distance still to run is a shape and not a
+   sentence. Green is behind it, accent is where it is, grey is ahead. */
+.rail{display:flex;margin:0 0 11px;padding:0;list-style:none;background:var(--card);
+border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.rail li{flex:1;min-width:0;padding:6px 5px;text-align:center;font-size:10.5px;
+font-weight:650;color:#9aa3b2;border-right:1px solid var(--line);
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rail li:last-child{border-right:0}
+.rail li.done{background:var(--green-bg);color:var(--green)}
+.rail li.at{background:var(--accent);color:#fff;font-weight:750}
+.bld-now{margin:0;font-size:14px;line-height:1.5;color:var(--ink)}
+.bld-now b{font-weight:700}
+.bld-facts{margin:9px 0 0;display:flex;gap:4px 18px;flex-wrap:wrap;
+font-size:12.5px;color:var(--soft)}
+.bld-facts b{font-weight:650;color:var(--mut)}
+.bld-facts .odd b{color:var(--amber)}
+/* What the client can be told about the build. */
+.bld-safe{margin:10px 0 0;padding:8px 11px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:8px;font-size:13px;
+line-height:1.55;color:var(--amber-ink)}
+.bld-safe b{display:block;font-size:11.5px;font-weight:700;color:var(--amber);
+margin-bottom:2px}
+.bld.none{padding:10px 13px;display:flex;gap:9px;align-items:baseline;
+flex-wrap:wrap;font-size:13.5px;color:var(--mut)}
+
+/* The gates left before the ticket can close, in the order they have to fall.
+   Same left-edge colour language as the item list: red is the owner's, amber is
+   stuck, blue is somebody else, green is behind them. */
+.gates{margin:0;padding:0;list-style:none;display:grid;gap:1px;
+background:var(--line);border:1px solid var(--line);border-radius:10px;
+overflow:hidden}
+.gate{background:var(--card);display:flex;gap:11px;align-items:baseline;
+padding:10px 13px;border-left:3px solid var(--line)}
+.gate.done{border-left-color:var(--green);background:var(--hair)}
+/* The hairlines between rows are the parent showing through, so a row that
+   fades has to fade over its own white rather than over that grey. */
+.gate.now{border-left-color:var(--red);background-color:var(--card);
+background-image:linear-gradient(90deg,var(--red-bg),rgba(255,255,255,0) 46%)}
+.gate.blocked{border-left-color:#e2a03f}
+.gate.next{border-left-color:#8fbcf7}
+.g-m{flex:none;width:16px;height:16px;border-radius:50%;background:var(--hair);
+border:1px solid var(--line);align-self:center;display:grid;place-items:center;
+font-size:9.5px;font-weight:800;color:#fff}
+.gate.done .g-m{background:var(--green);border-color:var(--green)}
+.gate.done .g-m:after{content:"\2713"}
+.gate.now .g-m{background:var(--red);border-color:var(--red)}
+.gate.blocked .g-m{background:var(--amber);border-color:var(--amber)}
+.g-w{flex:1;min-width:0;font-size:14px;color:var(--ink);line-height:1.45}
+.gate.done .g-w{color:var(--mut)}
+.g-n{display:block;font-size:12.5px;color:var(--soft);margin-top:2px}
+.g-who{flex:none;font-size:11.5px;font-weight:650;color:var(--soft);
+text-align:right}
+.gate.now .g-who{color:var(--red)}
+/* On a phone six stops in one row become six ellipses, and the owner squeezes
+   the gate down to two words a line. Both get their own row instead. */
+@media (max-width:640px){
+.rail{flex-wrap:wrap}
+.rail li{flex:1 0 33.33%;border-bottom:1px solid var(--line)}
+.rail li:nth-child(3n){border-right:0}
+.rail li:nth-last-child(-n+3){border-bottom:0}
+.gate{flex-wrap:wrap}
+.g-w{flex:1 0 100%}
+.g-who{margin-left:27px;text-align:left}
+}
+/* Links out live on their own row: they leave the page, the chips above do not. */
+.tk-links{margin:12px 0 0;padding-top:11px;border-top:1px dashed var(--line);
+display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tk-links .lab{font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+color:#9aa3b2;font-weight:700;margin-right:1px}
+.tk-links .keep{font-size:11.5px;color:var(--amber);font-weight:600}
+
+/* One list, in the order the work sits: yours, blocked, theirs, finished. */
+.track{overflow:hidden;margin-bottom:8px}
+.track-head{display:flex;gap:12px;align-items:baseline;padding:13px 18px 11px;
+border-bottom:1px solid var(--line)}
+.track-head h2{margin:0;font-size:14px;letter-spacing:-.01em;font-weight:650}
+.track-head span{font-size:12.5px;color:var(--soft);margin-left:auto;
+font-variant-numeric:tabular-nums}
+.track-head .track-key{margin-left:0;font-size:11.5px;color:#9aa3b2}
+.track-closed>summary{cursor:pointer;padding:11px 18px;font-size:12.5px;
+color:var(--soft);border-top:1px solid var(--line);background:var(--hair);
+display:flex;gap:8px;align-items:center}
+.track-closed>summary b{font-weight:700;color:var(--mut)}
+.track-closed>summary:hover{color:var(--ink)}
+.tr{display:flex;gap:11px;padding:10px 18px;border-bottom:1px solid var(--hair);
+align-items:center;border-left:3px solid transparent}
+.tr:last-child{border-bottom:0}
+.tr.mine{border-left-color:var(--red);background:linear-gradient(90deg,
+var(--red-bg),rgba(255,255,255,0) 42%)}
+.tr.blocked{border-left-color:#e2a03f}
+.tr.theirs{border-left-color:#8fbcf7}
+/* Due now or due today, whoever holds it: the one row on the list with a clock
+   running on it, so it reads red even when it is sitting with someone else. */
+.tr.tr-hot{border-left-color:var(--red);border-left-width:4px;
+background:linear-gradient(90deg,var(--red-bg),rgba(255,255,255,0) 42%)}
+.tr.tr-hot .when{color:var(--red)}
+.tr-rank{flex:none;width:21px;font-size:12px;font-weight:700;color:var(--soft);
+font-variant-numeric:tabular-nums}
+.tr-tag{flex:none;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;
+background:var(--hair);color:var(--mut)}
+/* The title takes what is left and is the thing that must not be squeezed. A
+   long owner pill (a full name and a team is over 230px and cannot
+   wrap) was crushing it to 129px and 456px tall on a narrow window, so the
+   basis is generous and the pill gives way instead. */
+.tr-title{flex:1 1 260px;min-width:0;font-size:14.5px;font-weight:550;
+color:inherit;text-decoration:none}
+.tr-title:hover{color:var(--accent)}
+/* An owner pill may shrink and clip; the row it is on may not grow. */
+.tr>.pill{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tr>.stat,.act-head>.stat{flex:0 1 auto;max-width:240px}
+/* Below this the row cannot hold a title and a long owner on one line, so it
+   wraps deliberately: title on its own line, then the status chips under it.
+   Left to itself flexbox squeezed the title to a two-word column instead. */
+@media (max-width:820px){
+.tr{flex-wrap:wrap;align-items:baseline}
+.tr-title{flex:1 1 100%;order:-1}
+.tr-rank,.tr-tag{align-self:center}
+}
+.tr-note{display:block;font-size:12px;color:var(--soft);font-weight:400;margin-top:1px}
+.tr-min{flex:none;font-size:12px;color:var(--soft);font-variant-numeric:tabular-nums;
+width:44px;text-align:right}
+.tr.shut .tr-title{text-decoration:line-through;text-decoration-color:#a6afbe}
+.tr.shut{opacity:.62}
+
+/* The button that fetches the earlier days, and what it says if it cannot. */
+.ev-more{font:650 12px/1 var(--font);cursor:pointer;color:var(--accent);
+background:var(--card);border:1px dashed var(--accent-line);border-radius:8px;
+padding:8px 12px;margin:0 0 10px;width:100%;
+transition:background-color var(--t-fast) var(--ease),
+border-color var(--t-fast) var(--ease)}
+.ev-more:hover{background:var(--accent-bg);border-style:solid}
+.ev-more:disabled{opacity:.6;cursor:default}
+.ev-failed{display:block;font-size:12px;color:var(--amber-ink);margin:0 0 10px}
+
+/* The timeline, oldest first, one fold per day with the day as the handle. */
+.ev-fold{margin-bottom:8px}
+.ev-fold:last-child{margin-bottom:0}
+.ev-fold>summary{cursor:pointer;padding:8px 11px;background:var(--hair);
+border-radius:8px;display:flex;align-items:center;gap:10px}
+.ev-fold[open]>summary{background:transparent;border-bottom:1px solid var(--hair);
+border-radius:0;padding-left:1px;padding-right:1px}
+.ev-fold>summary:hover .ev-d{color:var(--accent-ink)}
+.ev-d{font-size:11px;font-weight:750;text-transform:uppercase;
+letter-spacing:.07em;color:var(--mut)}
+.ev-c{font-size:11px;color:var(--soft)}
+.ev-fold .evs{margin-top:12px;padding-bottom:4px}
+.evs{list-style:none;margin:0;padding:0;position:relative}
+.evs:before{content:"";position:absolute;left:53px;top:6px;bottom:10px;width:2px;
+background:var(--line)}
+.ev{display:flex;gap:15px;padding:0 0 14px;position:relative}
+.ev:last-child{padding-bottom:0}
+.ev-at{flex:none;width:46px;text-align:right;padding-top:1px;
+font-variant-numeric:tabular-nums;line-height:1.35}
+.ev-at b{display:block;font-size:10px;font-weight:700;color:#9aa3b2;
+text-transform:uppercase;letter-spacing:.03em}
+.ev-at i{display:block;font-size:11.5px;font-weight:700;color:var(--soft);
+font-style:normal}
+.ev-body{flex:1;min-width:0;padding-left:18px;position:relative}
+.ev-body:before{content:"";position:absolute;left:-5px;top:6px;width:10px;
+height:10px;border-radius:50%;background:var(--card);border:2px solid var(--accent)}
+.ev-who{display:block;font-size:11.5px;font-weight:700;color:var(--accent);
+text-transform:uppercase;letter-spacing:.05em}
+.ev-what{display:block;font-size:14.5px;margin-top:2px}
+.ev-so{display:block;margin-top:6px;padding:8px 12px;background:var(--accent-bg);
+border:1px solid var(--accent-line);border-radius:8px;font-size:13.5px;
+color:var(--accent-ink);font-weight:550}
+.ev-src{display:block;font-size:11.5px;color:var(--soft);margin-top:6px}
+
+/* Threads and shorthand. */
+.thr{list-style:none;margin:0;padding:0;display:grid;gap:1px;background:var(--line);
+border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.thr li{background:var(--card);padding:10px 13px;display:flex;gap:12px;
+align-items:baseline;flex-wrap:wrap}
+.thr-where{flex:none;font-size:11.5px;font-weight:700;color:var(--accent);
+min-width:185px}
+.thr-body{flex:1;min-width:220px}
+.thr-label{font-weight:600;font-size:14px}
+.thr-gist{font-size:13px;color:var(--mut);margin-top:2px}
+.thr-when{flex:none;font-size:11.5px;color:var(--soft);text-align:right;
+font-variant-numeric:tabular-nums}
+.thr-when b{display:block;color:var(--mut);font-weight:600}
+.terms{margin:0;display:grid;gap:1px;background:var(--line);
+border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.term{background:var(--hair);padding:10px 13px;display:flex;gap:14px;
+align-items:baseline;flex-wrap:wrap}
+.terms dt{flex:none;width:172px;font-weight:700;font-size:13.5px;
+color:var(--accent-ink)}
+.terms dd{flex:1;min-width:240px;margin:0;font-size:13.5px;color:var(--mut)}
+.term-ja{display:block;margin-top:3px;font-size:14px;font-weight:600;
+color:var(--ink);line-height:1.7}
+.term-ja ruby rt{font-size:.5em}
+
+/* ── The week ahead ──────────────────────────────────────────────────────────
+   Seven days, and each one is a column of real rows rather than a box with a
+   number in it. The first version of this was 10.5px chips reading a number and a
+   two-word title, which says a number is due without saying what it is, whose it is, or whether
+   it is late: a calendar you have to hover to read is decoration.
+
+   Today is the widest column, because today is the one the owner reads. */
+.week{background:var(--card);border:1px solid var(--line);border-radius:14px;
+box-shadow:var(--shadow);margin:0 0 18px;overflow:hidden}
+.week-h{display:flex;gap:11px;align-items:baseline;flex-wrap:wrap;
+padding:12px 16px 11px;
+background:linear-gradient(180deg,var(--hair),var(--card));
+border-bottom:1px solid var(--line)}
+.week-h h2{margin:0;font-size:11.5px;text-transform:uppercase;
+letter-spacing:.09em;color:var(--soft);font-weight:750}
+.week-next{font-size:12.5px;font-weight:700;color:var(--accent-ink)}
+.week-busy,.week-late,.week-ahead{font-size:11px;font-weight:750;
+border-radius:20px;padding:2px 9px;border:1px solid}
+.week-busy{color:var(--amber-ink);background:var(--amber-bg);
+border-color:var(--amber-line)}
+/* Work that falls past Friday. Counted rather than drawn, so the week stays a
+   week, but named so nothing is silently off the edge. */
+.week-ahead{margin-left:auto;color:var(--soft);background:var(--hair);
+border-color:var(--line)}
+.week-late{color:var(--red);background:var(--red-bg);
+border-color:var(--red-line)}
+.week-ahead+.week-late{margin-left:0}
+/* Weekdays only, so the columns that matter get the width the weekend was
+   taking. `auto-fit` rather than a fixed count, because the number of columns
+   now depends on which day of the week it is: Monday shows six, Thursday four.
+   `minmax(0,1fr)` so a long job title cannot push the strip wider than
+   the page. */
+.week-days{list-style:none;margin:0;padding:0;display:grid;
+grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:1px;
+background:var(--line)}
+.wd{background:var(--card);min-height:96px;padding:8px 9px 9px;display:flex;
+flex-direction:column;gap:6px;
+transition:background-color var(--t-mid) var(--ease)}
+/* A day this week that is already behind the owner. Dimmed rather than hidden: on a
+   Wednesday, Monday and Tuesday are context, not clutter. */
+.wd.past{background:var(--hair)}
+.wd.past .wd-d b,.wd.past .wd-d i{opacity:.6}
+.wd.past .wd-jobs{opacity:.72}
+.wd.quiet{background:var(--hair)}
+.wd.today{background:linear-gradient(180deg,var(--accent-bg),var(--card) 72%);
+box-shadow:inset 0 3px 0 var(--accent)}
+.wd-h{display:flex;gap:6px;align-items:baseline}
+.wd-d{display:flex;gap:5px;align-items:baseline}
+.wd-d b{font-size:10px;font-weight:750;text-transform:uppercase;
+letter-spacing:.07em;color:var(--soft)}
+.wd-d i{font-style:normal;font-size:15px;font-weight:750;color:var(--mut);
+font-variant-numeric:tabular-nums;line-height:1}
+.wd.today .wd-d b{color:var(--accent)}
+.wd.today .wd-d i{color:var(--accent-ink)}
+.wd-today,.wd-soon{font-size:9.5px;font-weight:750;text-transform:uppercase;
+letter-spacing:.06em;color:var(--accent);background:var(--card);
+border:1px solid var(--accent-line);border-radius:4px;padding:2px 5px}
+.wd-soon{color:var(--soft);border-color:var(--line)}
+.wd-c{margin-left:auto;font-size:10px;font-weight:800;color:var(--soft);
+background:var(--hair);border:1px solid var(--line);border-radius:20px;
+padding:1px 6px;font-variant-numeric:tabular-nums}
+/* A room the owner has to speak in. The one thing on this strip they cannot
+   move, so it
+   is the one thing drawn in solid accent. */
+.wd-rooms{display:flex;flex-direction:column;gap:3px}
+.wd-room{display:flex;gap:5px;align-items:baseline;font-size:10.5px;
+font-weight:650;color:#fff;background:var(--accent);border-radius:6px;
+padding:3px 7px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.wd-room b{font-weight:800;font-variant-numeric:tabular-nums;flex:none}
+/* A job that comes due. Number, what it is, and who holds it, in the colours
+   the rest of the page already uses for those three states. */
+.wd-jobs{display:flex;flex-direction:column;gap:4px;margin-top:auto}
+.wd-job{display:grid;grid-template-columns:auto 1fr;gap:2px 6px;
+text-decoration:none;border-radius:7px;padding:5px 7px;
+border:1px solid var(--line);border-left:3px solid var(--line);background:var(--card);
+transition:transform var(--t-fast) var(--ease),
+box-shadow var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.wd-job:hover{transform:translateY(-1px);box-shadow:0 3px 9px rgba(20,26,40,.10);
+border-color:var(--accent-line)}
+.wd-n{font-size:10.5px;font-weight:800;color:#fff;background:var(--soft);
+border-radius:4px;padding:0 5px;align-self:start;
+font-variant-numeric:tabular-nums;line-height:17px}
+/* Two lines of title is the most a column can give a job without one busy day
+   setting the height of the whole strip. */
+.wd-w{font-size:11.5px;font-weight:600;color:var(--ink);line-height:1.3;
+display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+overflow:hidden}
+/* Capped and scrollable. Five chases landing on one standup is exactly the
+   case this strip exists to show, and also the case that would otherwise make
+   it a third of the screen. */
+.wd-jobs{max-height:132px;overflow-y:auto;scrollbar-width:thin}
+.wd-jobs::-webkit-scrollbar{width:3px}
+.wd-jobs::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.wd-who{grid-column:2;font-size:10px;font-weight:650;color:var(--soft);
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* A day this renderer inferred from the urgency rather than read off the board.
+   Dashed, so the strip never claims a date the owner did not set. */
+.wd-job.guess{border-style:dashed;border-left-style:solid}
+.wd-job.mine{border-left-color:var(--red);background:var(--red-bg)}
+.wd-job.mine .wd-n{background:var(--red)}
+.wd-job.mine .wd-who{color:var(--red)}
+.wd-job.held{border-left-color:var(--amber);background:var(--amber-bg)}
+.wd-job.held .wd-n{background:var(--amber)}
+.wd-job.theirs{border-left-color:#8fbcf7}
+.wd-job.theirs .wd-n{background:var(--blue)}
+/* Overdue. Loudest thing on the strip, and it sits on today rather than off the
+   left edge, because a chase that slipped is more urgent, not less. */
+.wd-job.late{border-left-color:var(--red);border-color:var(--red-line);
+background:var(--red-bg)}
+.wd-job.late .wd-n{background:var(--red)}
+.wd-job.late .wd-who{color:var(--red);font-weight:750}
+/* Meetings off the calendar. A room the owner speaks in stays the solid accent block;
+   every other meeting about this work is a quiet line under it, with Join while
+   it can be joined and Notes once Meet has attached them. Meetings that are not
+   about this work, or fall outside the working day, fold away under a count. */
+.wd-room{flex-wrap:nowrap}
+.wd-room-w{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.wd-room.skipped{background:var(--hair);color:var(--soft);text-decoration:line-through}
+.wd-room .wm-go{flex:none;display:flex;gap:3px}
+.wd-room .wm-join,.wd-room .wm-notes{color:#fff;border-color:rgba(255,255,255,.55);
+background:rgba(255,255,255,.14)}
+.wd-meets{display:flex;flex-direction:column;gap:3px}
+.wm{display:flex;gap:5px;align-items:center;font-size:10.5px;line-height:1.35;
+padding:2px 4px 2px 6px;border-radius:5px;border-left:2px solid var(--line);
+background:var(--hair)}
+.wm.work{border-left-color:var(--accent-line)}
+/* A meeting with the client in it. */
+.wm.client{border-left-color:var(--accent)}
+.wm.tent .wm-w{font-style:italic}
+.wm.past{opacity:.66}
+.wm-t{flex:none;font-weight:750;color:var(--soft);font-variant-numeric:tabular-nums}
+.wm-w{flex:1;min-width:0;color:var(--ink);text-decoration:none;font-weight:600;
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wm-w:hover{text-decoration:underline}
+.wm-go{flex:none;display:flex;gap:3px}
+.wm-join,.wm-notes{font-size:9.5px;font-weight:750;text-decoration:none;
+border-radius:4px;padding:0 5px;line-height:15px;border:1px solid var(--accent-line);
+color:var(--accent-ink);background:var(--card)}
+.wm-notes{color:var(--soft);border-color:var(--line)}
+.wm-join:hover,.wm-notes:hover{border-color:var(--accent);color:var(--accent)}
+/* Now, and in the next ten minutes: the one meeting that matters this second. */
+.wm.soon,.wm.now{background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent-line)}
+.wm.now .wm-t,.wm.soon .wm-t{color:var(--accent)}
+.wm.now .wm-join,.wm.soon .wm-join,.wd-room.now .wm-join,.wd-room.soon .wm-join{
+background:var(--accent);border-color:var(--accent);color:#fff}
+.wd-room.now .wm-join,.wd-room.soon .wm-join{background:#fff;color:var(--accent)}
+.wm-more{font-size:10px}
+.wm-more>summary{cursor:pointer;color:var(--soft);font-weight:650;padding:1px 4px;
+list-style:none}
+.wm-more>summary::-webkit-details-marker{display:none}
+.wm-more>summary::before{content:"+ "}
+.wm-more[open]>summary::before{content:"\2212 "}
+.wm-more[open]{display:flex;flex-direction:column;gap:2px}
+.wm.side .wm-w{font-weight:500;color:var(--mut)}
+/* The calendar's own controls, at the end of the week's header. */
+.week-cal,.week-fold{font:inherit;font-size:11px;font-weight:700;border-radius:20px;
+padding:2px 9px;border:1px solid var(--line);background:var(--card);color:var(--soft);
+cursor:pointer}
+.week-cal:hover{border-color:var(--accent-line);color:var(--accent-ink)}
+.week-cal[aria-busy=true]{opacity:.6;cursor:progress}
+.week-fold{color:var(--accent-ink);background:var(--accent-bg);border-color:var(--accent-line)}
+.week-fold:hover{border-color:var(--accent)}
+.week-off{font-size:11px;color:var(--soft)}
+.week-h .week-cal{margin-left:auto}
+.week-ahead~.week-cal,.week-late~.week-cal{margin-left:0}
+/* The meeting that is on now, or about to be, in the header bar. */
+.meet-now{font-size:12px;font-weight:750;text-decoration:none;color:#fff;
+background:var(--accent);border-radius:8px;padding:5px 10px;white-space:nowrap;
+max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.meet-now:hover{filter:brightness(1.08)}
+.meet-now.later{background:var(--card);color:var(--accent-ink);
+border:1px solid var(--accent-line)}
+.wd-rest{font-size:10.5px;font-weight:650;color:var(--soft);padding:2px 3px}
+.wd-none{color:#c3cad6;font-size:15px;margin-top:auto;text-align:center}
+@media (max-width:900px){
+/* Below this a column cannot hold a job title, so the strip becomes three
+   wider ones and wraps. */
+.week-days{grid-template-columns:repeat(3,minmax(0,1fr))}
+.wd{min-height:84px}
+}
+@media (max-width:560px){
+.week-days{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+/* ── The path ────────────────────────────────────────────────────────────────
+   One spine per ticket, where there used to be three sections saying
+   overlapping things about the same fact. A step is a gate; the work it is
+   waiting on hangs underneath it, indented off the same rail.
+
+   The rail is a real line down the left, because "the order they have to fall"
+   is the whole point of the section and a list of bullets does not say it. */
+.path{position:relative}
+.steps-list{list-style:none;margin:0;padding:0;position:relative}
+/* The rail. It stops short at both ends so it reads as a run between the first
+   and last marker rather than a border on the section. */
+.steps-list:before{content:"";position:absolute;left:8px;top:11px;bottom:11px;
+width:2px;background:linear-gradient(180deg,var(--line),var(--hair));
+border-radius:2px}
+.step{position:relative;padding:0 0 4px 30px;margin-bottom:10px}
+.step:last-child{margin-bottom:0}
+.step-head{display:flex;gap:11px;align-items:baseline;padding:7px 0 6px}
+/* The marker sits on the rail, not beside it. */
+.step .g-m{position:absolute;left:0;top:9px;width:18px;height:18px;flex:none;
+border-radius:50%;background:var(--card);border:2px solid var(--line);
+display:grid;place-items:center;font-size:10px;font-weight:800;color:#fff;
+transition:transform .18s var(--ease),background-color .18s var(--ease),
+border-color .18s var(--ease)}
+.step.done .g-m{background:var(--green);border-color:var(--green)}
+.step.done .g-m:after{content:"\2713"}
+.step.next .g-m{border-color:#8fbcf7}
+.step.blocked .g-m{background:var(--amber);border-color:var(--amber)}
+/* The step the owner is actually on. A filled ring and a halo, so the eye lands on it
+   before it reads a word of the card. */
+.step.mine .g-m,.step.loose .g-m{background:var(--red);border-color:var(--red);
+box-shadow:0 0 0 4px var(--red-bg)}
+.step .g-w{flex:1;min-width:0;font-size:14.5px;color:var(--ink);line-height:1.45;
+font-weight:550}
+.step.done .g-w{color:var(--mut);font-weight:400}
+.step .g-n{display:block;font-size:12.5px;color:var(--soft);margin-top:2px;
+font-weight:400}
+.step .g-who{flex:none;font-size:11.5px;font-weight:650;color:var(--soft);
+text-align:right;white-space:nowrap}
+.step.mine .g-who{color:var(--red)}
+/* The work hanging off a gate. Indented once more, so "this job is how that
+   gate falls" is a shape rather than a sentence. */
+.step-work{padding-left:2px;margin-top:2px}
+.step-work .act{margin-bottom:8px}
+.step-work .act:last-child{margin-bottom:0}
+/* A job no gate names. It is a step in its own right, so it gets the rail and
+   the red marker but no gate line above it. */
+.step.loose{padding-top:2px}
+.step.loose>.act,.step.loose .act{margin-bottom:0}
+/* The stretch already behind the owner: one line, with the count doing the talking. */
+.step-past{margin:14px 0 0}
+.step-past>summary{cursor:pointer;list-style:none;display:flex;gap:9px;
+align-items:center;padding:8px 11px;background:var(--green-bg);
+border:1px solid var(--green-line);border-radius:9px;font-size:12.5px;
+font-weight:600;color:var(--green);transition:background-color .16s var(--ease)}
+.step-past>summary::-webkit-details-marker{display:none}
+.step-past>summary:hover{background:#e3f7ed}
+.step-past .sp-n{flex:none;min-width:19px;height:19px;border-radius:50%;
+background:var(--green);color:#fff;display:grid;place-items:center;
+font-size:10.5px;font-weight:800}
+.step-past .fold-hint{margin-left:auto;border-color:var(--green-line);
+color:var(--green)}
+.step-past[open]>summary{margin-bottom:12px;border-radius:9px 9px 0 0}
+.step-past .steps-list{padding-left:2px}
+/* After the base rules, not before them: the shorthand `padding` below would
+   otherwise win on specificity ties and the phone would keep the full indent.
+   On a 375px screen 30px of rail was coming off the width of every draft. */
+@media (max-width:640px){
+.steps-list:before{left:6px}
+.step{padding-left:21px}
+.step .g-m{width:15px;height:15px;top:10px}
+.step-head{gap:8px}
+.step-work{padding-left:0}
+}
+
+/* Background: how it got here, the words, the threads. Three folds that were
+   three sections and are now one drawer. What is inside keeps its own shape,
+   so the nested sections lose their card padding and their rules. */
+.bg-drawer .bg-in{padding-top:2px}
+.bg-drawer .bg-in>.sub{padding:12px 0;border-bottom:1px solid var(--hair)}
+.bg-drawer .bg-in>.sub:last-child{border-bottom:0;padding-bottom:2px}
+.bg-drawer .bg-in>details.sub{padding-top:0}
+.bg-drawer .bg-in>details.sub>summary{padding:11px 8px;margin:0 -8px}
+
+/* An item, and the colour of its left edge is where it sits. */
+.act{border:1px solid var(--line);border-left:3px solid var(--line);
+border-radius:11px;margin-bottom:12px;overflow:hidden;background:var(--card)}
+.act.todo{border-left-color:var(--red)}
+.act.hold,.act.held{border-left-color:#e2a03f;background:var(--amber-bg)}
+.act.held .act-head{background:var(--amber-bg)}
+.act.waiting{border-left-color:#8fbcf7}
+.act-head{display:flex;gap:10px;padding:11px 14px;align-items:center;
+flex-wrap:wrap;background:var(--hair);border-bottom:1px solid var(--hair)}
+.act-rank{width:23px;height:23px;flex:none;border-radius:6px;background:var(--ink);
+color:#fff;display:grid;place-items:center;font-size:11.5px;font-weight:700}
+.act-title{flex:1 1 250px;min-width:0;font-weight:600;font-size:15px}
+.act-sub{display:block;font-size:12px;font-weight:400;color:var(--soft);margin-top:2px}
+details.act>summary{cursor:pointer;list-style:none}
+details.act>summary::-webkit-details-marker{display:none}
+details.act>summary::before{display:none}
+details.act:not([open])>summary{border-bottom:0}
+details.act .act-title{font-weight:550}
+details.act.waiting{background:var(--hair)}
+details.act.done,details.act.sent,details.act.dropped{opacity:.7;
+border-left-color:#ccd4e0}
+details.act.done .act-title,details.act.sent .act-title{text-decoration:line-through;
+text-decoration-color:#a6afbe}
+.act-min{color:var(--soft);font-size:12px;font-variant-numeric:tabular-nums}
+.act-body{padding:13px 15px}
+/* The steps come first and look like the only thing worth doing, because on an
+   open job they are. Everything under them is supporting material. */
+/* Where it stands: status, labelled as status, so the steps under it can be
+   only the things the owner does. Quiet, because it is read once and not acted on. */
+.act-stands{margin:0 0 12px;padding:8px 12px;border-left:3px solid var(--accent-line);
+background:var(--hair);border-radius:0 8px 8px 0;font-size:13.5px;line-height:1.5;color:var(--ink)}
+.act-stands b{display:block;font-size:10.5px;font-weight:750;text-transform:uppercase;
+letter-spacing:.09em;color:var(--soft);margin-bottom:2px}
+.act-do{margin:0 0 12px}
+.act-lab{margin:0 0 7px;font-size:10.5px;font-weight:750;text-transform:uppercase;
+letter-spacing:.09em;color:var(--accent)}
+ol.steps{margin:0;padding-left:19px;counter-reset:none}
+ol.steps li{margin-bottom:6px;font-size:14.5px;color:var(--ink);line-height:1.5}
+ol.steps li::marker{color:var(--soft);font-weight:700;font-size:12.5px}
+ol.steps li:last-child{margin-bottom:0}
+/* The steps as a checklist. The number is the box: press it and the step is
+   struck through, the number turns into a tick, and the ring moves on to the
+   next step, so the card says which one they are on without being read. */
+.act-lab .steps-count{margin-left:8px;padding:1px 7px;border-radius:99px;
+font-size:10px;letter-spacing:.04em;text-transform:none;font-weight:700;
+color:var(--soft);background:var(--hair);border:1px solid var(--line);
+transition:color var(--t-mid) var(--ease),background-color var(--t-mid) var(--ease),
+border-color var(--t-mid) var(--ease)}
+.act-lab .steps-count[data-none]{display:none}
+.act-lab .steps-count.all{color:var(--green);background:var(--green-bg);border-color:var(--green-line)}
+ol.steps:has(.ds){padding-left:0;list-style:none}
+ol.steps li.ds{display:flex;gap:10px;align-items:flex-start;margin:0 0 2px -6px;
+padding:4px 8px 4px 6px;border-radius:9px;
+transition:background-color var(--t-slow) var(--ease),color var(--t-slow) var(--ease)}
+ol.steps li.ds:last-child{margin-bottom:0}
+ol.steps li.ds.next{background:var(--accent-bg)}
+.ds-n{flex:none;position:relative;display:grid;place-items:center;width:23px;height:23px;
+margin-top:-.5px;padding:0;border-radius:50%;cursor:pointer;font:inherit;
+font-size:11.5px;font-weight:750;color:var(--soft);background:var(--card);
+border:1.5px solid var(--line);
+transition:color var(--t-mid) var(--ease),background-color var(--t-mid) var(--ease),
+border-color var(--t-mid) var(--ease),transform var(--t-fast) var(--ease),
+box-shadow var(--t-mid) var(--ease)}
+.ds-n>*{grid-area:1/1}
+.ds-n svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.9;
+stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:14;stroke-dashoffset:14;
+transition:stroke-dashoffset var(--t-slow) var(--ease) 60ms}
+.ds-k{transition:opacity var(--t-fast) var(--ease),transform var(--t-mid) var(--ease)}
+.ds.next .ds-n{color:var(--accent);border-color:var(--accent-line);
+box-shadow:0 0 0 3px var(--accent-bg)}
+.ds-n:hover{color:var(--green);border-color:var(--green)}
+.ds-n:hover .ds-k{opacity:0;transform:scale(.6)}
+.ds-n:hover svg{stroke-dashoffset:0;opacity:.6}
+.ds-n:active{transform:scale(.9)}
+.ds-n:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ds.done .ds-n{color:var(--card);background:var(--green);border-color:var(--green);box-shadow:none}
+.ds.done .ds-n .ds-k{opacity:0;transform:scale(.6)}
+.ds.done .ds-n svg{stroke-dashoffset:0;opacity:1}
+.ds.done .ds-n:hover{background:var(--green-bg);color:var(--green)}
+.ds.pop .ds-n{animation:step-pop .34s var(--spring)}
+@keyframes step-pop{0%{transform:scale(.8)}55%{transform:scale(1.14)}100%{transform:scale(1)}}
+.ds-b{flex:1;min-width:0;padding-top:1px}
+/* The strike is a line drawn across, not a flag flipped, so it can be watched:
+   a background the height of a pen stroke that grows from the left on every
+   line the step wraps onto. */
+.ds-t{background:linear-gradient(currentColor,currentColor) no-repeat 0 58%/0 1.5px;
+-webkit-box-decoration-break:clone;box-decoration-break:clone;
+transition:background-size .32s var(--ease),color var(--t-slow) var(--ease)}
+.ds.done .ds-t{background-size:100% 1.5px;color:var(--soft)}
+.ds.done{color:var(--soft)}
+.ds.done code{opacity:.7}
+.ds-n[aria-busy="true"]{cursor:progress}
+@media (prefers-reduced-motion:reduce){
+  ol.steps li.ds,.ds-n,.ds-n svg,.ds-k,.ds-t,.act-lab .steps-count{transition:none}
+  .ds.pop .ds-n{animation:none}
+}
+ol.steps code,.act-done code{font:600 12.5px/1.4 ui-monospace,SFMono-Regular,
+Menlo,monospace;background:var(--hair);border:1px solid var(--line);
+border-radius:5px;padding:1px 5px;word-break:break-all}
+/* Work already done. It used to sit above the steps, as the answer they start
+   from, and on a card with twelve findings that put the one thing to do three
+   screens down. The steps lead now and this is what they stand on. */
+.act-prep{margin:12px 0 0;padding:11px 13px 12px;background:var(--green-bg);
+border:1px solid var(--green-line);border-radius:10px}
+.act-lab.done{color:var(--green)}
+.pw-what{margin:0 0 9px;font-size:14.5px;color:var(--ink);font-weight:550}
+.pw-answer{margin:0 0 10px;padding:9px 11px;background:var(--card);
+border:1px solid var(--green-line);border-radius:8px;font-size:14px;
+line-height:1.5;color:var(--ink)}
+.pw-answer b,.pw-note b{display:block;margin-bottom:3px;font-size:10.5px;
+text-transform:uppercase;letter-spacing:.07em;color:var(--green)}
+.pw-t{width:100%;border-collapse:collapse;margin:0 0 10px;font-size:12.5px;
+background:var(--card);border:1px solid var(--green-line);border-radius:8px;
+overflow:hidden}
+.pw-t th{text-align:left;padding:7px 9px;font-size:10.5px;font-weight:750;
+text-transform:uppercase;letter-spacing:.06em;color:var(--soft);
+background:var(--hair);border-bottom:1px solid var(--line);vertical-align:top}
+.pw-t td{padding:7px 9px;border-bottom:1px solid var(--hair);color:var(--mut);
+vertical-align:top;line-height:1.45}
+.pw-t tr:last-child td{border-bottom:0}
+.pw-t td:first-child{color:var(--ink);font-weight:550}
+.pw-t code{font:600 11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+word-break:break-all}
+/* A verdict cell, so the row that is the problem is findable without reading
+   all four columns of every row. */
+.pw-v span{display:inline-block;padding:2px 8px;border-radius:999px;
+font-size:11px;font-weight:700;border:1px solid}
+.pw-v .v-good{background:var(--green-bg);border-color:var(--green-line);
+color:var(--green)}
+.pw-v .v-gap{background:var(--red-bg);border-color:var(--red-line);color:var(--red)}
+.pw-v .v-warn{background:var(--amber-bg);border-color:var(--amber-line);
+color:var(--amber-ink)}
+.pw-line{display:block;font-weight:600}
+.pw-more{display:block;margin-top:5px;font-size:13px;color:var(--mut)}
+/* The evidence, behind one line that says how much of it there is. */
+.pw-ev{margin:10px 0 0;border-top:1px solid var(--green-line);padding-top:8px}
+.pw-ev>summary,.pw-note>summary,.pw-one summary{cursor:pointer;list-style:none}
+.pw-ev>summary::-webkit-details-marker,.pw-note>summary::-webkit-details-marker,
+.pw-one summary::-webkit-details-marker{display:none}
+.pw-ev>summary{display:flex;gap:8px;align-items:center;font-size:11px;
+font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--green)}
+.pw-ev>summary:hover{color:var(--ink)}
+.pw-ev[open]>summary{margin-bottom:8px}
+/* One claim per line. The proof opens under the claim it proves. */
+.pw-f{margin:0;padding:0;list-style:none}
+.pw-f li{font-size:13.5px;color:var(--ink);margin:0;line-height:1.45;
+padding:6px 0 6px 16px;position:relative;border-top:1px solid var(--hair)}
+.pw-f li:first-child{border-top:0}
+.pw-f li:before{content:"";position:absolute;left:3px;top:13px;width:5px;height:5px;
+border-radius:50%;background:var(--green)}
+.pw-one summary{display:flex;gap:8px;align-items:baseline}
+.pw-one summary>span:not(.fold-hint):not(.pw-when){flex:1;min-width:0}
+.pw-one summary .fold-hint{flex:none;font-size:11px}
+.pw-one summary:hover{color:var(--green)}
+.pw-one details>p{margin:5px 0 2px;font-size:13px;color:var(--mut);line-height:1.5}
+.pw-when{flex:none;font-size:10.5px;font-weight:700;color:var(--soft);
+background:var(--card);border:1px solid var(--line);border-radius:5px;
+padding:0 5px;margin-right:2px}
+.pw-f code{font:600 12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+background:var(--card);border:1px solid var(--green-line);border-radius:5px;
+padding:1px 5px;word-break:break-all}
+.pw-note{margin:8px 0 0;padding-top:8px;border-top:1px solid var(--green-line);
+font-size:13px;line-height:1.5;color:var(--mut)}
+.pw-note>summary{display:flex;gap:8px;align-items:center}
+.pw-note>summary b{margin:0}
+.pw-note[open]>summary{margin-bottom:4px}
+/* What the work could not settle. Prepared work that hides its own gaps reads
+   as a finished answer, and the owner takes it into a room on that basis. */
+.pw-open{margin:10px 0 0;padding:9px 11px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:8px;font-size:13px;
+line-height:1.5;color:var(--amber-ink)}
+.pw-open b{display:block;font-size:10.5px;text-transform:uppercase;
+letter-spacing:.07em;color:var(--amber);margin-bottom:3px}
+.pw-open ul{margin:0;padding-left:17px}
+.pw-open li{margin-bottom:3px}
+.pw-open li:last-child{margin-bottom:0}
+.pw-meeting{margin:10px 0 0;display:flex;gap:9px;align-items:center;
+flex-wrap:wrap;font-size:12.5px;color:var(--mut)}
+.pw-src{margin:10px 0 0;display:flex;gap:7px;align-items:center;flex-wrap:wrap;
+font-size:11.5px;color:var(--soft)}
+.act-nosteps{margin:0 0 11px;padding:9px 12px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:8px;font-size:13px;
+color:var(--amber-ink)}
+.act-nosteps b{display:block;font-size:10.5px;text-transform:uppercase;
+letter-spacing:.08em;margin-bottom:2px}
+.act-done{margin:0 0 10px;font-size:13.5px;color:var(--mut)}
+.act-why{margin:0 0 10px;font-size:13.5px;color:var(--mut)}
+.act-done b,.act-why b{display:inline-block;font-size:10.5px;
+text-transform:uppercase;letter-spacing:.08em;color:var(--soft);margin-right:8px;
+font-weight:700;vertical-align:1px}
+.act-body ul{margin:0;padding-left:18px}
+.act-body li{margin-bottom:4px;font-size:14px;color:var(--mut)}
+.act-where{margin:9px 0 0;display:flex;gap:9px;align-items:center;flex-wrap:wrap;
+font-size:12.5px;color:var(--soft)}
+.act-commit{margin:11px 0 0;padding:8px 12px;background:var(--red-bg);
+border:1px solid var(--red-line);border-radius:8px;font-size:13px;color:var(--red);
+font-weight:550}
+.act-block{margin:11px 0 0;padding:8px 12px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:8px;font-size:13px;
+color:var(--amber-ink)}
+.act-quote{margin:11px 0 0;padding-left:12px;border-left:3px solid var(--line);
+font-size:12.5px;color:var(--soft);font-style:italic}
+/* Why a job exists, under the job. One line until it is wanted. */
+.act-more{margin:10px 0 0}
+.act-more>summary{display:flex;gap:8px;align-items:center;padding:0;cursor:pointer;
+font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+color:var(--soft)}
+.act-more>summary:hover{color:var(--mut)}
+.act-more[open]>summary{margin-bottom:2px}
+
+/* Asking about the job you are looking at. Quiet until it is wanted: one small
+   word at the bottom of the card, and the questions already answered above it,
+   because why a draft says what it says belongs next to the draft. */
+.ask{margin:12px 0 0;padding-top:10px;border-top:1px dashed var(--line)}
+/* The one that is not on a card: a question about the day rather than a job.
+   Sits under the strip above the tickets, where the counted sentence is. */
+#view-desk>.ask{margin:0 0 14px;padding:0 2px;border-top:0}
+.ask-bar{display:flex;gap:10px;align-items:center}
+.ask-open,.ask-copy,.ask-cancel,.qa-retry,.qa-stop{font:inherit;cursor:pointer;
+border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--mut);
+font-size:12px;font-weight:650;padding:5px 11px;
+transition:border-color var(--t-fast) var(--ease),
+background-color var(--t-fast) var(--ease),transform var(--t-fast) var(--ease),
+box-shadow var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+.ask-open:active,.ask-copy:active,.ask-cancel:active,.ask-send:active,
+.qa-retry:active,.qa-stop:active,.qa-act:active{transform:scale(.96);transition-duration:60ms}
+/* The one button on a card that starts a conversation rather than opening a
+   link, so it is the one with a mark on it and enough padding to look pressable
+   from across the desk. */
+.ask-open{display:inline-flex;gap:7px;align-items:center;padding:7px 13px;
+font-size:12.5px;color:var(--plum-ink,#5b21b6);
+border-color:var(--plum-line,#ddd6fe);background:var(--plum-bg,#f5f3ff)}
+.ask-open .ask-of{font-weight:550;color:var(--plum,#7c3aed);opacity:.85}
+.ask-open .spark{width:14px;height:14px;fill:currentColor;flex:none}
+.ask-open:hover{background:var(--card);border-color:var(--plum,#7c3aed);
+box-shadow:0 2px 8px rgba(124,58,237,.16);transform:translateY(-1px)}
+/* The spark leans in and turns a little. It is the one ornamental thing on the
+   page and it is on the one button that starts a conversation, so it is worth
+   the 12 milliseconds. */
+.ask-open:hover .spark{transform:scale(1.14) rotate(-8deg)}
+.ask-open .spark{transition:transform var(--t-mid) var(--spring)}
+.ask-copy:hover,.ask-cancel:hover,.qa-retry:hover{border-color:var(--soft);color:var(--ink)}
+/* Same mark, quieter, where the entry point sits in a heading. */
+.ask-here .spark{width:11px;height:11px;fill:currentColor;margin-right:4px;
+vertical-align:-1px}
+.ask-n{font-size:11px;font-weight:650;color:var(--soft)}
+
+/* The composer. One field the shape of every chat box the owner uses elsewhere:
+   the mark on the left, the words growing downwards as they type, and a round send
+   on the right that lights up once there is something to send. The ring around
+   the whole field, not just the text, is what says "this is where you type". */
+.ask-box{margin:10px 0 0;animation:ask-in var(--t-slow) var(--ease)}
+.ask-field{position:relative;display:flex;align-items:flex-end;gap:8px;
+padding:6px 6px 6px 12px;border:1px solid var(--line);border-radius:14px;
+background:var(--card);box-shadow:var(--shadow);
+transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-mid) var(--ease)}
+.ask-field:focus-within{border-color:var(--plum);
+box-shadow:0 0 0 4px color-mix(in srgb,var(--plum) 14%,transparent),var(--lift)}
+.ask-field>.spark{flex:none;width:15px;height:15px;margin:0 0 9px;fill:var(--plum);
+opacity:.55;transition:opacity var(--t-mid) var(--ease),transform var(--t-slow) var(--spring)}
+.ask-field:focus-within>.spark{opacity:1;transform:rotate(-12deg) scale(1.08)}
+.ask-field textarea,.fu textarea{flex:1;min-width:0;box-sizing:border-box;font:inherit;
+font-size:13.5px;line-height:1.5;padding:6px 0;border:0;outline:0;resize:none;
+color:var(--ink);background:transparent;min-height:34px;max-height:260px;overflow-y:auto}
+.ask-field textarea::placeholder,.fu textarea::placeholder{color:var(--soft);opacity:.85}
+.ask-send{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;
+border-radius:50%;border:0;cursor:pointer;background:var(--plum);color:#fff;
+transition:transform var(--t-mid) var(--spring),opacity var(--t-fast) var(--ease),
+box-shadow var(--t-fast) var(--ease),filter var(--t-fast) var(--ease)}
+.ask-send svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;
+stroke-linecap:round;stroke-linejoin:round}
+/* Dim until there is something to send, so the button says whether Enter will
+   do anything without the owner reading the hint. */
+.ask-field:has(textarea:placeholder-shown) .ask-send{opacity:.32;transform:scale(.9)}
+.ask-send:hover{box-shadow:0 3px 12px color-mix(in srgb,var(--plum) 45%,transparent);
+transform:translateY(-1px)}
+.ask-send:hover svg{transform:translateX(1px)}
+.ask-go{display:flex;gap:8px;align-items:center;margin:7px 2px 0;flex-wrap:wrap}
+.ask-hint{font-size:11.5px;color:var(--soft)}
+.ask-keys{font-size:11px;color:var(--soft);opacity:.8;margin-right:auto}
+.ask-go .ask-copy,.ask-go .ask-cancel{padding:3px 9px;font-size:11.5px;border-color:transparent;
+background:transparent;color:var(--soft)}
+.ask-go .ask-copy:hover,.ask-go .ask-cancel:hover{border-color:var(--line);background:var(--card)}
+
+@keyframes ask-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+/* A bubble that has just arrived, the owner's question as they send it or the answer
+   as it lands, settles into place rather than appearing. */
+@keyframes qa-in{from{opacity:0;transform:translateY(6px) scale(.985)}
+to{opacity:1;transform:none}}
+.qa.fresh{animation:qa-in var(--t-slow) var(--ease)}
+
+/* The way in from the draft and the prepared block, where the thing the owner wants
+   changed actually is. Quiet: a word at the end of a label row. */
+.ask-here{font:inherit;font-size:11px;font-weight:650;cursor:pointer;
+border:1px solid var(--plum-line);background:var(--plum-bg);
+color:var(--plum-ink);border-radius:6px;padding:3px 8px;letter-spacing:0;
+text-transform:none}
+.ask-here:hover{border-color:var(--plum)}
+.act-lab .ask-here{margin-left:9px;vertical-align:1px}
+.draft-head .ask-here{margin-left:0}
+
+/* The answers. A chat window is gone by tomorrow; this is not.
+   Every exchange is shut to a line: the question, when it was asked, and a Show.
+   That is how the owner finds the one they half remember without reading four answers on
+   the way, and it is what keeps a card with a long conversation on it the same
+   height as a card with one question. */
+.qa-list{list-style:none;margin:0 0 10px;padding:0}
+.qa{position:relative;border:1px solid var(--plum-line,#ddd6fe);border-radius:12px;
+background:var(--plum-bg,#f8f7ff);margin-bottom:8px}
+.qa>details>summary{display:flex;gap:9px;align-items:baseline;cursor:pointer;
+padding:9px 34px 9px 12px;list-style:none;border-radius:12px}
+.qa>details>summary:hover .qa-q{color:var(--plum-ink)}
+.qa>details>summary::-webkit-details-marker{display:none}
+.qa>details>summary::marker{content:""}
+.qa>details[open]>summary{border-bottom:1px solid var(--plum-line,#ddd6fe);
+border-radius:12px 12px 0 0}
+.qa-k{flex:none;font-size:10px;font-weight:750;text-transform:uppercase;
+letter-spacing:.07em;color:var(--plum-ink,#5b21b6)}
+/* Shut, the question is one line however long it was, because a four-line
+   question shut is not much better than the answer open. Open, it wraps: they are
+   reading the answer and needs the whole question above it. */
+.qa-q{flex:1;min-width:0;font-size:13px;color:var(--ink);font-weight:600;
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qa>details[open]>summary .qa-q{white-space:normal}
+.qa-when{flex:none;font-size:11px;font-weight:600;color:var(--soft)}
+.qa>details>summary .fold-hint{flex:none;font-size:11px}
+/* The owner's side of an exchange that has no answer yet, or never will: the question
+   in full, because there is nothing under it to read instead. */
+.qa-me{display:flex;gap:9px;align-items:baseline;padding:9px 34px 9px 12px}
+.qa-me .qa-q{white-space:normal}
+.qa-a{padding:11px 13px 0;font-size:13.5px;line-height:1.6;color:var(--mut)}
+.qa-a p{margin:0 0 8px}
+.qa-a p:last-child{margin-bottom:0}
+.qa-a b{color:var(--ink)}
+.qa-a ul{margin:0 0 8px;padding-left:17px}
+.qa-a li{margin:2px 0}
+.qa-a code{font:600 12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+background:var(--card);border:1px solid var(--plum-line,#ddd6fe);border-radius:4px;
+padding:1px 4px}
+
+/* Thinking. The bubble is the waiting, rather than a strip somewhere under the
+   composer: a light runs along its edge, the dots breathe, the count runs, and
+   Stop sits where the owner's eye already is. */
+.qa.running{border-color:transparent;background:
+linear-gradient(var(--plum-bg),var(--plum-bg)) padding-box,
+linear-gradient(100deg,var(--plum-line) 20%,var(--plum) 45%,var(--plum-line) 70%) border-box;
+background-size:100% 100%,300% 100%;animation:qa-in var(--t-slow) var(--ease),
+qa-edge 2.4s linear infinite}
+.qa.running.queued{animation:none;border:1px dashed var(--plum-line);background:var(--plum-bg)}
+@keyframes qa-edge{from{background-position:0 0,100% 0}to{background-position:0 0,-200% 0}}
+.qa-wait{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+padding:9px 12px 10px;border-top:1px solid var(--plum-line)}
+.ask-wait-t{font-size:12px;font-weight:650;color:var(--plum-ink,#5b21b6);
+font-variant-numeric:tabular-nums}
+.ask-wait-tail{flex:1 1 100%;order:3;font-size:11.5px;line-height:1.45;color:var(--soft);
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qa-stop{margin-left:auto;padding:3px 10px;font-size:11.5px;border-color:var(--plum-line);
+background:var(--card);color:var(--plum-ink)}
+.qa-stop:hover{border-color:var(--red-line);color:var(--red);background:var(--red-bg)}
+.ask-dots{display:inline-flex;gap:3px;align-items:center}
+.ask-dots i{width:5px;height:5px;border-radius:50%;
+background:var(--plum,#7c3aed);animation:askdot 1.05s ease-in-out infinite}
+.ask-dots i:nth-child(2){animation-delay:.16s}
+.ask-dots i:nth-child(3){animation-delay:.32s}
+@keyframes askdot{0%,80%,100%{opacity:.25;transform:translateY(0)}
+40%{opacity:1;transform:translateY(-3px)}}
+
+/* It did not come back. Said on the bubble that asked, in a colour that is not
+   the page's, with the one button that matters next to it. */
+.qa.failed{border-color:var(--amber-line);background:var(--amber-bg)}
+.qa.failed .qa-k{color:var(--amber-ink)}
+.qa-bad{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;
+padding:9px 12px 10px;border-top:1px solid var(--amber-line);font-size:12.5px;
+line-height:1.5;color:var(--amber-ink)}
+.qa-bad b{flex:1 1 100%;font-size:12px}
+.qa-retry{margin-left:auto;background:var(--amber);border-color:var(--amber);color:#fff}
+.qa-retry:hover{filter:brightness(1.08);color:#fff;border-color:var(--amber)}
+.qa.cancelled{background:transparent;border-style:dashed;border-color:var(--line)}
+.qa.cancelled .qa-k{color:var(--soft)}
+.qa.cancelled .qa-q{color:var(--soft);font-weight:550}
+
+/* What the answer suggests doing about the job, as buttons. Nothing has moved
+   until the owner presses one, and the line above them says so in words. */
+.qa-acts{display:flex;flex-wrap:wrap;gap:7px;align-items:center;
+margin:11px 13px 0;padding:9px 10px;border-radius:10px;
+background:var(--card);border:1px solid var(--green-line)}
+.qa-acts-k{flex:1 1 100%;font-size:10px;font-weight:750;text-transform:uppercase;
+letter-spacing:.07em;color:var(--soft)}
+.qa-acts-k.bad{color:var(--red);text-transform:none;letter-spacing:0;font-size:12px}
+.qa-act{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;
+font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;padding:6px 12px;
+border-radius:9px;border:1px solid var(--green-line);background:var(--green-bg);
+color:var(--green);transition:transform var(--t-fast) var(--ease),
+box-shadow var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.qa-act span{font-size:10.5px;font-weight:550;color:var(--soft)}
+.qa-act:hover{border-color:var(--green);transform:translateY(-1px);box-shadow:var(--shadow)}
+.qa-act:disabled{opacity:.5;cursor:default;transform:none}
+.qa-act.busy{opacity:1;animation:askdot 1.05s ease-in-out infinite}
+.qa-did{margin:11px 13px 0;padding:7px 10px;border-radius:9px;font-size:12px;
+font-weight:650;color:var(--green);background:var(--green-bg);border:1px solid var(--green-line)}
+.qa-did:before{content:"\2713  "}
+
+/* Forget this one. Top right of its own bubble, quiet until the bubble is
+   hovered, because it throws something away. */
+.qa-del{position:absolute;top:6px;right:7px;width:21px;height:21px;padding:0;
+font:600 15px/1 var(--font);cursor:pointer;color:var(--soft);background:transparent;
+border:1px solid transparent;border-radius:6px;opacity:.3}
+.qa:hover .qa-del,.qa-del:focus{opacity:1}
+.qa-del:hover{color:var(--red);border-color:var(--red-line);background:var(--card)}
+/* Pulling on one answer. The follow-ups sit inside the answer they are about,
+   so the thread reads down and the card does not grow a second conversation. */
+.qa-kids{list-style:none;margin:10px 13px 0;padding:0 0 0 11px;
+border-left:2px solid var(--plum-line,#ddd6fe)}
+.qa-kids .qa{background:var(--card);margin-bottom:6px}
+.qa-kids .qa.running{background:
+linear-gradient(var(--card),var(--card)) padding-box,
+linear-gradient(100deg,var(--plum-line) 20%,var(--plum) 45%,var(--plum-line) 70%) border-box;
+background-size:100% 100%,300% 100%}
+.qa-kids .qa-k{color:var(--soft)}
+/* The reply line, always there under the newest answer: a quiet line that
+   becomes a composer when the owner clicks into it, with the send and the keys
+   only once they are in it. */
+.fu{margin:11px 13px 12px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:0 8px;
+padding:3px 4px 3px 11px;border:1px solid var(--plum-line);border-radius:12px;
+background:var(--card);transition:border-color var(--t-fast) var(--ease),
+box-shadow var(--t-mid) var(--ease)}
+.fu:focus-within{border-color:var(--plum);
+box-shadow:0 0 0 3px color-mix(in srgb,var(--plum) 12%,transparent)}
+.fu textarea{font-size:13px;min-height:30px;padding:5px 0}
+.fu .ask-go{order:3;flex:1 1 100%;margin:2px 0 5px;display:none}
+.fu:focus-within .ask-go,.fu:has(textarea:not(:placeholder-shown)) .ask-go{display:flex}
+.fu .ask-send{width:28px;height:28px;margin:0 0 1px;order:2}
+.fu .ask-send svg{width:14px;height:14px}
+.fu:has(textarea:placeholder-shown) .ask-send{opacity:.32;transform:scale(.9)}
+/* Everything asked before the last two, behind one line. */
+.qa-earlier{margin-bottom:8px}
+.qa-earlier>summary{display:flex;gap:8px;align-items:center;cursor:pointer;
+font-size:11.5px;font-weight:700;color:var(--soft);padding:4px 2px;
+text-transform:uppercase;letter-spacing:.06em}
+.qa-earlier>summary::-webkit-details-marker{display:none}
+.qa-earlier>summary:hover{color:var(--plum-ink,#5b21b6)}
+.qa-earlier[open]{padding-bottom:2px}
+@media (prefers-reduced-motion:reduce){
+.ask-dots i,.qa.running,.qa.fresh,.ask-box,.qa-act.busy{animation:none}
+.ask-dots i{opacity:.7}}
+.act-draft{margin:12px 0 0;border:1px solid var(--line);border-radius:9px;
+overflow:hidden}
+.act-draft.sent{background:var(--hair)}
+.act-draft.sent>summary{padding:9px 13px;cursor:pointer;font-size:11.5px;
+font-weight:700;color:var(--soft);text-transform:uppercase;letter-spacing:.06em}
+.act-draft.sent[open]>summary{border-bottom:1px solid var(--line)}
+/* A reply still to send is the thing on the card the owner acts on, so it is drawn
+   above the evidence with a coloured edge, and each one folds on its own. */
+.act-draft.live{border-color:var(--plum-line);border-left:3px solid var(--plum)}
+.act-draft.live>summary{padding:9px 13px;cursor:pointer;font-size:12.5px;
+color:var(--mut);background:var(--plum-bg)}
+.act-draft.live>summary b{font-size:10.5px;text-transform:uppercase;
+letter-spacing:.06em;color:var(--plum-ink);margin-right:6px}
+.act-draft.live[open]>summary{border-bottom:1px solid var(--line)}
+/* Posted it: the foot of the box the owner copies from, so the press that says
+   it went is where their hand already is. Green because it is the finishing move;
+   the half sentence after it says what it will do to the job. */
+.draft-foot{display:flex;align-items:center;justify-content:flex-end;gap:10px;
+padding:9px 12px;border-top:1px solid var(--line);background:var(--hair)}
+.df-hint{font-size:11.5px;color:var(--soft);margin-right:auto}
+.posted{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;
+cursor:pointer;color:var(--green);background:var(--green-bg);
+border:1px solid var(--green-line);border-radius:7px;padding:5px 11px;
+transition:background-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.posted:hover{border-color:var(--green)}
+.posted:disabled{opacity:.6;cursor:default}
+.posted svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.9;
+stroke-linecap:round;stroke-linejoin:round}
+.posted-then{color:var(--mut);font-size:11.5px}
+.posted-then::before{content:"\00b7";margin:0 6px 0 1px;color:var(--soft)}
+.posted-more{display:inline-grid;place-items:center;width:26px;height:28px;margin-left:-6px;
+cursor:pointer;color:var(--green);background:var(--green-bg);
+border:1px solid var(--green-line);border-radius:7px}
+.posted-more:hover{border-color:var(--green)}
+.posted-more svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1.6;
+stroke-linecap:round;stroke-linejoin:round}
+/* Copied, or opened where it goes: the owner is about to post, so the bar says so. */
+.act-draft.nudge .draft-foot{background:var(--green-bg)}
+.act-draft.nudge .df-hint{color:var(--green);font-weight:650}
+.act-draft.nudge .posted{box-shadow:0 0 0 3px var(--green-line)}
+/* A draft folds shut when it is posted, and open again on Undo, rather than
+   snapping: the height eases and the content fades with it. */
+.act-draft{interpolate-size:allow-keywords;transition:opacity var(--t-slow) var(--ease)}
+.act-draft::details-content{block-size:0;overflow:hidden;opacity:0;
+transition:block-size var(--t-slow) var(--ease),opacity var(--t-mid) var(--ease),
+content-visibility var(--t-slow) allow-discrete}
+.act-draft[open]::details-content{block-size:auto;opacity:1}
+.act-draft.posting,.act-draft.posted{opacity:.6}
+.act-draft.posted .draft-foot{display:none}
+@media (prefers-reduced-motion:reduce){.posted{transition:none}}
+.sent-note{margin:0 0 10px;padding:8px 12px;background:var(--blue-bg);
+border:1px solid var(--blue-line);border-radius:8px;font-size:13px;color:var(--blue)}
+.sent-note b{display:inline-block;font-size:10.5px;text-transform:uppercase;
+letter-spacing:.07em;margin-right:8px}
+.closed{margin:0 0 10px;font-size:13.5px;color:var(--green)}
+.closed b{display:inline-block;font-size:10.5px;text-transform:uppercase;
+letter-spacing:.06em;margin-right:8px}
+.hold{margin:0 0 11px;padding:10px 13px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:8px;font-size:13px;
+color:var(--amber-ink)}
+.hold b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
+color:var(--amber);margin-bottom:3px}
+.hold-until{color:#7a2e0e;font-weight:600}
+.dec{background:var(--amber-bg);border:1px solid var(--amber-line);
+border-radius:10px;padding:12px 15px;margin-bottom:10px}
+.dec-q{font-weight:600;font-size:14.5px;color:var(--amber-ink)}
+.dec ul{margin:7px 0 0;padding-left:18px;font-size:13.5px;color:var(--mut)}
+.dec-owner{margin:8px 0 0;font-size:12.5px;color:var(--amber);font-weight:600}
+
+/* Header actions. The one that matters in this view is the bright one. */
+.refresh{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);
+color:#dce6f5;font:650 12px/1 var(--font);padding:0 12px;border-radius:7px;
+cursor:pointer}
+.refresh:hover{background:rgba(255,255,255,.16);color:#fff}
+body[data-view="desk"] #refresh,body[data-view="standup"] #prep{
+background:#2f6fe4;border-color:#5b93f0;color:#fff}
+body[data-view="desk"] #refresh:hover,body[data-view="standup"] #prep:hover{
+background:#4881ec}
+body[data-view="standup"] #prep{background:#b32a9c;border-color:#cf56b9}
+body[data-view="standup"] #prep:hover{background:#c33bab}
+.refresh:disabled{opacity:.5;cursor:default}
+a.refresh{text-decoration:none}
+/* The page normally reloads itself when the board moves under it. This is the
+   one case where it will not: the owner is part-way through typing a question,
+   and taking the words out from under them would be worse than the staleness.
+   So it waits, visibly, and they decide when. Amber rather than blue: nothing is
+   wrong, but the page is no longer what the board says. */
+.refresh.moved{background:#8a5a12;border-color:#d99b2b;color:#fff;
+animation:moved-in .25s ease-out}
+.refresh.moved:hover{background:#a76d18}
+@keyframes moved-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.refresh.moved{animation:none}}
+.refresh-note{font-size:11.5px;color:#93a4bd;max-width:280px}
+.refresh-note.run{display:inline-flex;align-items:center;gap:8px;max-width:420px;
+padding:5px 11px 5px 9px;border-radius:99px;font-size:12px;color:var(--ink);
+background:var(--accent-bg);border:1px solid var(--accent-line);white-space:nowrap}
+.rn-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);
+animation:rn-pulse 1.4s ease-in-out infinite}
+@keyframes rn-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+@media (prefers-reduced-motion:reduce){.rn-dot{animation:none}}
+.rn-job{font-weight:750;color:var(--accent-ink)}
+.rn-time{font-variant-numeric:tabular-nums;font-weight:650;color:var(--ink)}
+.rn-doing{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--soft)}
+.rn-n{flex:none;font-size:11px;color:var(--mut);padding-left:8px;border-left:1px solid var(--accent-line)}
+.refresh-note.bad{color:#f6b0ac}
+/* Buttons that only mean something on one view stay on that view. The work
+   view is refreshed, not prepped: the words belong to the other tab. */
+body[data-view="desk"] #scriptonly,body[data-view="desk"] #prep{display:none}
+
+/* Need to know: the line of the day, the next room, and client news, in one block
+   that shuts. Everything in it stops being news by the middle of the morning. */
+.nk{background:var(--card);border:1px solid var(--line);border-left:4px solid
+var(--accent);border-radius:13px;box-shadow:var(--shadow);margin-bottom:18px;
+overflow:hidden}
+.nk.hot{border-left-color:var(--red)}
+.nk>summary{cursor:pointer;list-style:none;display:flex;gap:11px;
+align-items:center;flex-wrap:wrap;padding:12px 18px 14px}
+.nk>summary::-webkit-details-marker{display:none}
+.nk>summary::before{display:none}
+.nk[open]>summary{border-bottom:1px solid var(--line);background:var(--hair)}
+.nk-k{flex:none;font:750 9.5px/1 var(--font);text-transform:uppercase;
+letter-spacing:.09em;color:var(--accent);background:var(--accent-bg);
+border:1px solid var(--accent-line);padding:4px 7px;border-radius:5px}
+.nk.hot .nk-k{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+/* The one line that is true whether the block is open or shut: what needs the owner.
+   It is worked out from the items, so it cannot drift into commentary. */
+.nk-sum{flex-basis:100%;font-size:16px;line-height:1.5;font-weight:450;
+letter-spacing:-.01em;color:var(--mut)}
+.nk-sum b{font-weight:700;color:var(--ink)}
+.nk-n{flex:none;font-size:11.5px;font-weight:650;color:var(--soft)}
+.nk-age{flex:none;font-size:11px;font-weight:600;color:#9aa3b2}
+
+/* ── The morning brief ───────────────────────────────────────────────────────
+   The five things a secretary would tell the owner before the day starts. Dark, and
+   the only block on the page drawn that way: it is the first thing meant to be
+   read, and a white card among white cards does not say so.
+
+   Numbered, because the owner reads them in order and then stops. The next room
+   and the biggest client news are two of the five rather than panels underneath, so the card
+   really is everything that matters this morning. */
+.brief{background:linear-gradient(168deg,var(--head-2),var(--head));
+color:#e9eef8;border-radius:15px;margin:0 0 16px;overflow:hidden;
+box-shadow:0 2px 6px rgba(9,14,26,.22),0 14px 34px rgba(9,14,26,.18),
+inset 0 1px 0 rgba(255,255,255,.09)}
+/* Shut, it still carries its leading line: folding it is for getting it out of
+   the way once read, not for hiding it. */
+.brief>summary{cursor:pointer;list-style:none;display:grid;
+grid-template-columns:auto auto auto 1fr;gap:7px 11px;align-items:baseline;
+padding:13px 18px}
+.brief>summary::-webkit-details-marker{display:none}
+.brief[open]>summary{border-bottom:1px solid rgba(255,255,255,.10);
+padding-bottom:12px}
+.brief-k{font-size:11.5px;text-transform:uppercase;letter-spacing:.09em;
+font-weight:750;color:#fff}
+.brief-n{font-size:10.5px;font-weight:750;text-transform:uppercase;
+letter-spacing:.06em;color:#b9c8e2;background:rgba(255,255,255,.10);
+border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:2px 9px;
+white-space:nowrap}
+.brief-age{font-size:11px;font-weight:600;color:#93a5c3;white-space:nowrap}
+.brief.old .brief-age{color:#f4c27a}
+.brief-sum{grid-column:1/-1;font-size:14px;line-height:1.5;color:#c6d3ea}
+.brief-sum b{color:#fff;font-weight:750;margin-right:8px;font-size:9.5px;
+text-transform:uppercase;letter-spacing:.07em;vertical-align:1px}
+.brief-sum i{font-style:normal;color:#8ba0c0;margin-left:6px;font-size:12.5px}
+.brief[open] .brief-sum{display:none}
+.brief>summary .fold-hint{grid-column:4;justify-self:end;
+border-color:rgba(255,255,255,.18);color:#b9c8e2;background:rgba(255,255,255,.07)}
+.brief>summary:hover .fold-hint{color:#fff;border-color:rgba(255,255,255,.34)}
+.br{list-style:none;margin:0;padding:5px 0 8px}
+.br-l{display:flex;gap:11px;align-items:baseline;padding:9px 18px;
+border-left:3px solid transparent}
+.br-n{flex:none;width:18px;height:18px;border-radius:50%;
+background:rgba(255,255,255,.13);color:#dbe5f5;display:grid;place-items:center;
+font:800 10px/1 var(--font);align-self:center;font-variant-numeric:tabular-nums}
+/* What sort of line it is, said the way the owner would say it. */
+.br-k{flex:none;min-width:74px;font:750 9.5px/1.3 var(--font);text-transform:uppercase;
+letter-spacing:.06em;color:#9fb1cd;align-self:center}
+.br-w{flex:1;min-width:0;font-size:14px;line-height:1.5;color:#eef2f9}
+.br-at{flex:none;font-size:11.5px;font-weight:750;color:#f2cd9a;
+font-variant-numeric:tabular-nums;align-self:center}
+.br-l.room{border-left-color:#6aa5f0;background:rgba(106,165,240,.09)}
+.br-l.room .br-k{color:#9cc4f8}
+/* The one line that is not the owner's work: something across the client or the
+   programme big enough
+   that not knowing it would be worse. The only line set heavier. */
+.br-l.big{border-left-color:#f0a35e;background:rgba(240,163,94,.09)}
+.br-l.big .br-k{color:#f4bd86}
+.br-l.big .br-w{font-weight:600}
+.br-l.moved{border-left-color:#5fcf9e}
+.br-l.moved .br-k{color:#8fdfbb}
+.br-l.do{border-left-color:#f58a80;background:rgba(245,138,128,.10)}
+.br-l.do .br-k{color:#f7a7a0}
+.br-l.do .br-w{font-weight:550}
+.br-l.watch{border-left-color:rgba(255,255,255,.18)}
+/* Something that needs the owner inside the hour and is not yet an item. Rare, and
+   the one line above the room. */
+.br-l.alert{border-left-color:#ff6b5e;background:rgba(255,107,94,.16)}
+.br-l.alert .br-k{color:#ffaaa2}
+.br-l.alert .br-w{font-weight:650;color:#fff}
+/* An onsite's running order, under the room line. */
+.br-plan{flex-basis:100%;list-style:none;margin:4px 0 0 103px;padding:0;display:flex;
+flex-wrap:wrap;gap:3px 16px;font-size:12.5px;color:#9fb1cd}
+.br-plan li{display:flex;gap:6px}
+.br-plan b{font-variant-numeric:tabular-nums;color:#cfdcf2}
+.br-plan li.mine{color:#fff;font-weight:600}
+/* The rest of the client news, one click down. The brief says the newest; these
+   are the others still moving around the owner's tickets. */
+.br-l.more{padding:4px 18px 6px 47px}
+.br-more{flex:1;min-width:0}
+.br-more>summary{cursor:pointer;list-style:none;display:flex;gap:8px;
+align-items:center;font-size:12.5px;color:#9fb1cd}
+.br-more>summary::-webkit-details-marker{display:none}
+.br-more>summary::before{display:none}
+.br-more>summary:hover{color:#fff}
+.br-more>summary .fold-hint{border-color:rgba(255,255,255,.18);color:#b9c8e2;
+background:rgba(255,255,255,.07)}
+.br-more ul{list-style:none;margin:8px 0 2px;padding:0;
+border-top:1px solid rgba(255,255,255,.10)}
+.br-more li{padding:9px 0;border-bottom:1px solid rgba(255,255,255,.08);
+font-size:13.5px;line-height:1.5;color:#eef2f9}
+.br-more li:last-child{border-bottom:0}
+.br-more li b{font-weight:650}
+.br-why{display:block;color:#c6d3ea;font-size:12.5px;margin-top:2px}
+.br-on{font-size:11px;font-weight:650;color:#93a5c3;margin-right:4px}
+.br-rest{margin:3px 0}
+.br-rest>summary{cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;
+letter-spacing:.06em;color:#93a5c3}
+.br-rest>summary:hover{color:#fff}
+.br-rest[open]{font-size:12.5px;color:#c6d3ea}
+@media (max-width:640px){.br-plan{margin-left:0}.br-l.more{padding-left:18px}}
+/* The numbers a line is about, so "start on 45" is one click from 45. */
+.br-jobs{display:inline-flex;gap:4px;margin-left:7px;vertical-align:1px}
+.br-job{font:800 10.5px/18px var(--font);min-width:20px;text-align:center;
+padding:0 5px;border-radius:5px;text-decoration:none;color:#0e1118;
+background:#cfdcf2;font-variant-numeric:tabular-nums;
+transition:background-color var(--t-off) var(--ease-in),
+transform var(--t-off) var(--ease-in)}
+.br-job:hover{background:#fff;transform:translateY(-1px);
+transition-duration:var(--t-on)}
+.br-ref{display:inline-block;margin-left:7px;font:700 10.5px/18px var(--font);
+padding:0 7px;border-radius:5px;text-decoration:none;color:#cfe0fb;
+background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.14);
+vertical-align:1px;transition:background-color var(--t-off) var(--ease-in)}
+.br-ref:hover{background:rgba(255,255,255,.22);color:#fff;
+transition-duration:var(--t-on)}
+.brief .btn{color:#bfd2ee;border-color:rgba(255,255,255,.16);
+background:rgba(255,255,255,.07);box-shadow:none;margin-left:7px}
+.brief .btn:hover{background:rgba(255,255,255,.15);color:#fff;transform:none}
+@media (max-width:640px){
+.br-l{flex-wrap:wrap}
+.br-k{min-width:0}
+.br-w{flex-basis:100%;order:3}
+}
+
+/* Something that needs the owner inside the hour and is not yet an item. Rare. */
+.nk-alert{margin:0 0 11px;padding:11px 14px;background:var(--red-bg);
+border:1px solid var(--red-line);border-radius:10px;font-size:14.5px;
+color:var(--ink)}
+.nk-alert b{display:inline-block;font-size:10px;text-transform:uppercase;
+letter-spacing:.09em;color:var(--red);margin-right:9px;vertical-align:1px}
+/* The same strip in the house colour, for the sentence saying what a meeting
+   has to produce. Not an alarm, but the first thing read on that tab. */
+.nk-alert.plain{background:var(--accent-bg);border-color:var(--accent-line)}
+.nk-alert.plain b{color:var(--accent)}
+.nk-in{padding:15px 18px 17px}
+
+/* Tickets that need nothing, and tickets that are over. */
+.tk-fold{background:var(--card);border:1px solid var(--line);border-radius:13px;
+box-shadow:var(--shadow);margin-bottom:18px;padding:0 16px}
+.tk-fold>summary{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+padding:13px 2px;font-size:13.5px;font-weight:700;cursor:pointer}
+.tk-fold>summary .n{font-size:11px;font-weight:700;color:var(--soft);
+background:var(--hair);border:1px solid var(--line);border-radius:20px;
+padding:0 7px}
+.tk-fold>summary .q{font-weight:500;font-size:12px;color:var(--soft)}
+.tk-fold[open]{padding-bottom:14px}
+.tk-fold[open]>summary{border-bottom:1px solid var(--line);margin-bottom:16px}
+.tk-fold .tk{margin-bottom:14px;border:1px solid var(--line);
+border-top:4px solid var(--line);border-radius:12px}
+.tk-fold .tk:last-child{margin-bottom:0}
+
+/* The status, Jira's lozenge: where the job stands, and the thing you press to
+   move it. A checkbox can only say done, and half of these jobs end in "sent,
+   now waiting on somebody", so the control is the status itself and it opens
+   the moves open from there. Same colours as everywhere: red the owner's, amber held,
+   blue with someone else, green closed. The caret only shows it is a control. */
+.stat{--sf:var(--mut);--sb:var(--hair);--sl:var(--line);
+flex:none;display:inline-flex;align-items:center;gap:4px;max-width:100%;min-width:0;
+font:inherit;font-size:11px;font-weight:700;letter-spacing:.01em;line-height:1.35;
+padding:2px 6px 2px 8px;border-radius:6px;border:1px solid var(--sl);
+color:var(--sf);background:var(--sb);cursor:pointer;white-space:nowrap;
+transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.stat.red{--sf:var(--red);--sb:var(--red-bg);--sl:var(--red-line)}
+.stat.amber{--sf:var(--amber);--sb:var(--amber-bg);--sl:var(--amber-line)}
+.stat.blue{--sf:var(--blue);--sb:var(--blue-bg);--sl:var(--blue-line)}
+.stat.green{--sf:var(--green);--sb:var(--green-bg);--sl:var(--green-line)}
+.stat-t{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.stat svg{flex:none;width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1.6;
+stroke-linecap:round;stroke-linejoin:round;opacity:.55;
+transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+.stat:hover{border-color:var(--sf)}
+.stat:hover svg,.stat:focus-visible svg{opacity:1}
+.stat[aria-expanded="true"]{border-color:var(--sf);box-shadow:0 0 0 2px var(--sl)}
+.stat[aria-expanded="true"] svg{transform:rotate(180deg);opacity:1}
+.stat:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stat[aria-busy="true"]{cursor:progress;opacity:.7}
+@keyframes stat-pop{0%{transform:scale(1)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
+.stat.on{animation:stat-pop .28s var(--ease)}
+
+/* A row going away: the strike draws across, then the row folds up. */
+.tr.going .tr-title,.act.going .act-title{text-decoration:line-through;
+text-decoration-color:var(--soft)}
+.tr{transition:max-height var(--t-slow) var(--ease),padding var(--t-slow) var(--ease),
+opacity var(--t-slow) var(--ease),border-color var(--t-slow) var(--ease)}
+.tr.going{opacity:.5;transition:opacity .5s var(--ease) .25s,max-height var(--t-slow) var(--ease),
+padding var(--t-slow) var(--ease),border-color var(--t-slow) var(--ease)}
+.tr.gone{overflow:hidden;opacity:0;padding-top:0;padding-bottom:0;border-bottom-color:transparent;
+pointer-events:none;transition-delay:0s}
+
+/* Today, This week, With others: the three headings of the list. */
+.tr-sec{display:flex;gap:8px;align-items:baseline;padding:14px 18px 6px;
+border-bottom:1px solid var(--line);list-style:none;background:transparent}
+.tr-sec b{font-size:13px;font-weight:700;letter-spacing:-.005em}
+.tr-sec span{font-size:12px;color:var(--soft);font-variant-numeric:tabular-nums}
+.tr-sec i{font-style:normal;font-size:11.5px;color:#9aa3b2;margin-left:auto}
+.tr-sec.empty b{color:var(--soft)}
+.tr-sec+.tr-empty{padding:9px 18px 11px 48px;font-size:12.5px;color:var(--soft);
+list-style:none;border-bottom:1px solid var(--hair)}
+
+/* How much of today is done. Fills green as jobs close. */
+.track-day{display:flex;gap:10px;align-items:center;padding:8px 18px 10px;
+border-bottom:1px solid var(--line);font-size:12px;color:var(--soft);
+font-variant-numeric:tabular-nums}
+.track-bar{flex:1;height:5px;border-radius:5px;background:var(--hair);overflow:hidden}
+.track-bar>i{display:block;height:100%;background:var(--green);border-radius:5px;
+transition:width .5s var(--ease)}
+.track-day b{color:var(--ink);font-weight:650}
+
+/* j and k move this. */
+.tr.kfocus,.act.kfocus{box-shadow:inset 0 0 0 2px var(--accent-line);
+background:var(--accent-bg)}
+
+/* The moves open from where a job stands, under its status. */
+.stat-menu{position:absolute;z-index:60;width:260px;max-width:calc(100vw - 24px);
+background:var(--card);border:1px solid var(--line);border-radius:10px;
+box-shadow:0 10px 30px rgba(15,25,45,.18);padding:5px;font-size:13px;
+animation:fold-in var(--t-fast) var(--ease) both}
+.stat-menu .stat-h{padding:7px 10px 4px;font-size:11px;font-weight:700;color:var(--soft);
+letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-menu .stat-h:not(:first-child){border-top:1px solid var(--hair);margin-top:4px;padding-top:9px}
+.stat-menu button{display:block;width:100%;text-align:left;border:0;background:none;
+padding:7px 10px;border-radius:7px;cursor:pointer;color:var(--ink);font:inherit}
+.stat-menu button:hover,.stat-menu button:focus-visible{background:var(--hair);outline:none}
+.stat-menu button small{display:block;color:var(--soft);font-size:11.5px;margin-top:1px}
+
+/* Picking who has it, the way Jira's assignee field does it: chips for who is
+   chosen, a search over everyone the board knows, the people on this ticket
+   first, and a typed name as the last resort rather than the only way. */
+.stat-menu{width:300px}
+.who-pick{padding:2px 4px 4px}
+.wp-field{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:4px 5px;
+border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:text}
+.wp-field:focus-within{outline:2px solid var(--accent-line);border-color:var(--accent)}
+.wp-field input{flex:1;min-width:90px;border:0;outline:0;background:none;color:var(--ink);
+font:inherit;padding:3px 2px}
+.wp-chip{display:inline-flex;align-items:center;gap:4px;padding:1px 2px 1px 1px;
+border-radius:999px;background:var(--hair);font-size:12px;font-weight:650;color:var(--ink)}
+.stat-menu .wp-chip button{width:auto;display:inline-grid;place-items:center;width:16px;height:16px;
+padding:0;border-radius:50%;font-size:12px;line-height:1;color:var(--soft)}
+.stat-menu .wp-chip button:hover{background:var(--line);color:var(--ink)}
+.wp-list{max-height:236px;overflow-y:auto;margin-top:4px;overscroll-behavior:contain}
+.wp-h{padding:7px 6px 3px;font-size:10.5px;font-weight:750;color:var(--soft);
+text-transform:uppercase;letter-spacing:.06em}
+.wp-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:7px;cursor:pointer}
+.wp-row:hover,.wp-row.on{background:var(--accent-bg)}
+.wp-row.picked{opacity:.55}
+.wp-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.wp-t b{font-weight:600;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wp-t small{font-size:11px;color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stat-menu .wp-add{width:22px;height:22px;flex:none;display:grid;place-items:center;padding:0;
+border-radius:50%;color:var(--soft);font-size:15px;line-height:1;opacity:0}
+.wp-row:hover .wp-add,.wp-row.on .wp-add{opacity:1}
+.stat-menu .wp-add:hover{background:var(--card);color:var(--accent-ink)}
+.wp-foot{display:flex;align-items:center;gap:8px;margin-top:5px}
+.wp-hint{flex:1;min-width:0;font-size:11px;color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-menu .wp-go{width:auto;max-width:60%;background:var(--accent);color:#fff;padding:6px 11px;
+font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-menu .wp-go:hover,.stat-menu .wp-go:focus-visible{background:var(--accent-ink)}
+.stat-menu .wp-go:disabled{background:var(--line);color:var(--soft);cursor:default}
+
+/* A person as a circle with their initials, coloured by who they are so the
+   same person is the same colour everywhere. A team is a rounded square. */
+.av{flex:none;display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;
+font-size:9px;font-weight:750;letter-spacing:.02em;color:#fff;
+background:hsl(var(--h,220) 52% 46%);box-shadow:0 0 0 1.5px var(--card)}
+.av.team{border-radius:6px;background:hsl(var(--h,220) 22% 50%)}
+.av.more{background:var(--soft);font-size:8.5px}
+.wp-row .av,.wp-chip .av{width:22px;height:22px;font-size:9.5px}
+.wp-chip .av{width:18px;height:18px;font-size:8.5px}
+.avs{display:inline-flex;flex:none;margin-right:1px}
+.avs .av{width:17px;height:17px;font-size:8px}
+.avs .av+.av{margin-left:-5px}
+.stat .avs{margin-left:-3px}
+
+/* The undo, bottom left, the way every list app that respects you does it. */
+.toast{position:fixed;left:22px;bottom:22px;z-index:70;display:flex;gap:14px;
+align-items:center;background:var(--head);color:#fff;padding:11px 14px 11px 16px;
+border-radius:10px;box-shadow:0 10px 30px rgba(10,20,40,.3);font-size:13.5px;
+animation:fold-in var(--t-mid) var(--ease) both;max-width:calc(100vw - 44px)}
+.toast button{border:0;background:none;color:#ffb59e;font:inherit;font-weight:700;
+cursor:pointer;padding:2px 4px;border-radius:5px}
+.toast button:hover{background:rgba(255,255,255,.1)}
+.toast.err{background:var(--red)}
+.toast.err button{color:#fff}
+
+/* What a later rewrite took out of a prepared block, kept and dated. */
+.pw-earlier>summary{color:var(--soft)}
+.pw-earlier li{font-size:12.5px;color:var(--mut)}
+.pw-when{display:inline-block;min-width:78px;margin-right:8px;color:var(--soft);
+font-variant-numeric:tabular-nums;font-size:11.5px}
+
+@media (hover:none){.track-head .track-key{display:none}}
+@media (max-width:820px){.tr-sec i{display:none}.toast{left:12px;right:12px;bottom:12px}}
+@media (prefers-reduced-motion:reduce){.stat.on,.stat-menu{animation:none}.tr.going{transition:none}}
+
+/* A milestone: an epic roll-up above the week. Plum, so it never reads as a ticket. */
+.milestones{display:grid;gap:12px;margin:0 0 16px}
+.ms{background:var(--card);border:1px solid var(--plum-line);border-left:4px solid var(--plum);
+border-radius:13px;padding:0 18px 14px;box-shadow:var(--shadow)}
+.ms-head{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+padding:14px 0 12px;cursor:pointer}
+.ms[open]>.ms-head{border-bottom:1px dashed var(--line);margin-bottom:4px}
+.ms-head::-webkit-details-marker{display:none}
+/* The kind tag is a chip, not a stamp: sentence case with a dot in the
+   milestone's colour, so it labels the card without shouting over the name. */
+.ms-kind{display:inline-flex;align-items:center;gap:6px;align-self:center;
+font:650 12px/1 var(--font);color:var(--plum-ink);background:var(--plum-bg);
+border:1px solid var(--plum-line);border-radius:999px;padding:5px 10px 5px 8px}
+.ms-kind:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--plum)}
+.ms-name{font-size:17px;font-weight:750;color:var(--ink)}
+.ms-ja{margin-left:8px;font-size:13px;font-weight:600;color:var(--mut)}
+.ms-pill{display:inline-flex;align-items:center;gap:6px;font:650 12px/1 var(--font);
+border-radius:999px;padding:5px 10px 5px 8px;border:1px solid}
+.ms-pill:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.ms-pill.green{color:var(--green);background:var(--green-bg);border-color:var(--green-line)}
+.ms-pill.amber{color:var(--amber-ink);background:var(--amber-bg);border-color:var(--amber-line)}
+.ms-pill.red{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+.ms-due{margin-left:auto;font-size:12.5px;color:var(--soft)}
+.ms-due b{color:var(--ink)}
+.ms-tn{color:var(--mut)}
+.ms-bar{flex:1 0 100%;height:6px;border-radius:99px;background:var(--hair);overflow:hidden}
+.ms-bar>span{display:block;height:100%;background:var(--plum);border-radius:99px;
+transition:width var(--t-slow,.4s) var(--ease,ease)}
+.ms-sum{flex:1 0 100%;margin:0;font-size:12.5px;color:var(--soft)}
+.ms-sum b{color:var(--ink)}
+.ms-notes{margin:8px 0 0;font-size:13.5px;color:var(--ink)}
+.ms-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;margin-top:12px}
+@media (max-width:820px){.ms-grid{grid-template-columns:1fr}}
+.ms h4{margin:0 0 8px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.ms-phases{list-style:none;margin:0;padding:0;position:relative}
+/* The rail runs through the centre of every dot: left is half the dot's width
+   less half the rail's, so they stay joined whatever the dot size. */
+.ms-phases::before{content:"";position:absolute;left:12px;top:12px;bottom:18px;width:2px;
+border-radius:2px;background:var(--line)}
+.ms-ph{position:relative;display:flex;align-items:flex-start;gap:12px;padding:0 0 12px}
+.ms-dot{flex:none;z-index:1;width:26px;height:26px;box-sizing:border-box;border-radius:50%;
+display:inline-flex;align-items:center;justify-content:center;
+font:700 12px/1 var(--font);font-variant-numeric:tabular-nums;
+background:var(--card);border:2px solid var(--line);color:var(--mut)}
+.ms-body{padding-top:3px}
+.ms-ph.done .ms-dot{background:var(--plum);border-color:var(--plum);color:#fff}
+.ms-ph.now .ms-dot{border-color:var(--plum);color:var(--plum-ink);background:var(--plum-bg);box-shadow:0 0 0 4px var(--plum-bg)}
+.ms-ph.blocked .ms-dot{border-color:var(--red);color:var(--red)}
+.ms-body{display:grid;gap:2px;min-width:0}
+.ms-what{font-size:13.5px;font-weight:650;color:var(--ink)}
+.ms-ph.done .ms-what{color:var(--soft);font-weight:550}
+.ms-meta{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:11.5px;color:var(--mut)}
+.ms-st{font-weight:700}
+.ms-ph.now .ms-st{color:var(--plum-ink)}
+.ms-ph.blocked .ms-st{color:var(--red)}
+.ms-note{font-size:12.5px;color:var(--soft)}
+.ms-num{display:inline-flex;align-items:center;justify-content:center;min-width:24px;
+box-sizing:border-box;font:700 11.5px/1 var(--font);font-variant-numeric:tabular-nums;
+color:var(--accent-ink);background:var(--accent-bg);border:1px solid var(--accent-line);
+border-radius:999px;padding:3px 7px}
+a.ms-num{text-decoration:none}
+a.ms-num:hover{filter:brightness(.95)}
+.ms-num.red{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+.ms-num.amber{color:var(--amber-ink);background:var(--amber-bg);border-color:var(--amber-line)}
+.ms-num.green{color:var(--green);background:var(--green-bg);border-color:var(--green-line)}
+.ms-num.grey{color:var(--mut);background:var(--hair);border-color:var(--line)}
+.ms-pdue{font-weight:650;color:var(--plum-ink)}
+/* Moving now: the one box that answers "what do I do on this milestone",
+   so it sits above the path and names the job behind each live phase. */
+.ms-now-box{margin:12px 0 0;padding:12px 14px;border-radius:10px;
+background:var(--plum-bg);border:1px solid var(--plum-line)}
+.ms-now-box ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.ms-nw{display:grid;gap:4px}
+.ms-nw-n{font:700 11px/1 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--plum-ink)}
+.ms-nw.blocked .ms-nw-n{color:var(--red)}
+.ms-nw-what{font-size:14.5px;font-weight:700;color:var(--ink)}
+.ms-nw-meta{font-size:12.5px;color:var(--soft)}
+.ms-nw-meta b{color:var(--ink)}
+.ms-nj{display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:center;
+padding:8px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line);
+text-decoration:none;color:var(--ink)}
+.ms-nj:hover{border-color:var(--plum)}
+.ms-nj-t{font-size:13.5px;font-weight:650;min-width:0}
+.ms-nj-st{font-size:11.5px;font-weight:650;white-space:nowrap}
+.ms-nj-st.red{color:var(--red)}.ms-nj-st.amber{color:var(--amber-ink)}
+.ms-nj-st.blue{color:var(--accent-ink)}.ms-nj-st.green{color:var(--green)}.ms-nj-st.grey{color:var(--mut)}
+.ms-nj-next{grid-column:2 / -1;font-size:12.5px;color:var(--soft)}
+.ms-nj-none{font-size:12.5px;color:var(--red)}
+.ms-tks,.ms-jobs{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:1px;
+background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.ms-tk,.ms-job{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--card);font-size:13px}
+.ms-tk-ref{font-weight:700;color:var(--accent-ink);white-space:nowrap}
+.ms-tk.follow .ms-tk-ref{color:var(--soft)}
+.ms-tk-t{flex:1;min-width:0;color:var(--ink)}
+.ms-job a{flex:1;min-width:0;color:var(--ink);text-decoration:none}
+.ms-job a:hover{color:var(--accent)}
+.ms-job.done a,.ms-job.sent a,.ms-job.dropped a{color:var(--mut);text-decoration:line-through}
+.ms-tk-st{font-size:11px;color:var(--mut);white-space:nowrap}
+.ms-tk-who{font-size:11px;font-weight:650;color:var(--mut);white-space:nowrap}
+.ms-tk.mine .ms-tk-who{color:var(--plum-ink)}
+.ms-links{display:flex;gap:6px}
+.ms-spks{display:grid;gap:8px;margin:0 0 14px}
+.ms-spk{padding:10px 14px;border:1px solid var(--plum-line);border-left:4px solid var(--plum);
+border-radius:10px;background:var(--card);font-size:13.5px}
+.ms-spk .ms-due{margin-left:6px}
+.ms-now{margin-left:6px;font-size:12.5px;color:var(--plum-ink)}
+.ms-say{margin:6px 0 0;font-size:15px}
+
+/* Which model wrote an answer, and how long it took. Under the answer, small,
+   because it is what the owner checks when an answer is thin rather than what they
+   read first. */
+.qa-by{display:flex;gap:5px;align-items:center;margin:9px 13px 0;font-size:11px;
+font-weight:650;color:var(--soft);font-variant-numeric:tabular-nums}
+.qa-by .spark{width:10px;height:10px;fill:var(--plum);opacity:.6}
+.qa-model{font-size:11px;font-weight:650;color:var(--plum-ink);padding:1px 7px;
+border-radius:999px;background:var(--card);border:1px solid var(--plum-line)}
+
+/* The model picker. A pill, like Claude Desktop's, with the native select
+   inside it so the keyboard and the OS menu come for free. */
+.ask-model{position:relative;display:inline-flex;align-items:center;gap:5px;
+height:24px;padding:0 6px 0 9px;border-radius:999px;border:1px solid var(--plum-line);
+background:var(--plum-bg);color:var(--plum-ink);cursor:pointer;
+transition:border-color var(--t-fast) var(--ease)}
+.ask-model:hover,.ask-model:focus-within{border-color:var(--plum)}
+.ask-model .spark{width:11px;height:11px;fill:currentColor;flex:none}
+.ask-model select{appearance:none;-webkit-appearance:none;border:0;background:transparent;
+font:650 11.5px/1 var(--font);color:inherit;padding:0 14px 0 0;cursor:pointer;outline:0;
+background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),
+linear-gradient(135deg,currentColor 50%,transparent 50%);
+background-position:calc(100% - 6px) 52%,calc(100% - 2px) 52%;
+background-size:4px 4px;background-repeat:no-repeat}
+.ask-go .ask-chat{font:inherit;cursor:pointer;padding:3px 9px;font-size:11.5px;
+border-radius:7px;border:1px solid transparent;background:transparent;color:var(--plum-ink);
+font-weight:650}
+.ask-go .ask-chat:hover{border-color:var(--plum-line);background:var(--card)}
+
+/* The header's way into the panel. */
+.toggle.chat-go{display:inline-flex;align-items:center;gap:5px;color:#e9ddff;
+border-color:rgba(177,145,245,.45);background:rgba(124,58,237,.22)}
+.toggle.chat-go .spark{width:12px;height:12px;fill:currentColor}
+.toggle.chat-go:hover{background:rgba(124,58,237,.38);color:#fff}
+body:has(#chat:not([hidden])) .toggle.chat-go{background:#7c3aed;color:#fff;border-color:#7c3aed}
+
+/* The side panel. A tile down the right of the window, the full height under
+   the header, the way Glean and Notion put a long conversation beside the page
+   rather than on it. The page narrows to make room on a wide screen and is
+   covered on a narrow one, so nothing the owner was reading moves under it. */
+.chat{position:fixed;z-index:40;top:var(--chat-top,46px);right:0;bottom:0;
+width:min(460px,100vw);display:flex;flex-direction:column;
+background:var(--page);border-left:1px solid var(--line);
+box-shadow:-18px 0 40px -24px rgba(15,23,42,.35);
+animation:chat-in var(--t-slow) var(--ease)}
+@keyframes chat-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+@media (min-width:1300px){
+  body:has(#chat:not([hidden])) .wrap{margin-right:480px;margin-left:max(20px,calc((100vw - 460px - 920px) / 2))}
+}
+.chat-head{flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px 10px 16px;
+border-bottom:1px solid var(--line);background:var(--card)}
+.chat-t{display:inline-flex;align-items:center;gap:6px;font-weight:750;font-size:14px;
+color:var(--plum-ink)}
+.chat-t .spark{width:14px;height:14px;fill:var(--plum)}
+.chat-pick{flex:1;min-width:0}
+.chat-pick select{width:100%;font:600 12.5px/1.2 var(--font);color:var(--ink);
+padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);
+text-overflow:ellipsis}
+.chat-pick select:focus{outline:2px solid var(--plum-line);border-color:var(--plum)}
+.chat-new,.chat-x{flex:none;font:inherit;cursor:pointer;border-radius:8px;
+border:1px solid var(--line);background:var(--card);color:var(--mut);
+font-size:12px;font-weight:650;padding:5px 9px}
+.chat-new:hover{border-color:var(--plum);color:var(--plum-ink)}
+.chat-x{width:28px;padding:5px 0;font-size:16px;line-height:1}
+.chat-x:hover{border-color:var(--soft);color:var(--ink)}
+.chat-body.ask{flex:1;min-height:0;overflow-y:auto;margin:0;padding:14px 14px 4px;
+border-top:0;overscroll-behavior:contain}
+.chat-empty{margin:30px 10px;color:var(--soft);font-size:13px;line-height:1.55;text-align:center}
+.chat-box{flex:none;padding:10px 12px 12px;border-top:1px solid var(--line);
+background:var(--card)}
+.chat-box .ask-go{margin-top:6px}
+.chat-follow{font-size:11.5px;color:var(--soft);margin:0 2px 6px;white-space:nowrap;
+overflow:hidden;text-overflow:ellipsis}
+
+/* In the panel a conversation reads like a chat: the owner's words a bubble on the
+   right, the answer full width beneath it, and nothing folded. */
+.chat .qa-list{margin:0}
+.chat .qa{border:0;background:transparent;margin:0 0 16px}
+.chat .qa>.qa-me{justify-content:flex-end;flex-wrap:wrap;padding:0 0 0 48px;gap:4px 8px}
+.chat .qa>.qa-me .qa-k{display:none}
+.chat .qa>.qa-me .qa-q{flex:0 1 auto;order:2;padding:8px 12px;border-radius:14px 14px 4px 14px;
+background:var(--plum);color:#fff;font-weight:550;font-size:13.5px;line-height:1.5;
+white-space:pre-wrap}
+.chat .qa>.qa-me .qa-when{order:1;flex:1 1 100%;text-align:right;font-size:10.5px;padding-right:26px}
+/* Deleting one exchange sits on its time line, where it is found by looking
+   for it rather than by hovering over the answer and hoping. */
+.chat .qa.chat-qa .qa-del{top:-4px;right:0;opacity:.45}
+.chat .qa:hover .qa-del,.chat .qa .qa-del:focus{opacity:1}
+.chat-a{margin-top:8px;padding:12px 14px 12px;border:1px solid var(--plum-line);
+border-radius:4px 14px 14px 14px;background:var(--plum-bg)}
+.chat-a .qa-a{padding:0;color:var(--ink)}
+.chat-a .qa-by{margin:10px 0 0}
+.chat .qa.running,.chat .qa.failed,.chat .qa.cancelled{border:1px solid var(--plum-line);
+border-radius:12px;background:var(--plum-bg)}
+.chat .qa.running>.qa-me,.chat .qa.failed>.qa-me,.chat .qa.cancelled>.qa-me{padding:9px 34px 9px 12px}
+.chat .qa.running>.qa-me .qa-q,.chat .qa.failed>.qa-me .qa-q,.chat .qa.cancelled>.qa-me .qa-q{
+background:transparent;color:var(--ink);padding:0;border-radius:0}
+.chat .qa.failed{border-color:var(--amber-line);background:var(--amber-bg)}
+.chat .qa.running{border-color:transparent}
+.chat .qa-acts{margin:10px 0 0}
+@media (max-width:640px){.chat{width:100vw}}
+@media (prefers-reduced-motion:reduce){.chat{animation:none}}
+
+/* What the panel is about: the job's number, its ticket, its title and where it
+   stands, under the header and always in view, so an answer is never read
+   without knowing which job it was about. */
+.chat-about{flex:none;display:flex;align-items:center;gap:7px;padding:8px 14px;
+border-bottom:1px solid var(--line);background:var(--card);font-size:12px;min-width:0}
+.chat-num{flex:none;display:inline-grid;place-items:center;min-width:22px;height:22px;
+padding:0 6px;border-radius:999px;background:var(--ink);color:var(--card);
+font-weight:750;font-size:11.5px;font-variant-numeric:tabular-nums}
+.chat-tag{flex:none;padding:2px 7px;border-radius:6px;background:var(--hair);
+color:var(--mut);font-weight:650;font-size:11.5px;max-width:9em;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}
+.chat-title{flex:1;min-width:0;font-weight:600;color:var(--ink);overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}
+.chat-state{flex:none;max-width:11em;padding:2px 8px;border-radius:999px;font-size:11px;
+font-weight:650;border:1px solid var(--line);color:var(--mut);background:var(--hair);
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-state.red{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+.chat-state.amber{color:var(--amber);background:var(--amber-bg);border-color:var(--amber-line)}
+.chat-state.blue{color:var(--blue);background:var(--blue-bg);border-color:var(--blue-line)}
+.chat-state.green{color:var(--green);background:var(--green-bg);border-color:var(--green-line)}
+.chat-goto{flex:none;font-weight:650;font-size:11.5px;color:var(--plum-ink);text-decoration:none}
+.chat-goto:hover{text-decoration:underline}
+
+/* Clear, behind a ... so it is one press from the header and never pressed by
+   accident on the way to New topic. */
+.chat-clear{position:relative;flex:none}
+.chat-more{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);
+background:var(--card);color:var(--mut);font-size:13px;font-weight:800;line-height:1;
+padding:6px 8px;letter-spacing:-1px}
+.chat-more:hover,.chat-more[aria-expanded="true"]{border-color:var(--soft);color:var(--ink)}
+.chat-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:5;min-width:210px;
+display:flex;flex-direction:column;padding:5px;border-radius:10px;background:var(--card);
+border:1px solid var(--line);box-shadow:0 12px 30px -10px rgba(15,23,42,.3)}
+.chat-menu[hidden]{display:none}
+.chat-menu button{font:inherit;font-size:12.5px;text-align:left;cursor:pointer;
+border:0;background:none;color:var(--ink);padding:7px 10px;border-radius:7px}
+.chat-menu button:hover,.chat-menu button:focus-visible{background:var(--hair);outline:none}
+.chat-menu button[data-chat-clear="all"]{color:var(--red)}
+
+/* The week's arrows, first in its header the way every calendar puts them, and
+   a way home whenever the strip is not showing this week. */
+.week-flip{display:inline-flex;align-items:center;gap:4px;align-self:center}
+.week-flip button{font:inherit;cursor:pointer;display:inline-grid;place-items:center;
+min-width:24px;height:24px;padding:0 6px;border-radius:999px;border:1px solid var(--line);
+background:var(--card);color:var(--mut);font-size:15px;font-weight:700;line-height:1}
+.week-flip button:hover,.week-flip button:focus-visible{border-color:var(--accent);color:var(--accent-ink);outline:none}
+.week-flip .week-now{font-size:11px;font-weight:700;padding:0 9px;color:var(--accent-ink);
+border-color:var(--accent-line);background:var(--accent-bg,var(--card))}
+.week.week-away .week-h h2{color:var(--accent-ink)}
+.week.week-loading .week-days{opacity:.5;transition:opacity var(--t-fast,.12s)}
+
+/* The prioritization round, when `config.json` has one: the lead's recurring
+   thread, and what to raise before it goes out. Blue, so it sits beside the milestone without being one. */
+.pr{background:var(--card);border:1px solid var(--blue-line);border-left:4px solid var(--blue);
+border-radius:13px;padding:0 18px 14px;margin:0 0 16px;box-shadow:var(--shadow)}
+.pr-head{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+padding:14px 0 12px;cursor:pointer}
+.pr-head::-webkit-details-marker{display:none}
+.pr[open]>.pr-head{border-bottom:1px dashed var(--line);margin-bottom:10px}
+.pr-kind{display:inline-flex;align-items:center;gap:6px;font:650 12px/1 var(--font);
+color:var(--blue);background:var(--blue-bg);border:1px solid var(--blue-line);
+border-radius:999px;padding:5px 10px 5px 8px}
+.pr-kind:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--blue)}
+.pr-name-h{font-size:15px;font-weight:700;color:var(--ink)}
+.pr-moved{font-size:12px;font-weight:550;color:var(--mut)}
+.pr-due{display:inline-flex;align-items:center;font:650 12px/1 var(--font);
+border-radius:999px;padding:5px 10px;border:1px solid var(--line);color:var(--soft)}
+.pr-due.red{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+.pr-due.amber{color:var(--amber-ink);background:var(--amber-bg);border-color:var(--amber-line)}
+.pr-sum{margin-left:auto;font-size:12.5px;color:var(--soft)}
+.pr-stale{margin:0 0 10px;font-size:12.5px;color:var(--amber-ink)}
+.pr-rows{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:1px;
+background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.pr-row{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;background:var(--card);font-size:13px}
+.pr-tag{flex:none;min-width:78px;text-align:center;font:700 11px/1 var(--font);
+border-radius:999px;padding:4px 8px;border:1px solid var(--line);color:var(--mut)}
+.pr-tag.red{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+.pr-tag.green{color:var(--green);background:var(--green-bg);border-color:var(--green-line)}
+.pr-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}
+.pr-kt{font-weight:700;color:var(--accent-ink);white-space:nowrap}
+.pr-name{color:var(--ink)}
+.pr-ref{font-size:11.5px;font-weight:650;color:var(--mut);white-space:nowrap}
+.pr-facts{flex:1 0 100%;font-size:11.5px;color:var(--mut)}
+.pr-why{flex:1 0 100%;font-size:12.5px;color:var(--soft)}
+.pr-fix{flex:1 0 100%;margin:2px 0 0;padding-left:16px;font-size:12px;color:var(--amber-ink)}
+.pr-note{margin-bottom:8px}
+.pr-last{margin:0;font-size:12.5px;color:var(--soft)}
+/* On the week strip: the round and the day to raise by, in the round's blue,
+   so they read as dates to keep and not as rooms the owner speaks in. */
+.wd-room.wd-pr{color:var(--blue);background:var(--blue-bg);box-shadow:inset 0 0 0 1px var(--blue-line);
+text-decoration:none}
+.wd-room.wd-pr:hover{box-shadow:inset 0 0 0 1px var(--blue)}

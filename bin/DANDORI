@@ -1,0 +1,303 @@
+#!/bin/zsh
+# One command for DANDORI, from the terminal or the Dock. ./install.sh links it
+# as `DANDORI` and as whatever `desk.command` in config.json says.
+#
+#   DANDORI                  open DANDORI, print where everything sits
+#   DANDORI s                print status only, costs nothing
+#   DANDORI 4                item 4 is finished
+#   DANDORI 2 -w Alex        sent, now sitting with Alex
+#   DANDORI 2 --mine         they replied, it is yours again
+#   DANDORI 5 --dropped -n "the client answered it themselves"
+#   DANDORI ask 8 "..."      ask about job 8, or tell it what to change on job 8
+#   DANDORI ask REF "..."    same thing about a whole ticket
+#   DANDORI ask day "..."    about the day rather than one job, answered in numbers
+#   DANDORI refresh          sweep every open ticket and thread, rebuild, open
+#   DANDORI prep             sweep, then write the next meeting's script
+#   DANDORI scripts          list client workflow scripts in clients/<client>/scripts/
+#   DANDORI run <name> ...   run a client workflow script from clients/<client>/scripts/
+#   DANDORI check            run the repository and board gate checks
+#   DANDORI audit            check what on the board has gone out of date
+#   DANDORI digest ...       print the readable board digest
+#   DANDORI apply <patch>    apply a JSON patch through board.save()
+#   DANDORI package          build distributable macOS .dmg, .pkg and .zip in dist/
+#   DANDORI chat             open a Claude Code chat on this folder to hand work over
+#   DANDORI mcp              check the Asana and Slack connections a sweep needs
+#   DANDORI setup            open the setup page (--terminal: ask in here instead)
+#   DANDORI build            rebuild the page from the board, no agent
+#   DANDORI post             fold today's standup notes into the board
+#   DANDORI morning          sweep every weekday morning, so the brief is written
+#   DANDORI stop             shut the local page server down
+#   DANDORI version          print the DANDORI version and release name
+#
+# Anything numeric goes straight to core/tick.py, so the numbers you see on the page
+# are the numbers you type. They belong to the item until it closes.
+
+set -uo pipefail
+
+# The checkout this script lives in, through the symlink in ~/.local/bin, so a
+# DANDORI cloned anywhere finds itself. DANDORI_REPO overrides it.
+REPO="${DANDORI_REPO:-${0:A:h:h}}"
+cd "$REPO" || { print -u2 "no repo at $REPO"; exit 1 }
+
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PYTHONPATH="$REPO/core${PYTHONPATH:+:$PYTHONPATH}"
+
+# The owner's timezone from config.json, so `date` agrees with the page.
+TZ_NAME="$(python3 -c 'import settings; print(settings.tz_name())' 2>/dev/null)"
+[[ -n "$TZ_NAME" ]] && export TZ="$TZ_NAME"
+CMD="$(python3 -c 'import settings; print(settings.command())' 2>/dev/null)"
+CMD="${CMD:-DANDORI}"
+
+STATE_DIR="$(python3 -c 'import settings; print(settings.STATE_DIR)' 2>/dev/null)"
+STATE_DIR="${STATE_DIR:-$REPO/clients/default/state}"
+OUTPUT_DIR="$(python3 -c 'import settings; print(settings.OUTPUT_DIR)' 2>/dev/null)"
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO/clients/default/output}"
+LOGS_DIR="$(python3 -c 'import settings; print(settings.LOGS_DIR)' 2>/dev/null)"
+LOGS_DIR="${LOGS_DIR:-$REPO/clients/default/logs}"
+TMP_DIR="$(python3 -c 'import settings; print(settings.TMP_DIR)' 2>/dev/null)"
+TMP_DIR="${TMP_DIR:-$REPO/clients/default/tmp}"
+
+BOARD="$STATE_DIR/board.json"
+ASKS="$STATE_DIR/asks.json"
+# Global, because the EXIT trap that clears it fires after the function that
+# takes it has returned and its locals have gone.
+LOCK="$STATE_DIR/refresh.lock"
+
+PORT="$(python3 -c 'import settings; print(settings.port())' 2>/dev/null)"
+PORT="${PORT:-8787}"
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+serve_url() {
+  # The server renders the page on every load and gives the Refresh button
+  # somewhere to send its click. Start it once, reuse it after that.
+  local health
+  health="$(curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" 2>/dev/null)" || {
+    mkdir -p "$LOGS_DIR"
+    nohup python3 "$REPO/core/serve.py" --port "$PORT" >>"$LOGS_DIR/serve.log" 2>&1 &
+    for _ in {1..25}; do
+      sleep 0.2
+      health="$(curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" 2>/dev/null)" && break
+    done
+  }
+  [[ -n "$health" ]] || return 1
+  # The key is on disk, never in /health, so a page that rebinds its name to
+  # this Mac cannot ask the server for it.
+  local key
+  key="$(python3 -c 'import json, settings; print(json.load(open(settings.STATE_DIR / "serve.json"))["key"])' 2>/dev/null)"
+  [[ -n "$key" ]] || return 1
+  print -r -- "http://127.0.0.1:$PORT/?k=$key"
+}
+
+page() {
+  # No board or no answers yet is fine: the server sends the page to /setup.
+  local url
+  if url="$(serve_url)"; then
+    # Its own window, no tabs and no address bar, like a real app.
+    if [[ -x "$CHROME" ]]; then
+      "$CHROME" --app="$url" --window-size=1180,900 >/dev/null 2>&1 &
+      return 0
+    fi
+    open "$url"
+    return 0
+  fi
+
+  print -u2 "DANDORI server would not start, opening the file instead"
+  [[ -f "$BOARD" ]] || { print -u2 "no board yet either: see $LOGS_DIR/serve.log"; return 1 }
+  python3 "$REPO/core/render_desk.py" "$BOARD" "$OUTPUT_DIR/desk.html" >/dev/null || return 1
+  python3 "$REPO/core/render_desk_md.py" "$BOARD" "$OUTPUT_DIR/desk.md" >/dev/null
+  open "$OUTPUT_DIR/desk.html"
+}
+
+stop_server() {
+  python3 "$REPO/core/launchd.py" off serve >/dev/null 2>&1 || true
+  pkill -f "serve.py --port $PORT" && print -r -- "stopped the DANDORI server" \
+    || print -r -- "no DANDORI server running"
+}
+
+ask() {
+  # The same ask the page makes, from a terminal. It goes through the server so
+  # both places share one lock and one record: whatever is asked here is on the
+  # card next time the page is opened, and the other way round.
+  local what="${1:-}" question="${2:-}" ref url key
+  [[ -n "$what" && -n "$question" ]] || {
+    print -u2 "usage: $CMD ask <job number, ticket, or day> \"your question\""
+    return 1
+  }
+  # A number is a job, a tag is a ticket, and "day" is the day: what to start
+  # on, whether tomorrow is covered, anything that belongs to no one card.
+  case "$what" in
+    (<->) ref="item:$what" ;;
+    (day|desk|board|all) ref="board" ;;
+    (*) ref="ticket:$what" ;;
+  esac
+  url="$(serve_url)" || { print -u2 "DANDORI server would not start"; return 1 }
+  key="${url##*k=}"
+
+  local out
+  out="$(REF="$ref" Q="$question" PORT="$PORT" KEY="$key" ASKS="$ASKS" \
+    python3 - <<'PY'
+import json, os, sys, time, urllib.error, urllib.request
+
+base = "http://127.0.0.1:%s" % os.environ["PORT"]
+key = os.environ["KEY"]
+body = json.dumps({"ref": os.environ["REF"], "question": os.environ["Q"]}).encode()
+req = urllib.request.Request(
+    f"{base}/api/ask?k={key}", data=body,
+    headers={"Content-Type": "application/json"})
+try:
+    started = json.load(urllib.request.urlopen(req, timeout=10))
+except urllib.error.HTTPError as exc:
+    print(json.load(exc).get("error", exc.reason), file=sys.stderr)
+    raise SystemExit(1)
+
+said = ""
+while True:
+    time.sleep(3)
+    state = json.load(urllib.request.urlopen(f"{base}/api/status?k={key}", timeout=10))
+    if state["state"] != "running":
+        break
+    if state["message"] != said:
+        said = state["message"]
+        print(f"{said}...", file=sys.stderr, flush=True)
+
+rows = json.loads(open(os.environ["ASKS"], encoding="utf-8").read())["asks"]
+mine = [r for r in rows if r.get("id") == started.get("id")]
+if not mine:
+    print("the answer did not land in asks.json", file=sys.stderr)
+    raise SystemExit(1)
+print(mine[0].get("answer") or "no answer came back")
+raise SystemExit(0 if mine[0].get("state") == "answered" else 1)
+PY
+)" || { [[ -n "$out" ]] && print -r -- "$out"; return 1 }
+  print -r -- "$out"
+}
+
+run_agent() {
+  # $1 is the prompt file, $2 is what to print while it works.
+  local job="${1:t:r}"   # core/prompts/refresh.md -> refresh, matching config.json
+  rm -f "$TMP_DIR"/*.json(N) tmp/*.json(N)  # a dead run's unapplied patch; see serve.run_agent
+  job="${job#prompt-}"
+
+  local why
+  why="$(python3 -c '
+import agent
+left, message = agent.blockers(agent.pick())
+if left:
+    print(message)
+')" || { print -u2 "could not check whether a run can work"; return 1 }
+  if [[ -n "$why" && -t 0 && "$why" == *(Asana|Slack)* ]]; then
+    print -u2 "$why"
+    print -u2 "Reconnecting first."
+    "$REPO/core/scripts/setup-mcp.sh" || return 1
+    why="$(python3 -c '
+import agent
+agent.forget_readiness()
+left, message = agent.blockers(agent.pick())
+if left:
+    print(message)
+')"
+  fi
+  if [[ -n "$why" ]]; then
+    print -u2 "$why"
+    return 1
+  fi
+
+  local -a agent_cmd
+  agent_cmd=("${(@f)$(python3 -c '
+import sys
+import agent
+kind = agent.pick()
+if kind is None:
+    sys.exit(3)
+print("\n".join(kind.command(agent.model_for(sys.argv[1]), effort=agent.effort_for(sys.argv[1]), job=sys.argv[1])))
+' "$job")}") || {
+    print -u2 "No agent is installed. Install Claude Code, or type 'refresh' in a chat on this folder instead."
+    return 1
+  }
+
+  local -a agent_env
+  agent_env=("${(@f)$(python3 -c '
+import os
+import agent
+kind = agent.pick()
+want = kind.env() if kind else dict(os.environ)
+for name in os.environ:
+    if name not in want:
+        print(f"-u\n{name}")
+for name, value in want.items():
+    if os.environ.get(name) != value:
+        print(f"{name}={value}")
+')}")
+
+  if [[ -f "$LOCK" ]] && kill -0 "$(cut -d' ' -f1 "$LOCK")" 2>/dev/null; then
+    print -u2 "already running ($(cat "$LOCK"))"
+    return 1
+  fi
+  mkdir -p "$STATE_DIR"
+  print -r -- "$$ terminal $(date +%H:%M)" >"$LOCK"
+  trap 'rm -f "$LOCK"' EXIT INT TERM
+  python3 "$REPO/core/keep.py" "$job" >/dev/null 2>&1 || true
+  print -r -- "$2"
+  python3 "$REPO/core/settings.py" --prompt "$1" | env "${agent_env[@]}" "${agent_cmd[@]}"
+}
+
+case "${1:-}" in
+  "")            python3 "$REPO/core/tick.py"; page ;;
+  s|st|status)   python3 "$REPO/core/tick.py" ;;
+  refresh|r)
+    run_agent core/prompts/refresh.md "Looking for what moved since the page was built..." || exit 1
+    python3 "$REPO/core/tick.py" --rebuild >/dev/null; page ;;
+  prep|p)
+    run_agent core/prompts/prep.md "Sweeping everything, then writing today's script..." || exit 1
+    python3 "$REPO/core/tick.py" --rebuild >/dev/null; page ;;
+  ask|a)         shift; ask "$@" ;;
+  scripts)       shift; python3 "$REPO/core/plugins.py" list "$@" ;;
+  run)           shift; python3 "$REPO/core/plugins.py" run "$@" ;;
+  check)         shift; python3 "$REPO/core/check.py" "$@" ;;
+  audit)         shift; python3 "$REPO/core/audit.py" "$@" ;;
+  digest)        shift; python3 "$REPO/core/digest.py" "$@" ;;
+  apply)         shift; python3 "$REPO/core/apply.py" "$@" ;;
+  prioritize)    shift; python3 "$REPO/core/prioritize.py" "$@" ;;
+  note)          shift; python3 "$REPO/core/note.py" "$@" ;;
+  calendar)      shift; python3 "$REPO/core/calendar_sync.py" "$@" ;;
+  doc|docs)      shift; python3 "$REPO/core/make_doc.py" "$@" ;;
+  package|pkg|dmg) shift; "$REPO/packaging/package_mac.sh" "$@" ;;
+  chat)
+    if command -v claude >/dev/null 2>&1; then
+      claude
+    else
+      open -a Cursor "$REPO"
+    fi ;;
+  mcp)           shift; "$REPO/core/scripts/setup-mcp.sh" "${@:---check}" ;;
+  stop)          stop_server ;;
+  build)
+    python3 "$REPO/core/render_desk.py" "$BOARD" "$OUTPUT_DIR/desk.html" || exit 1
+    python3 "$REPO/core/render_desk_md.py" "$BOARD" "$OUTPUT_DIR/desk.md" ;;
+  post)          "$REPO/core/scripts/run_post.sh" --force ;;
+  setup)
+    if [[ "${2:-}" == --terminal ]]; then
+      python3 "$REPO/core/setup.py"
+    else
+      url="$(serve_url)" || { python3 "$REPO/core/setup.py"; exit $? }
+      open "${url%%/\?*}/setup"
+    fi ;;
+  morning)
+    case "${2:-on}" in
+      off)
+        python3 "$REPO/core/launchd.py" off brief >/dev/null
+        print -r -- "morning brief off. Nothing runs on a schedule now." ;;
+      status)
+        python3 "$REPO/core/launchd.py" status | grep '^brief' ;;
+      *)
+        python3 "$REPO/core/launchd.py" on brief || exit 1
+        at="$(python3 -c 'import settings; print(settings.morning_sweep() or "08:15")')"
+        print -r -- "morning brief on: a sweep at $at, Mon to Fri."
+        print -r -- "It takes the same lock as the buttons and refuses to run"
+        print -r -- "without Asana, Slack and a model credential."
+        print -r -- "Off again with: $CMD morning off" ;;
+    esac ;;
+  open)          page ;;
+  -v|--version|version) python3 "$REPO/core/settings.py" --version ;;
+  -h|--help|help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)             python3 "$REPO/core/tick.py" "$@" ;;
+esac

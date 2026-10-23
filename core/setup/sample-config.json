@@ -1,0 +1,94 @@
+{
+  "_readme": "Sample config for the DANDORI demo board (setup/sample-board.json). Every name in it is fictional.",
+  "owner": {
+    "name": "Alex Example",
+    "email": "alex.example@kraken.tech",
+    "asana_user_gid": "",
+    "slack_user_id": "",
+    "role": "Client Delivery Lead",
+    "workstream": "billing"
+  },
+  "client": {
+    "name": "Example Energy",
+    "short": "EE",
+    "domains": [
+      "example-energy.co.jp"
+    ],
+    "language": "en",
+    "support_url": ""
+  },
+  "timezone": "Europe/London",
+  "desk": {
+    "name": "DANDORI",
+    "command": "DANDORI",
+    "port": 8787,
+    "morning_sweep": "08:15"
+  },
+  "asana": {
+    "workspace_gid": "",
+    "projects": [
+      {
+        "gid": "",
+        "name": "EE Billing (client-shared)"
+      }
+    ],
+    "exclude_projects": []
+  },
+  "meeting": {
+    "name": "EE Billing Standup",
+    "time_local": "10:30",
+    "minutes": 30,
+    "days": [
+      "Mon",
+      "Wed"
+    ],
+    "notes_title": "",
+    "also": [
+      {
+        "name": "EE Weekly Review",
+        "time_local": "14:00",
+        "days": [
+          "Thu"
+        ],
+        "kind": "weekly",
+        "record": ""
+      }
+    ]
+  },
+  "slack": {
+    "search_scope": "all",
+    "channel_hints": [
+      "#ee-billing",
+      "#ee-billing-kraken"
+    ]
+  },
+  "calendar": {
+    "work_words": []
+  },
+  "language": {
+    "client": "en",
+    "level": "",
+    "register": "",
+    "readings": false,
+    "reading_terms": [],
+    "plain_runs": []
+  },
+  "database": {
+    "mcp": "",
+    "command": "",
+    "conn": ""
+  },
+  "models": {
+    "region": "eu"
+  },
+  "ask": {
+    "effort": "medium"
+  },
+  "refresh": {
+    "effort": "medium"
+  },
+  "prep": {
+    "effort": "medium"
+  },
+  "post": {}
+}

@@ -1,0 +1,1168 @@
+{
+  "version": 1,
+  "checked_at": "2026-10-19T13:15:22+09:00",
+  "next_id": 14,
+  "tickets": [
+    {
+      "id": "1200000000000101",
+      "ref": "DD-RETRY",
+      "title_en": "Direct debit retries fail after a bank holiday",
+      "title_ja": "",
+      "asana_url": "https://app.asana.com/0/0/1200000000000101",
+      "asana": {
+        "status": "In progress",
+        "section": "Payments",
+        "priority": "High",
+        "category": "Bug",
+        "severity": "Customer impact",
+        "assignee": "Alex Example",
+        "project": "EE Billing (client-shared)",
+        "completed": false
+      },
+      "last_activity": {
+        "at": "2026-10-19 09:12",
+        "who": "Hana Mori, EE",
+        "where": "Asana comment"
+      },
+      "where_it_stands": "The retry run after the 12 Oct bank holiday collected nothing for 214 accounts. EE have the account list; Kraken has not yet said why the retry date was skipped.",
+      "threads": [
+        {
+          "where": "Slack #ee-billing-kraken",
+          "label": "Retry run skipped 13 Oct",
+          "gist": "Sam asked for the payment schedule IDs; Alex sent three examples.",
+          "last_from": "Sam Okafor",
+          "last_at": "2026-10-16",
+          "checked": "2026-10-19",
+          "url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760600000"
+        },
+        {
+          "where": "Asana",
+          "label": "EE comment thread",
+          "gist": "Hana asked whether customers will be charged twice once retries resume.",
+          "last_from": "Hana Mori",
+          "last_at": "2026-10-19",
+          "checked": "2026-10-19",
+          "url": "https://app.asana.com/0/0/1200000000000101"
+        }
+      ],
+      "closes_when": [
+        {
+          "what": "Cause of the skipped retry confirmed",
+          "who": "Kraken CE",
+          "state": "next",
+          "note": "Item 1 asks for it."
+        },
+        {
+          "what": "EE told what customers will see",
+          "who": "Alex Example",
+          "state": "now",
+          "note": "Item 2."
+        },
+        {
+          "what": "Next retry run collects normally",
+          "who": "Kraken",
+          "state": "next"
+        }
+      ],
+      "terms": [
+        {
+          "term": "Retry run",
+          "say": "retry run",
+          "means": "The second collection attempt Kraken schedules after a direct debit fails. It is meant to land on the next working day."
+        }
+      ],
+      "events": [
+        {
+          "on": "2026-10-13",
+          "at": "09:40",
+          "who": "Hana Mori, EE",
+          "what": "Raised that 214 direct debits failed and were never retried.",
+          "so_what": "Customers are now one payment behind through no fault of theirs.",
+          "where": "Asana",
+          "source_url": "https://app.asana.com/0/0/1200000000000101"
+        },
+        {
+          "on": "2026-10-16",
+          "at": "15:05",
+          "who": "Sam Okafor, Kraken CE",
+          "what": "Asked for payment schedule IDs to trace the skipped retry.",
+          "so_what": "The engineer is looking, but has not said it is a bug yet.",
+          "where": "Slack #ee-billing-kraken",
+          "source_url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760600000"
+        },
+        {
+          "on": "2026-10-19",
+          "at": "09:12",
+          "who": "Hana Mori, EE",
+          "what": "Asked whether customers will be charged twice when retries resume.",
+          "so_what": "EE want a customer line before Wednesday's standup.",
+          "where": "Asana comment",
+          "source_url": "https://app.asana.com/0/0/1200000000000101"
+        }
+      ],
+      "items": [
+        {
+          "id": 1,
+          "title": "Ask Sam why the retry date skipped the bank holiday",
+          "where_it_stands": "Sam has the three example schedules since Friday. Nobody at Kraken has said yet whether the holiday calendar or the retry rule is at fault.",
+          "steps": [
+            "Read the draft below and check the three schedule IDs in prepared.",
+            "Post it as a reply in Sam's thread in #ee-billing-kraken."
+          ],
+          "done_when": "Sam has the question and the examples in one message.",
+          "why": "EE's question about double charging cannot be answered until we know what the retry rule actually did.",
+          "state": "todo",
+          "urgency": "today",
+          "est_minutes": 10,
+          "opened": "2026-10-16",
+          "where": "Slack #ee-billing-kraken",
+          "link": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760600000",
+          "draft": {
+            "language": "en",
+            "target": "Slack #ee-billing-kraken, reply to Sam Okafor",
+            "link": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760600000",
+            "body_en": "Thanks Sam. Following up on the three schedules I sent on Friday:\n\n1. The first failed collection was on Mon 12 Oct, a bank holiday. Should the retry have moved to Tue 13 Oct, or is it meant to wait for the next collection cycle?\n2. Do the 214 accounts EE listed all share that same pattern, or are some failing for a different reason?\n3. When the retry does run, could a customer be collected for both the missed and the current amount in one go?\n\nEE are asking about point 3 for their customer line, so that one helps most.",
+            "reply_from": "Sam Okafor, Kraken CE"
+          },
+          "prepared": {
+            "what": "Three example payment schedules and the account count",
+            "conclusion": "All three examples failed on 12 Oct and have no retry row at all. The other 211 accounts on EE's list have the same failure date.",
+            "built_at": "2026-10-19 08:40",
+            "table": {
+              "columns": [
+                "Account",
+                "Failed on",
+                "Retry scheduled",
+                "Amount"
+              ],
+              "rows": [
+                [
+                  "A-0000EE01",
+                  "2026-10-12",
+                  {
+                    "text": "None",
+                    "tone": "gap"
+                  },
+                  "¥8,420"
+                ],
+                [
+                  "A-0000EE02",
+                  "2026-10-12",
+                  {
+                    "text": "None",
+                    "tone": "gap"
+                  },
+                  "¥12,960"
+                ],
+                [
+                  "A-0000EE03",
+                  "2026-10-12",
+                  {
+                    "text": "None",
+                    "tone": "gap"
+                  },
+                  "¥6,105"
+                ]
+              ]
+            },
+            "findings": [
+              "Every account on EE's list failed on 12 Oct, the bank holiday.",
+              "None of them has a retry scheduled, so this is not a bank decline."
+            ],
+            "unanswered": [
+              "Whether a later retry would collect both months at once. Only Kraken CE can say."
+            ],
+            "sources": [
+              {
+                "label": "EE account list on the Asana ticket",
+                "url": "https://app.asana.com/0/0/1200000000000101"
+              }
+            ]
+          },
+          "history": [
+            {
+              "at": "2026-10-16T15:30:00+01:00",
+              "state": "todo",
+              "note": "opened from Sam's question"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Tell EE what customers will see when retries resume",
+          "where_it_stands": "Hana asked this morning. The answer depends on item 1.",
+          "steps": [
+            "Wait for Sam's answer on item 1, then reply to Hana's comment on the ticket."
+          ],
+          "done_when": "Hana has a line she can give customers.",
+          "why": "EE's contact centre is taking calls about it.",
+          "state": "todo",
+          "urgency": "this-week",
+          "after": 1,
+          "est_minutes": 15,
+          "opened": "2026-10-19",
+          "where": "Asana comment",
+          "link": "https://app.asana.com/0/0/1200000000000101",
+          "history": [
+            {
+              "at": "2026-10-19T09:20:00+01:00",
+              "state": "todo",
+              "note": "opened from Hana's comment"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "title": "Ask EE to pause manual retries from their side",
+          "steps": [
+            "Ask Hana in the ticket to hold off manual retries."
+          ],
+          "done_when": "EE have stopped retrying by hand.",
+          "why": "Manual retries would muddy the trace.",
+          "state": "dropped",
+          "state_at": "16 Oct",
+          "state_note": "EE said they had never started manual retries.",
+          "closed_at": "2026-10-16T16:10:00+01:00",
+          "opened": "2026-10-14",
+          "urgency": "this-week",
+          "history": [
+            {
+              "at": "2026-10-14T11:00:00+01:00",
+              "state": "todo",
+              "note": "opened"
+            },
+            {
+              "at": "2026-10-16T16:10:00+01:00",
+              "state": "dropped",
+              "note": "EE said they had never started manual retries."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1200000000000102",
+      "ref": "READ-GAP",
+      "title_en": "Smart meter read gap holds September bills",
+      "title_ja": "",
+      "asana_url": "https://app.asana.com/0/0/1200000000000102",
+      "asana": {
+        "status": "Waiting on Kraken",
+        "section": "Billing",
+        "priority": "Top priority",
+        "category": "Bug",
+        "severity": "Bills held",
+        "assignee": "Alex Example",
+        "project": "EE Billing (client-shared)",
+        "completed": false
+      },
+      "last_activity": {
+        "at": "2026-10-17 17:45",
+        "who": "Sam Okafor, Kraken CE",
+        "where": "Slack #ee-billing-kraken"
+      },
+      "where_it_stands": "1,382 September bills are held because the meter data feed missed reads from 3 to 7 Sep. A fix to backfill the reads is being built. EE have not yet said whether they would rather estimate the oldest bills now.",
+      "threads": [
+        {
+          "where": "Slack #ee-billing-kraken",
+          "label": "Backfill for 3 to 7 Sep reads",
+          "gist": "Sam is building the backfill; first test run on staging went through.",
+          "last_from": "Sam Okafor",
+          "last_at": "2026-10-17",
+          "checked": "2026-10-19",
+          "url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760700000"
+        },
+        {
+          "where": "Slack #ee-billing",
+          "label": "EE billing ops: held bill count",
+          "gist": "Ken asked for a daily count of held bills until the fix lands.",
+          "last_from": "Ken Ito",
+          "last_at": "2026-10-15",
+          "checked": "2026-10-19",
+          "url": "https://example.invalid/slack/archives/C0EEBILLING/p1760500000"
+        }
+      ],
+      "internal_ticket": {
+        "name": "Backfill missed smart meter reads, 3 to 7 Sep",
+        "url": "https://example.invalid/kraken/ce/KT-00042",
+        "build": {
+          "kt": "KT-00042",
+          "stage": "building",
+          "asana_status": "In development",
+          "engineer": "Sam Okafor",
+          "size": "3 SP",
+          "refined_by": "Sam Okafor",
+          "refinement": "🟢",
+          "feature_flag": "No",
+          "moved_on": "2026-10-17",
+          "waiting_on": "Staging test passed; production run needs a review first.",
+          "safe_to_say": "Kraken is working on recovering the missing reads, and will confirm before the held bills are released."
+        }
+      },
+      "closes_when": [
+        {
+          "what": "Backfill built and reviewed",
+          "who": "Kraken CE",
+          "state": "next",
+          "note": "Item 3."
+        },
+        {
+          "what": "EE decide whether to estimate the oldest bills",
+          "who": "EE",
+          "state": "now",
+          "note": "Item 4."
+        },
+        {
+          "what": "Held bills released and checked",
+          "who": "EE",
+          "state": "next"
+        }
+      ],
+      "terms": [
+        {
+          "term": "Read gap hold",
+          "say": "read gap hold",
+          "means": "A hold Kraken puts on a bill when a meter has no reading for part of the period, so the bill is not issued on a guess."
+        }
+      ],
+      "events": [
+        {
+          "on": "2026-10-08",
+          "at": "10:30",
+          "who": "Ken Ito, EE",
+          "what": "Reported that September bills had not gone out for about 1,400 customers.",
+          "so_what": "The largest billing delay this quarter.",
+          "where": "EE Billing Standup",
+          "source_url": "https://app.asana.com/0/0/1200000000000102"
+        },
+        {
+          "on": "2026-10-12",
+          "at": "14:00",
+          "who": "Sam Okafor, Kraken CE",
+          "what": "Confirmed the meter data feed dropped reads from 3 to 7 Sep and picked up the backfill.",
+          "so_what": "The cause is known and an engineer owns it.",
+          "where": "Slack #ee-billing-kraken",
+          "source_url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760700000"
+        },
+        {
+          "on": "2026-10-17",
+          "at": "17:45",
+          "who": "Sam Okafor, Kraken CE",
+          "what": "Backfill ran cleanly on staging for 50 test meters.",
+          "so_what": "Production run is close, pending review.",
+          "where": "Slack #ee-billing-kraken",
+          "source_url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760700000"
+        }
+      ],
+      "items": [
+        {
+          "id": 3,
+          "title": "Confirm the backfill review date with Sam",
+          "where_it_stands": "Sam said on Friday the staging run was clean and he would ask for review on Monday.",
+          "steps": [
+            "Check Sam's thread on Thursday morning for the review date."
+          ],
+          "done_when": "We know the day the backfill runs on production.",
+          "why": "EE will ask on Wednesday when the held bills go out.",
+          "state": "waiting",
+          "state_at": "17 Oct",
+          "sent_by_you": true,
+          "urgency": "monitor",
+          "waits_on": {
+            "who": "Sam Okafor, Kraken CE",
+            "since": "2026-10-17",
+            "what": "a review date for the production backfill",
+            "chase_on": "2026-10-22"
+          },
+          "opened": "2026-10-12",
+          "where": "Slack #ee-billing-kraken",
+          "link": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760700000",
+          "history": [
+            {
+              "at": "2026-10-12T14:20:00+01:00",
+              "state": "todo",
+              "note": "opened"
+            },
+            {
+              "at": "2026-10-17T17:50:00+01:00",
+              "state": "waiting",
+              "note": "with Sam Okafor"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Ask EE whether to estimate the oldest held bills now",
+          "where_it_stands": "312 of the held bills are more than 40 days late. Kraken can issue those on an estimate and true them up after the backfill, if EE agree.",
+          "steps": [
+            "Read the counts in prepared.",
+            "Ask Ken at Wednesday's standup, using the lines on the What I say view."
+          ],
+          "done_when": "EE have said yes or no to estimating the 312 oldest bills.",
+          "why": "Waiting for the backfill may push those customers past 60 days unbilled.",
+          "state": "todo",
+          "urgency": "this-week",
+          "est_minutes": 20,
+          "opened": "2026-10-15",
+          "at_standup": true,
+          "at_standup_note": "Needs a yes or no from Ken.",
+          "where": "EE Billing Standup",
+          "prepared": {
+            "what": "Held bills by age",
+            "conclusion": "312 held bills are over 40 days late and are the ones at risk. The rest can wait for the backfill.",
+            "built_at": "2026-10-19 08:55",
+            "table": {
+              "columns": [
+                "Days late",
+                "Held bills",
+                "Verdict"
+              ],
+              "rows": [
+                [
+                  "Under 30",
+                  "604",
+                  {
+                    "text": "Wait for backfill",
+                    "tone": "good"
+                  }
+                ],
+                [
+                  "30 to 40",
+                  "466",
+                  {
+                    "text": "Wait for backfill",
+                    "tone": "good"
+                  }
+                ],
+                [
+                  "Over 40",
+                  "312",
+                  {
+                    "text": "At risk",
+                    "tone": "gap"
+                  }
+                ]
+              ]
+            },
+            "findings": [
+              "1,382 bills are held in total.",
+              "312 are over 40 days late; those are the ones EE need to decide on."
+            ],
+            "unanswered": [
+              "Whether EE's regulator rules count an estimated bill as issued on time. EE have not been asked."
+            ],
+            "sources": [
+              {
+                "label": "Held bill count, read-only replica, 19 Oct 08:50",
+                "url": ""
+              }
+            ]
+          },
+          "history": [
+            {
+              "at": "2026-10-15T11:00:00+01:00",
+              "state": "todo",
+              "note": "opened from Ken's question"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Send EE the release plan for the held bills",
+          "steps": [
+            "Write to Ken with the release day once the backfill date and EE's estimate decision are both known."
+          ],
+          "done_when": "Ken has a release day in writing.",
+          "why": "EE's billing ops plan their contact centre around it.",
+          "state": "todo",
+          "urgency": "this-week",
+          "after": 4,
+          "est_minutes": 15,
+          "opened": "2026-10-15",
+          "history": [
+            {
+              "at": "2026-10-15T11:05:00+01:00",
+              "state": "todo",
+              "note": "opened"
+            }
+          ]
+        }
+      ],
+      "prep": {
+        "order": 1,
+        "board_position": "1 of 6 on the board",
+        "issue": [
+          "About 1,400 September bills are held because some smart meter readings never arrived.",
+          "Kraken is recovering the missing readings. The oldest bills may need to go out on an estimate first."
+        ],
+        "why_it_matters": "Customers who are not billed for over 60 days can complain to the regulator.",
+        "consequences": {
+          "fix_covers": "All meters that missed reads from 3 to 7 Sep.",
+          "falls_outside": "Meters with a separate fault.",
+          "accumulates": "Every day adds to the backlog of held bills.",
+          "who_owns_it": "Kraken for the recovery, EE for the estimate decision.",
+          "done_means": "Held bills released and EE have checked a sample.",
+          "still_open": "Whether EE estimate the oldest 312."
+        },
+        "open_questions": [
+          {
+            "en": "Should Kraken issue the 312 oldest bills on an estimate now?",
+            "ja_ruby": "Would you like us to issue the 312 oldest bills on an estimate now, and correct them once the readings are back?",
+            "who": "EE"
+          }
+        ],
+        "script": [
+          {
+            "heading": "Where it stands",
+            "heading_en": "Where it stands",
+            "lines": [
+              {
+                "ja_ruby": "We have found the cause: the meter data feed missed readings from 3 to 7 September.",
+                "en": ""
+              },
+              {
+                "ja_ruby": "Kraken is recovering those readings now, and we will confirm before any held bill is released.",
+                "en": ""
+              }
+            ]
+          },
+          {
+            "heading": "What I need answered",
+            "heading_en": "What I need answered",
+            "lines": [
+              {
+                "ja_ruby": "312 of the held bills are more than 40 days late.",
+                "en": ""
+              },
+              {
+                "ja_ruby": "Would you like us to issue those on an estimate now, and correct them once the readings are back?",
+                "en": ""
+              }
+            ]
+          }
+        ],
+        "client_ask_needed": true,
+        "unknowns": [
+          "Do not give a release date. The backfill review date is not confirmed yet (item 3)."
+        ],
+        "built_at": "2026-10-19T13:15:22+09:00"
+      }
+    },
+    {
+      "id": "1200000000000103",
+      "ref": "TARIFF-BACKDATE",
+      "title_en": "Tariff change backdated to 1 Sep rebills customers",
+      "title_ja": "",
+      "asana_url": "https://app.asana.com/0/0/1200000000000103",
+      "asana": {
+        "status": "In progress",
+        "section": "Pricing",
+        "priority": "Medium",
+        "category": "Change request",
+        "severity": "",
+        "assignee": "Alex Example",
+        "project": "EE Billing (client-shared)",
+        "completed": false
+      },
+      "last_activity": {
+        "at": "2026-10-16 11:20",
+        "who": "Hana Mori, EE",
+        "where": "Asana comment"
+      },
+      "where_it_stands": "EE moved 96 customers to the Green Fixed tariff with a start date of 1 Sep, after their September bills had gone out. Kraken rebilled them automatically. EE did not expect the rebill and want to know if it can be stopped next time.",
+      "threads": [
+        {
+          "where": "Asana",
+          "label": "EE comment thread",
+          "gist": "Hana asked why 96 customers got a second September bill.",
+          "last_from": "Hana Mori",
+          "last_at": "2026-10-16",
+          "checked": "2026-10-19",
+          "url": "https://app.asana.com/0/0/1200000000000103"
+        },
+        {
+          "where": "Slack #ee-billing-kraken",
+          "label": "Backdated tariff rebill behaviour",
+          "gist": "Jordan confirmed the rebill is standard behaviour for a backdated agreement.",
+          "last_from": "Jordan Lee",
+          "last_at": "2026-10-15",
+          "checked": "2026-10-19",
+          "url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760510000"
+        }
+      ],
+      "closes_when": [
+        {
+          "what": "EE told why the rebill happened",
+          "who": "Alex Example",
+          "state": "now",
+          "note": "Item 7."
+        },
+        {
+          "what": "Pricing confirm the customer credit amounts",
+          "who": "Kraken Pricing",
+          "state": "blocked",
+          "note": "Item 6 is held on it."
+        },
+        {
+          "what": "EE agree how backdated changes are entered from now on",
+          "who": "EE",
+          "state": "next"
+        }
+      ],
+      "events": [
+        {
+          "on": "2026-10-14",
+          "at": "16:00",
+          "who": "Hana Mori, EE",
+          "what": "Reported 96 customers received a second September bill.",
+          "so_what": "Customers think they have been billed twice.",
+          "where": "Asana",
+          "source_url": "https://app.asana.com/0/0/1200000000000103"
+        },
+        {
+          "on": "2026-10-15",
+          "at": "10:10",
+          "who": "Jordan Lee, Kraken",
+          "what": "Confirmed a backdated tariff always rebills the affected period.",
+          "so_what": "Not a bug; the fix is in how EE enter backdated changes.",
+          "where": "Slack #ee-billing-kraken",
+          "source_url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760510000"
+        },
+        {
+          "on": "2026-10-16",
+          "at": "11:20",
+          "who": "Hana Mori, EE",
+          "what": "Asked whether the rebill can be switched off.",
+          "so_what": "EE want a process answer, not a code change.",
+          "where": "Asana comment",
+          "source_url": "https://app.asana.com/0/0/1200000000000103"
+        }
+      ],
+      "items": [
+        {
+          "id": 6,
+          "title": "Tell EE the credit each rebilled customer will get",
+          "where_it_stands": "Pricing are checking whether the Green Fixed rate was lower or higher than the old one for each customer.",
+          "steps": [
+            "Send the per-customer credit table to Hana once pricing confirm it."
+          ],
+          "done_when": "Hana has the credit amounts for all 96 customers.",
+          "why": "EE's contact centre needs the numbers before customers call.",
+          "state": "hold",
+          "urgency": "this-week",
+          "est_minutes": 15,
+          "opened": "2026-10-15",
+          "hold": {
+            "why": "The credit amounts are not confirmed. Sending a draft table would give EE numbers that may change.",
+            "until": "Kraken Pricing confirm the credit amounts",
+            "revisit": "2026-10-23"
+          },
+          "history": [
+            {
+              "at": "2026-10-15T10:30:00+01:00",
+              "state": "hold",
+              "note": "held until pricing confirm"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Explain the rebill to EE and ask how they want to enter backdated changes",
+          "where_it_stands": "Jordan confirmed the rebill is how a backdated tariff works. Hana's question is still unanswered on the ticket.",
+          "steps": [
+            "Read the draft and check the customer count matches the ticket.",
+            "Post it as a comment on the ticket, replying to Hana."
+          ],
+          "done_when": "Hana knows why it happened and has two options to choose from.",
+          "why": "Without a process change the next backdated tariff move will rebill again.",
+          "state": "todo",
+          "urgency": "today",
+          "est_minutes": 15,
+          "opened": "2026-10-16",
+          "at_standup": false,
+          "where": "Asana comment",
+          "link": "https://app.asana.com/0/0/1200000000000103",
+          "draft": {
+            "language": "en",
+            "target": "Asana comment on TARIFF-BACKDATE, reply to Hana Mori",
+            "link": "https://app.asana.com/0/0/1200000000000103",
+            "body_en": "Hi Hana, thank you for flagging this.\n\nThe 96 customers were moved to Green Fixed with a start date of 1 September, after their September bills had already been issued. When a tariff starts in a period that has already been billed, Kraken reissues that bill at the new rate. That is the second bill they received.\n\nThere are two ways to avoid this next time:\n1. Start the new tariff from the next billing period, so no issued bill is touched.\n2. Keep the backdated start, and send customers a short notice before the corrected bill goes out.\n\nWhich would suit EE better? We will send the credit amount for each customer separately once it is confirmed.",
+            "reply_from": "Hana Mori, EE"
+          },
+          "history": [
+            {
+              "at": "2026-10-16T11:30:00+01:00",
+              "state": "todo",
+              "note": "opened from Hana's comment"
+            }
+          ]
+        }
+      ],
+      "prep": {
+        "order": 2,
+        "board_position": "2 of 6 on the board",
+        "issue": [
+          "96 customers got a second September bill after EE moved them to a new tariff starting 1 Sep.",
+          "This is how a backdated tariff works, so the fix is a choice about how EE enter them."
+        ],
+        "why_it_matters": "Customers think they were billed twice.",
+        "open_questions": [
+          {
+            "en": "Should backdated tariff changes start from the next billing period instead?",
+            "ja_ruby": "For future tariff changes, would you prefer to start them from the next billing period?",
+            "who": "EE"
+          }
+        ],
+        "script": [
+          {
+            "heading": "Where it stands",
+            "heading_en": "Where it stands",
+            "lines": [
+              {
+                "ja_ruby": "The second bill came from the backdated start date; it is how a backdated tariff works, not a fault.",
+                "en": ""
+              },
+              {
+                "ja_ruby": "I have written up the details on the ticket today.",
+                "en": ""
+              }
+            ]
+          },
+          {
+            "heading": "What I need answered",
+            "heading_en": "What I need answered",
+            "lines": [
+              {
+                "ja_ruby": "For future tariff changes, would you prefer to start them from the next billing period?",
+                "en": ""
+              }
+            ]
+          }
+        ],
+        "client_ask_needed": true,
+        "unknowns": [
+          "Do not quote credit amounts yet. Pricing have not confirmed them (item 6)."
+        ],
+        "built_at": "2026-10-19T13:15:22+09:00"
+      }
+    },
+    {
+      "id": "1200000000000104",
+      "ref": "PDF-TYPO",
+      "title_en": "Statement PDF says \"Ammount due\"",
+      "title_ja": "",
+      "asana_url": "https://app.asana.com/0/0/1200000000000104",
+      "asana": {
+        "status": "Fix released",
+        "section": "Statements",
+        "priority": "Low",
+        "category": "Bug",
+        "severity": "Cosmetic",
+        "assignee": "Alex Example",
+        "project": "EE Billing (client-shared)",
+        "completed": false
+      },
+      "last_activity": {
+        "at": "2026-10-16 18:00",
+        "who": "Jordan Lee, Kraken",
+        "where": "Slack #ee-billing-kraken"
+      },
+      "where_it_stands": "The template fix went out on 16 Oct. EE will check the next batch of statements on 22 Oct before the ticket closes.",
+      "threads": [
+        {
+          "where": "Slack #ee-billing-kraken",
+          "label": "Statement template typo",
+          "gist": "Jordan fixed the label and released it with the 16 Oct deploy.",
+          "last_from": "Jordan Lee",
+          "last_at": "2026-10-16",
+          "checked": "2026-10-19",
+          "url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760620000"
+        }
+      ],
+      "closes_when": [
+        {
+          "what": "Template fixed",
+          "who": "Kraken",
+          "state": "done"
+        },
+        {
+          "what": "EE check the 22 Oct statement batch",
+          "who": "EE",
+          "state": "next",
+          "note": "Item 9."
+        }
+      ],
+      "events": [
+        {
+          "on": "2026-10-09",
+          "at": "13:15",
+          "who": "Ken Ito, EE",
+          "what": "Spotted \"Ammount due\" on the statement PDF.",
+          "so_what": "Every statement carries it.",
+          "where": "Asana",
+          "source_url": "https://app.asana.com/0/0/1200000000000104"
+        },
+        {
+          "on": "2026-10-16",
+          "at": "18:00",
+          "who": "Jordan Lee, Kraken",
+          "what": "Released the template fix.",
+          "so_what": "Next statement batch should be correct.",
+          "where": "Slack #ee-billing-kraken",
+          "source_url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760620000"
+        }
+      ],
+      "items": [
+        {
+          "id": 8,
+          "title": "Send Jordan the corrected label text",
+          "steps": [
+            "Post the corrected label in Jordan's thread."
+          ],
+          "done_when": "Jordan has the exact text.",
+          "why": "So the fix matches EE's wording.",
+          "state": "done",
+          "state_at": "12 Oct",
+          "state_note": "Jordan confirmed the wording.",
+          "closed_at": "2026-10-12T14:00:00+01:00",
+          "opened": "2026-10-09",
+          "urgency": "this-week",
+          "history": [
+            {
+              "at": "2026-10-09T14:00:00+01:00",
+              "state": "todo",
+              "note": "opened"
+            },
+            {
+              "at": "2026-10-12T14:00:00+01:00",
+              "state": "done",
+              "note": "Jordan confirmed the wording."
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "title": "Confirm EE have checked the 22 Oct statements",
+          "where_it_stands": "Released on 16 Oct. Ken said he will check the first batch after it.",
+          "steps": [
+            "Ask Ken on 23 Oct whether the batch looked right."
+          ],
+          "done_when": "Ken has confirmed and the ticket can close.",
+          "why": "A ticket closes when the client have seen the fix, not when it ships.",
+          "state": "waiting",
+          "state_at": "16 Oct",
+          "sent_by_you": true,
+          "urgency": "monitor",
+          "waits_on": {
+            "who": "Ken Ito, EE",
+            "since": "2026-10-16",
+            "what": "a check of the 22 Oct statement batch",
+            "chase_on": "2026-10-23"
+          },
+          "opened": "2026-10-16",
+          "where": "Asana",
+          "link": "https://app.asana.com/0/0/1200000000000104",
+          "history": [
+            {
+              "at": "2026-10-16T18:10:00+01:00",
+              "state": "waiting",
+              "note": "with Ken Ito"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1200000000000105",
+      "ref": "REFUND-APPROVAL",
+      "title_en": "Refunds over ¥50,000 need a second approver",
+      "title_ja": "",
+      "asana_url": "https://app.asana.com/0/0/1200000000000105",
+      "asana": {
+        "status": "Requirements",
+        "section": "Payments",
+        "priority": "Medium",
+        "category": "Change request",
+        "severity": "",
+        "assignee": "Alex Example",
+        "project": "EE Billing (client-shared)",
+        "completed": false
+      },
+      "last_activity": {
+        "at": "2026-10-15 10:50",
+        "who": "Ken Ito, EE",
+        "where": "EE Billing Standup"
+      },
+      "where_it_stands": "EE's finance team want a second person to approve any refund over ¥50,000. Kraken already supports approval rules; EE have not yet named who the approvers are.",
+      "threads": [
+        {
+          "where": "Asana",
+          "label": "EE request",
+          "gist": "Ken asked for two-person approval on large refunds.",
+          "last_from": "Ken Ito",
+          "last_at": "2026-10-15",
+          "checked": "2026-10-19",
+          "url": "https://app.asana.com/0/0/1200000000000105"
+        },
+        {
+          "where": "Slack #ee-billing-kraken",
+          "label": "Refund approval rule options",
+          "gist": "Morgan listed the threshold and role settings available today.",
+          "last_from": "Morgan Reyes",
+          "last_at": "2026-10-14",
+          "checked": "2026-10-19",
+          "url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760420000"
+        }
+      ],
+      "closes_when": [
+        {
+          "what": "EE name the approver group",
+          "who": "EE",
+          "state": "next",
+          "note": "Item 11."
+        },
+        {
+          "what": "Rule set up and tested on staging",
+          "who": "Alex Example",
+          "state": "now",
+          "note": "Item 10."
+        },
+        {
+          "what": "Rule switched on in production",
+          "who": "Kraken",
+          "state": "next"
+        }
+      ],
+      "events": [
+        {
+          "on": "2026-10-14",
+          "at": "12:00",
+          "who": "Morgan Reyes, Kraken",
+          "what": "Confirmed the existing approval rule can take a threshold and an approver role.",
+          "so_what": "No build needed, only configuration.",
+          "where": "Slack #ee-billing-kraken",
+          "source_url": "https://example.invalid/slack/archives/C0EEKRAKEN/p1760420000"
+        },
+        {
+          "on": "2026-10-15",
+          "at": "10:50",
+          "who": "Ken Ito, EE",
+          "what": "Agreed to send the approver list by 20 Oct.",
+          "so_what": "The set-up can start once it arrives.",
+          "where": "EE Billing Standup",
+          "source_url": "https://app.asana.com/0/0/1200000000000105"
+        }
+      ],
+      "items": [
+        {
+          "id": 10,
+          "title": "Set up the ¥50,000 approval rule on staging",
+          "where_it_stands": "Morgan confirmed it is configuration only. The approver role can be created now and filled once EE send names.",
+          "steps": [
+            "Create the approver role and the ¥50,000 rule on staging.",
+            "Raise a ¥60,000 test refund and check it waits for a second approver."
+          ],
+          "done_when": "A test refund over the limit stops for approval on staging.",
+          "why": "EE can test it the day their approver list arrives.",
+          "state": "todo",
+          "urgency": "this-week",
+          "est_minutes": 45,
+          "opened": "2026-10-15",
+          "where": "Kraken staging",
+          "link": "https://example.invalid/kraken/staging/refunds",
+          "history": [
+            {
+              "at": "2026-10-15T11:10:00+01:00",
+              "state": "todo",
+              "note": "opened"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "title": "Get the approver list from EE finance",
+          "where_it_stands": "Ken promised it by 20 Oct at the last standup.",
+          "steps": [
+            "Chase Ken in the ticket if the list has not arrived by 20 Oct."
+          ],
+          "done_when": "We have the names of the approvers.",
+          "why": "The rule cannot go live without them.",
+          "state": "waiting",
+          "state_at": "15 Oct",
+          "urgency": "monitor",
+          "waits_on": {
+            "who": "Ken Ito, EE",
+            "since": "2026-10-15",
+            "what": "the list of refund approvers",
+            "chase_on": "2026-10-20"
+          },
+          "opened": "2026-10-15",
+          "where": "Asana",
+          "link": "https://app.asana.com/0/0/1200000000000105",
+          "history": [
+            {
+              "at": "2026-10-15T10:55:00+01:00",
+              "state": "waiting",
+              "note": "with Ken Ito"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "credit-balance-letter",
+      "ref": "CREDIT-LETTER",
+      "title_en": "Wording for the credit balance letter",
+      "title_ja": "",
+      "asana_url": "",
+      "asana": {},
+      "no_ticket_yet": "Agreed in Slack with EE billing ops on 14 Oct. EE will raise a ticket if the wording needs a template change.",
+      "last_activity": {
+        "at": "2026-10-14 15:30",
+        "who": "Hana Mori, EE",
+        "where": "Slack #ee-billing"
+      },
+      "where_it_stands": "EE want a plainer letter for customers in credit. Alex offered to suggest wording before EE raise a template change.",
+      "threads": [
+        {
+          "where": "Slack #ee-billing",
+          "label": "Credit balance letter feedback",
+          "gist": "Hana shared three customer complaints that the letter reads like a demand.",
+          "last_from": "Hana Mori",
+          "last_at": "2026-10-14",
+          "checked": "2026-10-19",
+          "url": "https://example.invalid/slack/archives/C0EEBILLING/p1760450000"
+        }
+      ],
+      "closes_when": [
+        {
+          "what": "Suggested wording sent to EE",
+          "who": "Alex Example",
+          "state": "now",
+          "note": "Item 12."
+        },
+        {
+          "what": "EE decide whether to change the template",
+          "who": "EE",
+          "state": "next"
+        }
+      ],
+      "events": [
+        {
+          "on": "2026-10-14",
+          "at": "15:30",
+          "who": "Hana Mori, EE",
+          "what": "Shared customer complaints about the credit balance letter.",
+          "so_what": "Small wording change, high customer goodwill.",
+          "where": "Slack #ee-billing",
+          "source_url": "https://example.invalid/slack/archives/C0EEBILLING/p1760450000"
+        }
+      ],
+      "items": [
+        {
+          "id": 12,
+          "title": "Suggest plainer wording for the credit balance letter",
+          "where_it_stands": "Hana's three complaints all quote the same opening line.",
+          "steps": [
+            "Rewrite the opening two lines of the letter.",
+            "Post the suggestion in Hana's thread in #ee-billing."
+          ],
+          "done_when": "Hana has a suggested opening she can take to her team.",
+          "why": "It is a small change EE asked for directly.",
+          "state": "todo",
+          "urgency": "this-week",
+          "est_minutes": 20,
+          "opened": "2026-10-14",
+          "where": "Slack #ee-billing",
+          "link": "https://example.invalid/slack/archives/C0EEBILLING/p1760450000",
+          "history": [
+            {
+              "at": "2026-10-14T15:40:00+01:00",
+              "state": "todo",
+              "note": "opened"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sessions": [
+    {
+      "kind": "standup",
+      "date": "2026-10-21",
+      "at": "10:30",
+      "label": "EE Billing Standup",
+      "title": "EE Billing Standup",
+      "focus": "Get EE's decision on estimating the oldest held bills."
+    },
+    {
+      "kind": "weekly",
+      "date": "2026-10-22",
+      "at": "14:00",
+      "label": "EE Weekly Review",
+      "title": "EE Weekly Review",
+      "focus": "Held bill numbers and the refund approval plan."
+    },
+    {
+      "kind": "standup",
+      "date": "2026-10-26",
+      "at": "10:30",
+      "label": "EE Billing Standup",
+      "title": "EE Billing Standup"
+    }
+  ],
+  "script": {
+    "for_date": "2026-10-21",
+    "at": "10:30",
+    "built_at": "2026-10-19T13:15:22+09:00",
+    "headline": "READ-GAP: get EE's yes or no on estimating the 312 oldest held bills."
+  },
+  "news": [
+    {
+      "topic": "Payments platform maintenance",
+      "what": "Kraken's payments team will pause all collections on Sat 24 Oct, 01:00 to 05:00.",
+      "why": "Reaches DD-RETRY: if retries are rescheduled into that window they will slip a day.",
+      "on": "2026-10-18",
+      "source_url": "https://example.invalid/slack/archives/C0PAYMENTS/p1760800000"
+    },
+    {
+      "topic": "EE finance year-end freeze",
+      "what": "EE finance will not approve configuration changes from 1 Dec to 10 Jan.",
+      "why": "Reaches REFUND-APPROVAL: the rule has to be live before 1 Dec or it waits until January.",
+      "on": "2026-10-15",
+      "source_url": "https://example.invalid/slack/archives/C0EEBILLING/p1760520000"
+    }
+  ],
+  "glossary": {},
+  "brief": {
+    "built_at": "2026-10-19T13:15:22+09:00",
+    "for_date": "2026-10-19",
+    "lines": [
+      {
+        "what": "Hana asked this morning whether customers will be charged twice when direct debit retries resume.",
+        "kind": "moved",
+        "items": [
+          "2"
+        ],
+        "ref": "DD-RETRY",
+        "source_url": "https://app.asana.com/0/0/1200000000000101"
+      },
+      {
+        "what": "Start with 1 and 7: two short messages that unblock both EE questions.",
+        "kind": "do",
+        "items": [
+          "1",
+          "7"
+        ]
+      },
+      {
+        "what": "Ken owes the refund approver list tomorrow.",
+        "kind": "watch",
+        "items": [
+          "11"
+        ],
+        "ref": "REFUND-APPROVAL"
+      }
+    ]
+  }
+}

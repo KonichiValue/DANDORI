@@ -1,0 +1,148 @@
+/* The setup page. The same ink, paper and accent as the desk, so the first
+   thing a new owner sees is the room they are about to work in. The step
+   colours are the desk's semantic ones and mean what they mean there: green is
+   finished, the accent is the next thing to do. */
+body[data-view="setup"]{background:var(--page)}
+.su-head{background:linear-gradient(160deg,var(--head) 0%,var(--head-2) 100%);color:#fff;
+padding:44px 24px 34px}
+.su-in,.su-main{max-width:860px;margin:0 auto}
+.su-kicker{margin:0 0 6px;font:650 12px/1.2 var(--font);letter-spacing:.08em;
+text-transform:uppercase;color:rgba(255,255,255,.62)}
+.su-head h1{margin:0;font:700 30px/1.15 var(--font);letter-spacing:-.022em}
+.su-lead{margin:10px 0 22px;max-width:640px;color:rgba(255,255,255,.78);font-size:15px}
+.su-bar{height:6px;border-radius:6px;background:rgba(255,255,255,.14);overflow:hidden}
+.su-fill{display:block;height:100%;width:0;border-radius:6px;background:#5fd3a0;
+transition:width var(--t-slow) var(--ease)}
+.su-count{display:flex;align-items:center;gap:12px;margin:12px 0 0;font-size:13px;
+color:rgba(255,255,255,.78);font-variant-numeric:tabular-nums}
+.su-count .btn.ghost{color:#fff;background:transparent;border-color:rgba(255,255,255,.28);
+box-shadow:none}
+.su-count .btn.ghost:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.5)}
+.su-at{color:rgba(255,255,255,.5)}
+.su-main{padding:26px 24px 60px}
+.su-foot{color:var(--soft);font-size:13px;margin:26px 4px 0}
+
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.step{display:grid;grid-template-columns:44px 1fr;gap:14px;background:var(--card);
+border:1px solid var(--line);border-radius:14px;padding:18px 20px 18px 16px;
+box-shadow:var(--shadow);transition:border-color var(--t-mid) var(--ease)}
+.st-n span{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;
+font:700 14px/1 var(--font);color:var(--mut);background:var(--hair);
+border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.st-top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.st-top h2{margin:4px 0 0;font:650 17px/1.3 var(--font)}
+.st-said{font-size:13px;color:var(--mut)}
+.st-how{color:var(--mut);font-size:14.5px}
+.st-how p{margin:6px 0 0}
+.how{margin:8px 0 0;padding-left:20px}
+.how li{margin:3px 0}
+.aside{font-size:13px;color:var(--soft)}
+.st-go{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);
+padding:7px 14px;font-size:13.5px}
+.btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
+.btn[disabled]{opacity:.5;pointer-events:none}
+code{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--hair);
+padding:1px 5px;border-radius:5px}
+
+/* The states. Finished steps fold down to their title and line, so the page
+   always opens on the next thing to do rather than on a wall of done. */
+.step[data-state="done"]{border-color:var(--green-line)}
+.step[data-state="done"] .st-n span{background:var(--green);border-color:var(--green);color:#fff}
+.step[data-state="done"] .st-n span{font-size:0}
+.step[data-state="done"] .st-n span:after{content:"\2713";font-size:16px}
+.step[data-state="done"] .st-said{color:var(--green)}
+.step[data-state="done"]:not(.open) .st-how,
+.step[data-state="done"]:not(.open) .chips{display:none}
+.step[data-state="done"]:not(.open) .st-go .btn.primary:not([data-desk]){background:var(--card);color:var(--accent);
+border-color:var(--line)}
+.step.next{border-color:var(--accent-line);box-shadow:var(--lift)}
+.step.next .st-n span{background:var(--accent);border-color:var(--accent);color:#fff}
+.step[data-state="optional"] .st-said{color:var(--soft)}
+.step[data-state="checking"] .st-said:before{content:"";display:inline-block;width:9px;height:9px;
+margin-right:6px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);
+animation:su-spin .8s linear infinite;vertical-align:-1px}
+@keyframes su-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.step[data-state="checking"] .st-said:before{animation:none}}
+
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chip{font:600 12px/1 var(--font);padding:5px 9px;border-radius:20px;border:1px solid var(--line);
+background:var(--hair);color:var(--mut)}
+.chip[data-s="connected"]{background:var(--green-bg);border-color:var(--green-line);color:var(--green)}
+.chip[data-s="needs-auth"]{background:var(--amber-bg);border-color:var(--amber-line);color:var(--amber-ink)}
+.chip[data-s="failed"],.chip[data-s="missing"]{background:var(--red-bg);border-color:var(--red-line);color:var(--red)}
+
+.st-run{margin-top:12px;border-radius:10px;background:var(--hair);border:1px solid var(--line);
+padding:10px 12px}
+.run-said{margin:0;font-weight:600;font-size:14px}
+.st-run[data-s="failed"] .run-said{color:var(--red)}
+.st-run[data-s="done"] .run-said{color:var(--green)}
+.run-url{margin-top:8px;display:inline-block}
+.run-log{margin:8px 0 0;max-height:150px;overflow:auto;font:11.5px/1.45 ui-monospace,Menlo,monospace;
+color:var(--mut);white-space:pre-wrap;word-break:break-word}
+.run-log:empty{display:none}
+
+/* The questions. Two columns of short answers, a long one across both. */
+.form-wrap{margin-top:16px}
+#answers fieldset{border:0;border-top:1px solid var(--line);margin:0;padding:16px 0 6px;
+display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+#answers fieldset:first-child{border-top:0;padding-top:4px}
+#answers legend{font:650 14px/1 var(--font);color:var(--ink);padding:0 0 8px;float:left;
+grid-column:1/-1;width:100%}
+#answers .lead{grid-column:1/-1;margin:0;color:var(--mut);font-size:13.5px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f.wide,.rows,.add,.lang-more,.more,.f-e[data-for]{grid-column:1/-1}
+.f-l{font:600 13px/1.3 var(--font);color:var(--ink)}
+.f-l i,.tick i{font-style:normal;font-weight:500;color:var(--soft);font-size:12px;margin-left:4px}
+.f-h{font-size:12.5px;color:var(--soft);line-height:1.4}
+.f-e{font-size:12.5px;color:var(--red);font-weight:600}
+.f-e:empty{display:none}
+#answers input[type=text],#answers input[type=email],#answers input[type=time],
+#answers input[type=date],#answers select{font:14px/1.3 var(--font);color:var(--ink);
+background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+min-width:0;width:100%;box-sizing:border-box;box-shadow:inset 0 1px 2px rgba(20,26,40,.04)}
+#answers input:focus,#answers select:focus{outline:none;border-color:var(--accent);
+box-shadow:0 0 0 3px var(--accent-bg)}
+.f.bad input,.f.bad select{border-color:var(--red)}
+.lang-more,.more{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.lang-more[hidden],.more[hidden]{display:none}
+.tick{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.tick input{width:16px;height:16px;accent-color:var(--accent)}
+.opt legend .tick span{font:650 14px/1 var(--font)}
+
+.days{display:inline-flex;gap:4px;flex-wrap:wrap}
+.days label{cursor:pointer}
+.days input{position:absolute;opacity:0;pointer-events:none}
+.days span{display:inline-block;min-width:38px;text-align:center;padding:6px 0;border-radius:8px;
+border:1px solid var(--line);font:600 12.5px/1 var(--font);color:var(--mut);background:var(--card)}
+.days input:checked+span{background:var(--accent);border-color:var(--accent);color:#fff}
+.days input:focus-visible+span{box-shadow:0 0 0 3px var(--accent-bg)}
+
+.rows{display:grid;gap:8px}
+.row{display:grid;grid-template-columns:1.6fr 1fr 30px;gap:8px;align-items:center}
+.row.room{grid-template-columns:1.4fr 110px auto 1fr 30px}
+.row input,.row select{font:14px/1.3 var(--font);border:1px solid var(--line);border-radius:8px;
+padding:8px 10px;min-width:0;background:var(--card);color:var(--ink)}
+.row .x{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--card);
+color:var(--soft);font-size:18px;line-height:1;cursor:pointer}
+.row .x:hover{color:var(--red);border-color:var(--red-line)}
+.add{justify-self:start}
+
+.adv{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.adv>summary{cursor:pointer;font:650 13.5px/1.4 var(--font);color:var(--accent);
+display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:4px 0}
+.adv>summary span{font-weight:400;font-size:12.5px;color:var(--soft)}
+
+.save-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;margin-top:14px;
+padding:12px 0;background:linear-gradient(to top,var(--card) 70%,transparent)}
+.save-said{font-size:13.5px;color:var(--mut)}
+.save-said.ok{color:var(--green);font-weight:600}
+.save-said.bad{color:var(--red);font-weight:600}
+
+@media (max-width:700px){
+  #answers fieldset,.lang-more,.more{grid-template-columns:1fr}
+  .row,.row.room{grid-template-columns:1fr 30px}
+  .row.room>*:not(.x){grid-column:1}
+  .step{grid-template-columns:1fr}
+  .st-n{display:none}
+}

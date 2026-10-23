@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "DANDORI",
+      "url": "http://localhost:8787"
+    },
+    {
+      "name": "DANDORI-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["core/serve.py", "--port", "8791"],
+      "port": 8791
+    }
+  ]
+}

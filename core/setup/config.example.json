@@ -1,0 +1,84 @@
+{
+  "_readme": "Your answers to the setup questions. Copied to config.json by the setup, which git never sees. Every key is explained in setup/QUESTIONS.md.",
+
+  "owner": {
+    "name": "Alex Example",
+    "email": "alex.example@kraken.tech",
+    "asana_user_gid": "",
+    "slack_user_id": "",
+    "role": "Client Delivery Lead",
+    "workstream": "billing"
+  },
+
+  "client": {
+    "name": "Example Energy",
+    "short": "EE",
+    "domains": ["example-energy.co.jp"],
+    "language": "ja",
+    "support_url": ""
+  },
+
+  "timezone": "Asia/Tokyo",
+
+  "desk": {
+    "name": "DANDORI",
+    "command": "DANDORI",
+    "port": 8787,
+    "morning_sweep": "08:15"
+  },
+
+  "asana": {
+    "workspace_gid": "",
+    "projects": [
+      { "gid": "", "name": "The client-shared project your tickets live in" }
+    ],
+    "exclude_projects": []
+  },
+
+  "meeting": {
+    "name": "Standup with the client",
+    "time_local": "10:30",
+    "minutes": 30,
+    "days": ["Mon", "Wed"],
+    "notes_title": "",
+    "also": [
+      { "name": "Weekly review", "time_local": "13:00", "days": ["Wed"], "kind": "weekly", "record": "" },
+      { "name": "Programme daily", "time_local": "09:30", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "kind": "rollup" },
+      { "name": "Team huddle", "time_local": "16:00", "days": ["Thu"], "kind": "huddle", "record": "" }
+    ]
+  },
+
+  "slack": {
+    "search_scope": "all",
+    "channel_hints": [],
+    "form_channels": []
+  },
+
+  "calendar": {
+    "work_words": []
+  },
+
+  "language": {
+    "client": "ja",
+    "level": "",
+    "register": "",
+    "readings": false,
+    "reading_terms": [],
+    "plain_runs": []
+  },
+
+  "database": {
+    "mcp": "",
+    "command": "",
+    "conn": ""
+  },
+
+  "models": {
+    "region": "eu"
+  },
+
+  "ask": { "effort": "medium" },
+  "refresh": { "effort": "medium" },
+  "prep": { "effort": "medium" },
+  "post": {}
+}

@@ -1,0 +1,207 @@
+
+.run-h{margin:16px 0 8px;font-size:12px;font-weight:750;display:flex;gap:9px;
+align-items:center}
+.run-h:before{content:"";width:3px;height:13px;border-radius:2px;
+background:var(--accent-line)}
+.run-h .q{font-weight:500;font-size:11.5px;color:var(--soft)}
+.st-run{list-style:none;margin:0;padding:0;overflow:hidden;
+border:1px solid var(--line);border-radius:11px;background:var(--card)}
+.st-run li{display:flex;gap:12px;align-items:center;padding:10px 16px;
+border-bottom:1px solid var(--hair)}
+.st-run li:last-child{border-bottom:0}
+.st-run .n{flex:none;width:23px;height:23px;border-radius:7px;
+background:var(--accent-bg);color:var(--accent-ink);display:grid;place-items:center;
+font-size:12px;font-weight:700}
+.st-run a{flex:1;min-width:0;text-decoration:none;color:inherit;font-weight:550;
+font-size:14.5px}
+.st-run a:hover{color:var(--accent)}
+.st-run .say{flex:none;font-size:12px;color:var(--soft)}
+/* Same card as the work view, so moving between the two costs nothing. */
+.st-tk{padding:0 22px 20px;margin-bottom:20px;scroll-margin-top:96px;
+border-top:4px solid var(--line);overflow:hidden}
+.st-tk.mine{border-top-color:var(--accent)}
+.st-tk.clear{border-top-color:var(--green)}
+.st-head{margin:0 -22px;padding:14px 22px 15px;border-bottom:1px solid var(--line);
+background:linear-gradient(180deg,var(--accent-bg),#fff)}
+.st-tk.clear .st-head{background:linear-gradient(180deg,#fbfcfe,#fff)}
+.st-head h2{margin:0;font-size:18.5px;letter-spacing:-.018em;line-height:1.3;
+font-weight:700}
+.st-head .ja{margin:4px 0 0;font-size:14px;color:var(--mut)}
+.st-head .pos{margin:8px 0 0;display:flex;gap:9px;align-items:center;flex-wrap:wrap;
+font-size:12px;color:var(--soft)}
+.st-head .pos:empty{display:none}
+.st-issue{margin:0;padding-left:18px}
+.st-issue li{margin-bottom:4px;font-size:14.5px}
+/* What moved since the last meeting. The answer to the first question asked. */
+.moves{list-style:none;margin:0;padding:0}
+.moves li{display:flex;gap:12px;align-items:baseline;padding:8px 0;
+border-bottom:1px dashed var(--line)}
+.moves li:last-child{border-bottom:0}
+.mv-day{font-size:11px;font-weight:750;text-transform:uppercase;
+letter-spacing:.08em;color:var(--soft);padding:4px 0 2px;border-bottom:0}
+.mv-when{flex:none;width:40px;font-size:11.5px;font-weight:700;color:#9aa3b2;
+font-variant-numeric:tabular-nums}
+.mv-what{flex:1;min-width:0;font-size:14px}
+.mv-what b{font-weight:700}
+.mv-so{display:block;font-size:13px;color:var(--accent-ink);margin-top:3px;
+padding-left:10px;border-left:2px solid var(--accent-line)}
+/* The whole history, one fold per day, counting back from today. The line in the
+   middle is where the owner last spoke: above it is what has changed, below it
+   is what the room may still ask them to remember. */
+.mv-mark{margin:10px 0 4px;padding:6px 10px;background:var(--hair);
+border-radius:7px;font-size:11.5px;font-weight:650;color:var(--soft)}
+.mv-fold{border-bottom:1px dashed var(--line)}
+.mv-fold:last-child{border-bottom:0}
+.mv-fold>summary{display:flex;gap:10px;align-items:baseline;cursor:pointer;
+padding:7px 0;font-size:13px;color:var(--mut)}
+.mv-fold>summary::-webkit-details-marker{display:none}
+.mv-fold>summary:hover .mv-d{color:var(--accent-ink)}
+.mv-d{font-weight:700}
+.mv-c{font-size:11.5px;color:var(--soft)}
+.mv-fold .moves{padding:0 0 6px 4px}
+.q-side{font-size:12.5px;color:var(--soft);margin-top:3px}
+.st-stands{margin:0;font-size:15px}
+.st-raise{margin:13px 0 0;padding:0;list-style:none}
+.st-raise li{display:flex;gap:10px;align-items:baseline;padding:9px 12px;
+background:var(--red-bg);border:1px solid var(--red-line);border-radius:9px;
+margin-bottom:6px}
+.st-raise .n{flex:none;font-size:11px;font-weight:700;color:var(--red);
+text-transform:uppercase;letter-spacing:.05em}
+.st-raise .t{flex:1;min-width:0;font-size:14px;color:#912018}
+.st-raise a{font-size:12px;color:var(--accent);text-decoration:none;white-space:nowrap}
+.st-warn{margin-top:15px;background:var(--amber-bg);border:1px solid var(--amber-line);
+border-radius:10px;padding:12px 15px}
+.st-warn h3{color:var(--amber);font-size:11.5px;text-transform:uppercase;
+letter-spacing:.08em;margin:0 0 6px;font-weight:700}
+.st-warn ul{margin:0;padding-left:18px;font-size:14px;color:var(--amber-ink)}
+.st-secret{margin:9px 0 0;font-size:12px;color:var(--amber)}
+.st-safe{margin:5px 0 0;font-size:13.5px;color:var(--ink)}
+.st-safe:before{content:"";display:inline-block;width:3px;height:12px;
+border-radius:2px;background:var(--green);margin-right:7px;vertical-align:-1px}
+.st-none{margin:0 0 12px;padding:9px 13px;background:var(--green-bg);
+border:1px solid var(--green-line);border-radius:8px;color:var(--green);
+font-size:14px;font-weight:550}
+.st-empty{padding:34px 30px;text-align:center}
+.st-empty h2{margin:0 0 8px;font-size:18px;letter-spacing:-.015em}
+.st-empty p{margin:0 auto;max-width:470px;color:var(--mut);font-size:14.5px}
+.st-stale{margin-bottom:16px;padding:11px 15px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:10px;font-size:13.5px;
+color:var(--amber-ink)}
+
+/* The session banner. An onsite is not a longer standup, so it does not look
+   like one: the whole banner leans on the kind of session it is. */
+.sess{background:var(--card);border:1px solid var(--line);border-radius:14px;
+box-shadow:var(--shadow);padding:15px 20px;margin-bottom:18px;
+border-left:4px solid var(--accent)}
+.sess-focus{margin:0;font-size:14.5px;color:var(--mut)}
+.sess.big{border-left-width:5px}
+.sess.bare{background:none;border:0;box-shadow:none;padding:0;margin-bottom:14px}
+.sess.bare .sess-bring{margin:0}
+.day-fold{margin-top:10px}
+.day-fold>summary{cursor:pointer;padding:8px 11px;background:var(--hair);
+border-radius:8px;display:flex;align-items:center;gap:10px}
+.agenda{list-style:none;margin:11px 0 0;padding:0;display:grid;gap:1px;
+background:var(--line);border:1px solid var(--line);border-radius:10px;
+overflow:hidden}
+.agenda li{background:var(--card);padding:9px 13px;display:flex;gap:12px;
+align-items:baseline;flex-wrap:wrap}
+.agenda .ag-t{flex:1;min-width:180px;font-size:14px;font-weight:600}
+.agenda .ag-w{flex:2;min-width:220px;font-size:13.5px;color:var(--mut)}
+.agenda .ag-o{flex:none;font-size:11.5px;font-weight:700;color:var(--accent-ink);
+background:var(--accent-bg);padding:2px 8px;border-radius:20px}
+.sess-bring{margin:12px 0 0;padding:10px 13px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:9px;font-size:13.5px;
+color:var(--amber-ink)}
+.sess-bring b{display:block;font-size:11px;text-transform:uppercase;
+letter-spacing:.07em;color:var(--amber);margin-bottom:3px}
+
+/* Everything the owner has to come out of the room with, one list. The label on the
+   left says which kind it is, so a decision to land and a chase are not read
+   with the same weight. */
+.needs{list-style:none;margin:0;padding:0}
+.need-row{display:flex;gap:13px;padding:11px 13px;border-radius:9px;
+margin-bottom:7px;border:1px solid var(--line);background:var(--hair)}
+.need-row.settle{border-color:var(--amber-line);background:var(--amber-bg)}
+.need-row.ask{border-color:var(--accent-line);background:var(--accent-bg)}
+.need-k{flex:none;width:112px;font-size:10.5px;font-weight:750;
+text-transform:uppercase;letter-spacing:.07em;color:var(--soft);padding-top:3px}
+.need-row.settle .need-k{color:var(--amber)}
+.need-row.ask .need-k{color:var(--accent)}
+.need-row.owed .need-k{color:var(--blue)}
+.need-b{flex:1;min-width:0}
+.need-what{margin:0;font-size:14.5px;font-weight:600;display:flex;gap:9px;
+align-items:baseline;flex-wrap:wrap}
+.need-why{margin:3px 0 0;font-size:13px;color:var(--mut)}
+.need-fall{margin:6px 0 0;font-size:13px;color:var(--amber);font-weight:550}
+.need-fall b{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+margin-right:6px}
+.need-b .jp.small{font-size:16px;line-height:1.85;margin-top:5px}
+.st-push{list-style:none;margin:0;padding:0}
+.st-push li{padding:11px 0;border-bottom:1px dashed var(--line)}
+.st-push li:last-child{border-bottom:0}
+.st-push .they{font-size:13.5px;color:var(--mut);padding-left:11px;
+border-left:3px solid var(--line);font-style:italic}
+.st-push .mine{margin-top:7px;padding-left:11px;border-left:3px solid var(--accent-line)}
+.st-push .mine .jp{font-size:17px}
+
+/* Also today: the other rooms the owner speaks in the same span, deliberately
+   small so the session they are rehearsing keeps the screen. Muted, not the
+   house accent, because it is the second thing to read and closed until they
+   ask for it. */
+.also{background:var(--hair);border:1px solid var(--line);border-left:4px solid var(--soft);
+border-radius:13px;margin-bottom:18px;overflow:hidden}
+.also>summary{cursor:pointer;list-style:none;display:flex;gap:11px;align-items:center;
+flex-wrap:wrap;padding:11px 16px}
+.also>summary::-webkit-details-marker{display:none}
+.also>summary::before{display:none}
+.also[open]>summary{border-bottom:1px solid var(--line);background:var(--card)}
+.also-tag{flex:none;font:750 9.5px/1 var(--font);text-transform:uppercase;
+letter-spacing:.09em;color:var(--soft);background:var(--card);border:1px solid var(--line);
+padding:4px 7px;border-radius:5px}
+.also-sum{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--soft)}
+.also-in{padding:13px 16px 15px}
+.also-sess+.also-sess{margin-top:14px;padding-top:14px;border-top:1px solid var(--hair)}
+.also-when{margin:0 0 7px;font-size:13px;font-weight:700;letter-spacing:-.01em}
+.also-focus{margin:0 0 10px;font-size:13px;line-height:1.55;color:var(--mut)}
+.also-notes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:11px}
+.also-notes>li{display:flex;gap:9px;align-items:flex-start}
+.also-notes .tag{flex:none;font-size:12px;padding:2px 8px}
+.also-notes a.tag{text-decoration:none}
+.also-notes a.tag:hover{color:var(--accent)}
+.also-b{flex:1;min-width:0}
+.also-think{margin:0;font-size:13.5px;line-height:1.6;color:var(--ink)}
+.also-say{margin:8px 0 0;padding-left:11px;border-left:3px solid var(--accent-line)}
+.also-say .jp{font-size:16px}
+.also-none{margin:0;font-size:13px;color:var(--soft)}
+
+/* The cross-workstream rollup (one of the programme-wide rooms in
+   `meeting.also`), pinned at the top and shut until the owner wants it. Unlike
+   Also today it carries the house accent, because it is the imminent room and
+   the button is the whole point: only the workstream's biggest items surface here, so
+   most weeks it is one glance and shut again. */
+.xws{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);
+border-radius:13px;margin-bottom:18px;overflow:hidden}
+.xws>summary{cursor:pointer;list-style:none;display:flex;gap:11px;align-items:center;
+flex-wrap:wrap;padding:11px 16px}
+.xws>summary::-webkit-details-marker{display:none}
+.xws>summary::before{display:none}
+.xws[open]>summary{border-bottom:1px solid var(--line);background:var(--card)}
+.xws-tag{flex:none;font:750 9.5px/1 var(--font);text-transform:uppercase;
+letter-spacing:.09em;color:var(--accent);background:var(--accent-line);
+border:1px solid var(--accent-line);padding:4px 7px;border-radius:5px}
+.xws-sum{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--soft)}
+.xws-in{padding:13px 16px 15px}
+.xws-lead{margin:0 0 12px;font-size:14px;line-height:1.55;font-weight:650;color:var(--ink)}
+.xws-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.xws-list>li{display:flex;gap:9px;align-items:flex-start}
+.xws-list>li+li{padding-top:14px;border-top:1px solid var(--hair)}
+.xws-list .tag{flex:none;font-size:12px;padding:2px 8px}
+.xws-list a.tag{text-decoration:none}
+.xws-list a.tag:hover{color:var(--accent)}
+.xws-b{flex:1;min-width:0}
+.xws-why{margin:0;font-size:13.5px;line-height:1.6;color:var(--mut)}
+.xws-say{margin:8px 0 0;padding-left:11px;border-left:3px solid var(--accent-line)}
+.xws-say+.xws-say{margin-top:10px}
+.xws-say .jp{font-size:16px;margin:0}
+.xws-say .en{margin:3px 0 0;font-size:12.5px;color:var(--soft)}
+.xws-none{margin:0;font-size:13px;color:var(--soft)}

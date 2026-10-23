@@ -1,0 +1,821 @@
+
+/* One neutral ramp, one accent that changes with the view, and four semantic
+   colours that only ever mean one thing: red is yours, amber is blocked, blue
+   is with somebody else, green is closed. Nothing else gets to be coloured, so
+   colour on this page always carries information.
+
+   The hues are ukiyo-e pigments rather than the default UI-kit set, because
+   the desk was first built for work with a Japanese client and it may as well
+   look like it: 藍 (ai, indigo) for the accent, 紅 (beni, safflower) for what
+   is the owner's, areas
+   of flat colour with a fine darker line around them, which is how those prints
+   are built. Every one is still checked for contrast on white: the meaning
+   comes first and the pigment is only which red it is. */
+:root{
+/* One family for every shorthand. `font:700 11px/1 inherit` is not valid CSS
+   (inherit cannot stand in for the family inside the shorthand), so the browser
+   drops the whole declaration and the label falls back to body text. That is
+   what pushed the milestone numbers off-centre. Write `var(--font)` instead. */
+--font:-apple-system,BlinkMacSystemFont,"Inter var","Inter","Segoe UI",
+"Hiragino Sans","Noto Sans JP",sans-serif;
+/* 墨 sumi, ink. Warmed a few degrees off blue-black, which is what stops the
+   page reading as cold grey. */
+--ink:#171b26;--mut:#4d5666;--soft:#767f90;--line:#e3e7ef;--hair:#f0f3f8;
+--card:#fff;--page:#f3f5fa;--head:#0d1626;--head-2:#1b2b47;
+/* 藍 ai, indigo. */
+--accent:#12539e;--accent-bg:#eef4fc;--accent-line:#bcd5ee;--accent-ink:#0d3d78;
+/* 紅 beni, safflower red: the owner's work. */
+--red:#b3261e;--red-bg:#fef3f1;--red-line:#f8cfc9;
+/* 黄土 odo, yellow ochre: blocked. */
+--amber:#a75d0a;--amber-bg:#fff8ea;--amber-line:#f5dba2;--amber-ink:#834505;
+/* 緑青 rokusho, malachite: closed. */
+--green:#0a6b4a;--green-bg:#edf9f3;--green-line:#a4e3c4;
+--blue:#1a5bb8;--blue-bg:#eff5fd;--blue-line:#bcd7f5;
+/* Asking, and what came back. Its own colour, because an answer from the desk
+   is neither the work nor the words: it is the thing you did not know.
+   紫 murasaki, the dye that was restricted to the court, which is as good a
+   reason as any for it to be the one colour that means "something new". */
+--plum:#6f36c9;--plum-bg:#f6f3fd;--plum-line:#d8ccf7;--plum-ink:#4c1d95;
+/* Shadows, tinted with the ink rather than pure black, so a lifted card reads
+   as paper over paper instead of a cut-out.
+
+   Two things learned from reading what Linear and Notion actually ship, both
+   the opposite of the usual advice. The alpha stays *constant* as a shadow
+   rises and only the blur and offset grow, so nothing ever looks like it is
+   getting darker as it lifts. And `--shadow` carries a negative spread, which
+   pulls it in tighter than its blur and makes it read as a contact shadow on
+   the page rather than a halo around the card.
+
+   `--edge` is the hairline that does most of the work of separating a surface
+   from the one behind it: a 1px inset line, lighter at the top where the light
+   would fall. On a dark theme the same line is white at 6% and reads as a bevel
+   rather than a border. */
+--shadow:0 1px 1px rgba(20,26,40,.05),0 1px 4px -1px rgba(20,26,40,.09);
+--lift:0 3px 12px rgba(20,26,40,.09),0 7px 24px rgba(20,26,40,.06);
+--edge:inset 0 1px 0 rgba(255,255,255,.7);
+/* Motion, named so nothing on this page invents its own timing.
+
+   The important one is `--t-on: 0s`. A hover highlight appears with no
+   transition at all and fades out over 150ms, which is what Linear ships and
+   the reason their lists feel quicker than anyone else's: any fade-*in* on
+   hover, even 80ms, reads as input lag, while the fade-out is what stops a
+   list flickering as the pointer crosses it. Asymmetry is the whole trick.
+
+   `ease` decelerates and is for anything arriving. `ease-in` accelerates and is
+   for anything leaving. `spring` overshoots very slightly and is only ever for
+   something the finger is on, because that overshoot is what makes a button
+   feel like it pushed back.
+
+   Nothing that blocks reading is allowed over 260ms: this page gets read sixty
+   minutes before the owner speaks to the client, and an interface that makes
+   them wait
+   for a flourish is a worse interface. */
+--ease:cubic-bezier(.2,.8,.2,1);
+--ease-in:cubic-bezier(.4,0,1,1);
+--spring:cubic-bezier(0,0,.2,1.4);
+--t-on:0s;--t-off:150ms;
+--t-fast:100ms;--t-mid:180ms;--t-slow:260ms}
+/* The script view is a different room: warmer paper, plum accent. You can tell
+   which view you are in from across the desk, without reading a tab. */
+body[data-view="standup"]{--accent:#9c1b85;--accent-bg:#fdf1fa;--accent-line:#f1c3e6;
+--accent-ink:#78116a;--page:#faf6f9}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+/* `outline` with an offset rather than a box-shadow ring: it follows whatever
+   border-radius the element already has and never affects layout. Only ever on
+   :focus-visible, so a mouse click never leaves a ring behind. */
+*{outline-color:transparent}
+:focus:not(:focus-visible){outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.views button:focus-visible{outline-color:#fff}
+/* `opsz auto` lets a variable font thicken its strokes and open its counters at
+   small sizes, which is most of why 11px labels here stay crisp. `cv01` gives
+   the open-tailed 1 and l, worth having on a page full of item numbers and
+   account ids. Both are ignored by a font that does not carry them, so there is
+   nothing to guard. */
+body{margin:0;background:var(--page);color:var(--ink);
+font:15.5px/1.55 var(--font);-webkit-font-smoothing:antialiased;
+-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;
+font-variation-settings:"opsz" auto;font-feature-settings:"cv01","ss03"}
+/* Tracking tightens as type grows and *opens* at the smallest size, which is
+   the opposite of what it looks like it should do: 11px capitals need air,
+   19px headings need closing up or they read as loose. */
+h1,h2{letter-spacing:-.018em}
+h3{letter-spacing:-.008em}
+/* Anything that is a count, a time or an id. Proportional digits jitter as they
+   change, and half the numbers on this page change on every sweep. */
+.n,.when,.tr-rank,.act-rank,.wd-d i,.wd-n,.ev-at,.tk-chip,#countdown,
+.act-min,.tr-min,kbd,.sp-n,.wd-c{font-variant-numeric:tabular-nums}
+
+/* ── Themes ──────────────────────────────────────────────────────────────────
+   Personalisation on Slack's terms: the surfaces change, the meaning does not.
+
+   The first attempt at this failed and it is worth saying why, because it is an
+   obvious trap. It tinted only a wash *behind* the cards, at 7% opacity, and
+   the cards themselves stayed pure white. Since cards cover most of the
+   viewport, picking a theme changed almost nothing you could see.
+
+   So a theme now moves four things: `--page` behind everything, `--card` for
+   the surface itself, `--line` and `--hair` so the rules agree with the paper
+   they are drawn on, and the header. That is enough to read as a different room
+   from across the desk.
+
+   What a theme may never touch: `--ink`, `--mut` and `--soft` (the text), or any
+   semantic colour. Red still means the owner's work on every theme, and the
+   type is exactly as legible, because this page gets read an hour before they
+   speak to the client. `check.py` has a test that holds me to it.
+
+   `data-theme` on the body, kept in localStorage, chosen in Settings. Plain is
+   the default and changes nothing. */
+body:before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+transition:opacity var(--t-slow) var(--ease)}
+/* Everything real sits above the wash. */
+header.top,.wrap,.pal,dialog,.nami{position:relative;z-index:1}
+header.top{z-index:30}
+
+/* Ukiyo-e. Warm washi paper: a cream card on a darker cream page, with indigo
+   and safflower pigment pooling in the corners and the fibre grain of the
+   paper running across it. The most distinctive of the set. */
+body[data-theme="ukiyoe"]{--page:#e8e0d2;--card:#fdfaf3;--line:#ddd3c0;
+--hair:#f3ede0;--head:#20242e;--head-2:#33302c}
+body[data-theme="ukiyoe"]:before{background:
+radial-gradient(1100px 580px at 8% -10%,rgba(18,83,158,.20),transparent 62%),
+radial-gradient(900px 520px at 102% 2%,rgba(179,38,30,.16),transparent 64%),
+radial-gradient(700px 460px at 50% 108%,rgba(167,93,10,.13),transparent 62%),
+repeating-linear-gradient(93deg,rgba(80,60,30,.045) 0 1px,transparent 1px 5px),
+repeating-linear-gradient(3deg,rgba(80,60,30,.03) 0 1px,transparent 1px 7px)}
+body[data-theme="ukiyoe"][data-view="standup"]{--page:#ecdfe4;--card:#fdf8f9;
+--line:#e2ccd4;--hair:#f7ecf0}
+body[data-theme="ukiyoe"][data-view="standup"]:before{background:
+radial-gradient(1000px 560px at 6% -8%,rgba(156,27,133,.20),transparent 62%),
+radial-gradient(860px 500px at 102% 2%,rgba(167,93,10,.15),transparent 64%),
+repeating-linear-gradient(93deg,rgba(80,40,60,.045) 0 1px,transparent 1px 5px)}
+
+/* 藍 ai, indigo. A dipped cloth: deepest at the top, the card a cool off-white
+   so the blue reads as the room rather than as a tint on the paper. */
+body[data-theme="ai"]{--page:#d9e2ef;--card:#fbfcfe;--line:#c6d4e6;
+--hair:#eaf0f8;--head:#0a1f3c;--head-2:#123f6e}
+body[data-theme="ai"]:before{background:
+linear-gradient(180deg,rgba(18,83,158,.34),rgba(18,83,158,.10) 44%,
+rgba(18,83,158,.03) 72%,transparent)}
+
+/* 桜 sakura. The warmest, and the easiest of them on a long read. */
+body[data-theme="sakura"]{--page:#f4dfe6;--card:#fffafc;--line:#e9cdd7;
+--hair:#fbeef3;--head:#2a1620;--head-2:#46202f}
+body[data-theme="sakura"]:before{background:
+radial-gradient(900px 520px at 88% -8%,rgba(200,90,130,.30),transparent 64%),
+radial-gradient(760px 460px at 2% 10%,rgba(167,93,10,.13),transparent 62%),
+radial-gradient(600px 400px at 60% 106%,rgba(200,90,130,.12),transparent 60%)}
+
+/* 苔 koke, moss. Quiet green, for a long afternoon on one ticket. */
+body[data-theme="koke"]{--page:#dde8e0;--card:#fbfdfb;--line:#c8dbcf;
+--hair:#ecf4ee;--head:#0c1f18;--head-2:#17362a}
+body[data-theme="koke"]:before{background:
+radial-gradient(1000px 560px at 4% -8%,rgba(10,107,74,.28),transparent 62%),
+radial-gradient(820px 480px at 100% 6%,rgba(18,83,158,.10),transparent 62%),
+radial-gradient(640px 420px at 48% 106%,rgba(10,107,74,.10),transparent 60%)}
+
+/* 墨 sumi. Near-monochrome with the grain of an inkstone, for when the colour
+   is in the way and only the words matter. */
+body[data-theme="sumi"]{--page:#dcdee3;--card:#fcfcfd;--line:#c8ccd4;
+--hair:#eceef2;--head:#14161c;--head-2:#282c36}
+body[data-theme="sumi"]:before{background:
+linear-gradient(180deg,rgba(23,27,38,.26),rgba(23,27,38,.07) 48%,transparent 78%),
+repeating-linear-gradient(93deg,rgba(23,27,38,.05) 0 1px,transparent 1px 6px)}
+
+/* 夜 yoru, night. A real dark theme, because half of this work happens after
+   the working day ends and a white page at 21:00 is the complaint nobody makes out
+   loud. The text ramp inverts here, which is the one place a theme is allowed
+   to touch it: on a dark page the same near-black ink would be unreadable, so
+   it is the *contrast* that is preserved rather than the literal value. */
+body[data-theme="yoru"]{--ink:#eef1f7;--mut:#b3bccd;--soft:#8b95a8;
+--page:#0e1118;--card:#171b24;--line:#2a3040;--hair:#1f242f;
+--head:#0a0d13;--head-2:#141924;
+--accent:#6aa5f0;--accent-bg:#17233a;--accent-line:#2f4a70;--accent-ink:#bcd6fb;
+--red:#f58a80;--red-bg:#2e1a1a;--red-line:#5c2b28;
+--amber:#e0a94e;--amber-bg:#2b2114;--amber-line:#57411f;--amber-ink:#f2cd8a;
+--green:#5fcf9e;--green-bg:#12271f;--green-line:#26543d;
+--blue:#7fb0f4;--blue-bg:#16233a;--blue-line:#2e4a72;
+--plum:#b191f5;--plum-bg:#211a35;--plum-line:#3f3163;--plum-ink:#d7c8fb;
+/* A dark surface needs roughly three times the shadow alpha of a light one for
+   the same amount of perceived lift, and its top edge highlight is white at 6%
+   rather than 70%. */
+--shadow:0 1px 2px rgba(0,0,0,.5),0 2px 6px -1px rgba(0,0,0,.42);
+--lift:0 4px 16px rgba(0,0,0,.5),0 12px 32px rgba(0,0,0,.42);
+--edge:inset 0 1px 0 rgba(255,255,255,.06)}
+body[data-theme="yoru"]:before{background:
+radial-gradient(1100px 600px at 10% -10%,rgba(60,110,190,.20),transparent 62%),
+radial-gradient(900px 520px at 100% 4%,rgba(120,60,150,.14),transparent 64%)}
+.wrap{max-width:920px;margin:0 auto;padding:22px 20px 90px}
+/* The script is read out loud, so it gets a narrower column than the desk. */
+body[data-view="standup"] .wrap{max-width:840px}
+
+/* Header. Dark, because the switcher has to be the most findable thing here.
+   Its own layer, and the jump bar below it too. Two stacked sticky bars, one of
+   them blurring what is behind it, had the browser repainting both on every
+   frame of a fast scroll, and the header flickered while it caught up. */
+header.top{position:sticky;top:0;z-index:30;
+background:linear-gradient(180deg,var(--head-2),var(--head));color:#e6ecf7;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.07),
+inset 0 -1px 0 rgba(255,255,255,.06),0 4px 18px rgba(9,14,26,.20);
+transform:translateZ(0);will-change:transform;backface-visibility:hidden}
+/* A thin accent rule along the very top of the bar, so the window has a lit
+   edge and the header does not read as a slab. It changes with the view, which
+   means the two halves of the page are a different colour before a single word
+   is read. */
+header.top:after{content:"";position:absolute;left:0;right:0;top:0;height:2px;
+background:linear-gradient(90deg,transparent,var(--accent) 18%,
+var(--accent) 82%,transparent);opacity:.75}
+/* Wider than the page it sits over: this row is navigation, not prose, and it
+   has to hold the tabs and the buttons without wrapping. One line tall, since
+   every pixel here is taken off the top of what they are actually reading. */
+.top-in{max-width:1180px;margin:0 auto;padding:4px 20px;display:flex;
+align-items:center;gap:10px;flex-wrap:wrap}
+/* One height for everything in this row, so no single control can push the bar
+   taller than the tabs need. */
+.top .btn,.toggle,.refresh,#countdown,.views button{height:26px;box-sizing:border-box;
+display:inline-flex;align-items:center;line-height:1}
+.brand{display:flex;align-items:center;gap:8px}
+.brand img{width:20px;height:20px;border-radius:6px;display:block}
+/* The name of the page, kept for the tab strip and for a screen reader but not
+   drawn: the icon says which desk this is, the tabs say which half of it, and
+   the width the words cost is the difference between a bar that stays one line
+   and one that grows a second. */
+.top h1{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+clip-path:inset(50%);white-space:nowrap;border:0}
+.top .date{color:#8a9bb8;font-size:12px;white-space:nowrap}
+/* Hours old means a reply may have landed unseen, which is worth a colour. */
+.top .date.old{color:#f4c27a}
+.top .btn{color:#c9d6ea;border-color:rgba(255,255,255,.16);
+background:rgba(255,255,255,.07);font-size:12px;padding:0 10px}
+.top .btn:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.28);
+color:#fff}
+.acts{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+justify-content:flex-end}
+#countdown{font-variant-numeric:tabular-nums;font-weight:650;font-size:12.5px;
+padding:0 10px;border-radius:7px;color:#dae4f5;background:rgba(255,255,255,.09);
+border:1px solid rgba(255,255,255,.14)}
+#countdown:empty{display:none}
+#countdown.soon{background:#fee4e2;border-color:#fda29b;color:#912018}
+.toggle{font:600 12px/1 var(--font);padding:0 10px;border-radius:7px;
+border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);
+cursor:pointer;color:#c9d6ea}
+.toggle:hover{background:rgba(255,255,255,.14);color:#fff}
+/* Stripping the page back to the Japanese is only a thing you want while
+   speaking, so the button lives in that view. */
+body[data-view="desk"] #scriptonly{display:none}
+
+/* Two views, one page. Big target, live count, and the key that switches it. */
+.views{display:flex;gap:3px;padding:3px;background:rgba(255,255,255,.08);
+border:1px solid rgba(255,255,255,.10);border-radius:10px}
+.views button{gap:7px;font:inherit;padding:0 11px;
+border:0;border-radius:8px;background:none;color:#a9b8d2;cursor:pointer;
+text-align:left;white-space:nowrap}
+.views button{transition:color var(--t-fast) var(--ease),
+background-color var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+.views button:hover{color:#fff;background:rgba(255,255,255,.07)}
+.views button:active{transform:scale(.97);transition-duration:60ms}
+/* The selected tab is the card surface lifted out of the dark bar, so its text
+   has to be the ink that belongs on that surface rather than a fixed near-black:
+   on the night theme the card is dark and #0d1524 on it was unreadable. */
+.views button[aria-selected="true"]{background:var(--card);color:var(--ink);
+box-shadow:0 1px 3px rgba(9,14,26,.4)}
+.views .lbl{font-size:13px;font-weight:650;letter-spacing:-.005em}
+/* The room this script is for, alongside the label rather than under it, so the
+   whole bar stays one line tall. No rule between the two: it read as a border on
+   the tab rather than a divider between two words. */
+.views .sub{font-size:11.5px;font-weight:550;opacity:.62;padding-left:8px}
+.views .k{flex:none;font:700 10px/14px var(--font);min-width:14px;text-align:center;
+border-radius:4px;background:rgba(255,255,255,.13);color:#c2cee3}
+.views button[aria-selected="true"] .k{background:var(--hair);color:var(--soft)}
+.views .badge{flex:none;min-width:17px;padding:0 5px;border-radius:9px;
+background:#e0483b;color:#fff;font:700 10.5px/17px var(--font);text-align:center}
+.views button[aria-selected="true"] .badge{background:var(--red);color:#fff}
+.views .badge.quiet{background:rgba(255,255,255,.16);color:#dbe4f2}
+body[data-view="desk"] #view-standup,body[data-view="standup"] #view-desk{display:none}
+/* Switching view. The two halves are one page and CSS does the swap, so the
+   arriving one is the only thing that can announce the change: it comes up and
+   settles rather than replacing the other between two frames. Cheap, because it
+   animates opacity and transform on one element and nothing reflows. */
+#view-desk,#view-standup{animation:view-in var(--t-slow) var(--ease) both}
+@keyframes view-in{from{opacity:0;transform:translateY(5px)}
+to{opacity:1;transform:none}}
+
+/* Cards. Every panel on both views is the same object. */
+.tk,.st-tk,.track,.panel,.st-run,.st-empty,.gaps{background:var(--card);
+border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+/* A card lifts very slightly under the pointer. Enough to say "this is one
+   object and you are on it", not enough to make a scroll down the page feel
+   like walking over cobbles. Shadow only on the card itself: transform here
+   would blur the text on a non-retina screen. */
+.tk,.st-tk,.track,.panel,.week,.gaps{box-shadow:var(--shadow),var(--edge)}
+.tk,.st-tk{transition:box-shadow var(--t-off) var(--ease-in),
+border-color var(--t-off) var(--ease-in)}
+.tk:hover,.st-tk:hover{box-shadow:var(--lift),var(--edge);
+transition-duration:var(--t-on)}
+.st-lead{background:var(--card);border:1px solid var(--line);
+border-left:4px solid var(--accent);border-radius:13px;padding:16px 20px;
+margin-bottom:20px;box-shadow:var(--shadow)}
+.st-lead p{margin:0;font-size:17px;line-height:1.5;font-weight:550;
+letter-spacing:-.01em}
+/* A section heading between cards. Uppercase at 11.5px wants tracking around
+   .05em and a *medium* weight rather than bold: capitals at 700 read as
+   shouting, and the rule beside it does the work of separating instead. */
+h2.tickets-h{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
+color:var(--soft);margin:28px 0 11px;font-weight:620;display:flex;
+align-items:center;gap:11px}
+h2.tickets-h:after{content:"";flex:1;height:1px;
+background:linear-gradient(90deg,var(--line),transparent)}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;
+border-radius:20px;border:1px solid;letter-spacing:.01em;white-space:nowrap;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.45)}
+body[data-theme="yoru"] .pill,body[data-theme="yoru"] .tag{box-shadow:none}
+/* Leaving is eased, arriving is instant: the transition here is the *fade out*,
+   and :hover overrides it to 0s. See --t-on in the tokens above. */
+.btn{font-size:12.5px;text-decoration:none;color:var(--accent);
+border:1px solid var(--line);background:var(--card);padding:4px 10px;border-radius:7px;
+white-space:nowrap;font-weight:550;box-shadow:var(--edge);
+transition:border-color var(--t-off) var(--ease-in),
+background-color var(--t-off) var(--ease-in),transform var(--t-off) var(--ease-in),
+box-shadow var(--t-off) var(--ease-in)}
+.btn:hover{border-color:var(--accent-line);background:var(--accent-bg);
+transform:translateY(-1px);
+box-shadow:var(--edge),0 2px 8px rgba(20,26,40,.10);
+transition-duration:var(--t-on)}
+/* The press. It goes *down* and loses its shadow, which is the whole trick:
+   a button that only changes colour on click feels like a link, and one that
+   moves under the finger feels like a button. 60ms, because the release has to
+   feel instant or it reads as lag rather than feedback. */
+.btn:active{transform:translateY(0) scale(.975);box-shadow:none;
+transition-duration:60ms}
+/* The ticket's own name, and the thing the owner scans for down a long page, so it is
+   the one chip that gets a border and a highlight rather than a flat fill. */
+.tag{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;
+border-radius:6px;background:var(--accent-bg);color:var(--accent-ink);
+margin-right:8px;vertical-align:2px;letter-spacing:0;
+box-shadow:0 0 0 1px var(--accent-line),inset 0 1px 0 rgba(255,255,255,.55)}
+.est{color:var(--green);font-weight:600}
+/* When a thing is due to move. Deliberately quiet next to the state colour:
+   whose it is comes first, when it moves comes second. */
+.when{flex:none;font-size:11.5px;font-weight:700;color:var(--soft);
+white-space:nowrap;letter-spacing:.01em}
+.when.now{color:var(--red)}
+.when.next{color:var(--amber)}
+.when.none{color:#9aa3b2;font-weight:600;font-style:italic}
+
+/* Sections inside a card. The marker bar says what kind of section it is, so a
+   card reads as parts rather than one column of identical grey capitals. */
+.sub{padding:16px 0;border-bottom:1px solid var(--hair)}
+.tk>*:last-child,.st-tk>*:last-child{border-bottom:0;padding-bottom:0}
+.sub h3{font-size:12.5px;letter-spacing:.005em;color:var(--mut);margin:0 0 10px;
+font-weight:750;display:inline-flex;align-items:center;gap:9px;vertical-align:middle;
+text-transform:none;width:calc(100% - 22px)}
+.sub h3:before{content:"";flex:none;width:3px;height:14px;border-radius:2px;
+background:var(--line)}
+.sub h3 .n{font-size:11px;font-weight:700;color:var(--soft);background:var(--hair);
+border:1px solid var(--line);border-radius:20px;padding:0 7px}
+.sub h3 .hint{margin-left:auto;font-size:11px;font-weight:600;color:#9aa3b2;
+text-transform:uppercase;letter-spacing:.06em}
+/* A hint long enough to be a sentence is set as one, and is allowed to be the
+   thing you read on a shut fold. */
+.sub h3 .hint.long{text-transform:none;letter-spacing:0;font-size:12px;
+font-weight:500;color:var(--mut);text-align:right}
+/* On a folded section the hint runs into the Show word, so it gives way. */
+details.sub>summary>h3 .hint{margin-right:10px}
+/* Red is the work, accent is the talking, grey is background you can skip. */
+.sub.now h3{color:var(--ink);font-size:14.5px;letter-spacing:-.01em}
+.sub.now h3:before{background:var(--red);height:17px;width:4px}
+.sub.say h3,.sub.key h3{color:var(--accent-ink);font-size:14.5px;letter-spacing:-.01em}
+.sub.say h3:before,.sub.key h3:before{background:var(--accent);height:17px;width:4px}
+.sub.log h3:before{background:var(--accent-line)}
+.sub.warn h3:before{background:var(--amber)}
+.sub.ref h3{color:var(--soft)}
+.sub.ask h3{color:var(--soft)}
+.sub.ask h3:before{background:var(--plum,#8b5cf6)}
+.sub.cons h3{color:var(--soft)}
+.sub.cons h3:before{background:var(--amber-line)}
+details>summary{cursor:pointer;list-style:none;padding:15px 0 8px}
+details>summary::-webkit-details-marker{display:none}
+details.sub{padding-top:0}
+/* A folded section is one row: the marker, the words, the count, and a word
+   saying whether there is anything behind it. */
+details.sub>summary{display:flex;align-items:center;padding:14px 10px;
+margin:0 -10px;border-radius:9px}
+details.sub>summary{transition:background-color var(--t-fast) var(--ease)}
+details.sub>summary:hover{background:var(--hair)}
+/* Opening a fold. `details` cannot transition its own height without JS, but
+   the content behind it can arrive rather than appear, and that is most of what
+   the eye reads as "it opened" instead of "the page changed". */
+details.sub[open]>*:not(summary),details.act[open]>.act-body,
+.step-past[open]>.steps-list,.bg-drawer[open] .bg-in{
+animation:fold-in var(--t-mid) var(--ease) both}
+@keyframes fold-in{from{opacity:0;transform:translateY(-4px)}
+to{opacity:1;transform:none}}
+.fold-hint{transition:color var(--t-fast) var(--ease),
+border-color var(--t-fast) var(--ease)}
+details.sub[open]>summary{padding-bottom:8px}
+details.sub>summary>h3{margin:0;width:auto;flex:1}
+details.sub>summary:hover .fold-hint{color:var(--accent);border-color:var(--accent-line)}
+/* Say Show or Hide in words. A triangle alone does not tell you there is
+   anything behind it, which is how a folded section reads as an empty one.
+   Set as a soft pill with a chevron that turns, the way Slack and Instagram
+   draw a secondary button: sentence case, no capitals shouting, and a hover
+   that fills rather than outlines. */
+.fold-hint{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:5px;
+font:600 11.5px/1 var(--font);letter-spacing:0;color:var(--mut);
+border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 8px;
+background:var(--hair);white-space:nowrap;
+transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),
+border-color var(--t-fast) var(--ease)}
+.fold-hint:before{content:"";width:5px;height:5px;margin-top:-3px;
+border:solid currentColor;border-width:0 1.6px 1.6px 0;transform:rotate(45deg);
+transition:transform var(--t-fast) var(--ease),margin var(--t-fast) var(--ease)}
+details[open]>summary .fold-hint:before{transform:rotate(-135deg);margin-top:3px}
+.fold-hint:after{content:"Show"}
+details[open]>summary .fold-hint:after{content:"Hide"}
+summary:hover .fold-hint{color:var(--accent-ink);background:var(--accent-bg);
+border-color:var(--accent-line)}
+.status,.st-stands{margin:0;font-size:15px;color:var(--ink)}
+.matters{margin:10px 0 0;padding:9px 13px;background:var(--accent-bg);
+border:1px solid var(--accent-line);border-radius:8px;font-size:14px;
+color:var(--accent-ink)}
+.cons-list{margin:0;display:grid;gap:1px;background:var(--line);
+border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.cons-row{display:flex;background:var(--card);align-items:baseline}
+.cons-row dt{flex:none;width:152px;padding:9px 13px;font-size:11.5px;
+font-weight:700;color:var(--soft);background:var(--hair);text-transform:uppercase;
+letter-spacing:.04em}
+.cons-row dd{flex:1;min-width:0;margin:0;padding:9px 13px;font-size:14px}
+.cons-row:last-child dd{color:var(--amber);font-weight:550}
+
+/* The spoken script. Smaller than it was: this is read at speed, and 19px with
+   a reading above it is already taller than a normal line. */
+.jp-block{margin-bottom:16px}
+.jp-heading{display:flex;align-items:baseline;gap:10px;margin-bottom:8px;
+padding-bottom:5px;border-bottom:1px solid var(--accent-line)}
+.jp-h-ja{font-size:15px;font-weight:700;color:var(--accent-ink)}
+.jp-h-en{font-size:11.5px;color:var(--soft);text-transform:uppercase;
+letter-spacing:.06em;font-weight:600}
+.copy{margin-left:auto;font:600 11px/1 var(--font);color:var(--soft);background:var(--card);
+border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer}
+.copy:hover{color:var(--accent);border-color:var(--accent-line)}
+.jp-line{margin-bottom:10px;padding-left:12px;border-left:3px solid var(--accent-line)}
+.jp{margin:0;font-size:17.5px;line-height:1.9;letter-spacing:.005em}
+ruby rt{font-size:.48em;color:var(--accent);font-weight:600;letter-spacing:0}
+.en{margin:2px 0 0;font-size:13px;color:var(--soft);line-height:1.45}
+.qlist{list-style:none;margin:0;padding:0}
+.q{padding:9px 0;border-bottom:1px dashed var(--line)}
+.q:last-child{border-bottom:0}
+.q-en{font-weight:600;font-size:14.5px;display:flex;gap:8px;align-items:center;
+flex-wrap:wrap}
+.q-ja{font-size:16px;line-height:1.85;margin-top:3px;color:var(--mut)}
+
+/* Drafts. Monospace-free, but plain enough that pasting is the obvious move. */
+.draft{border:1px solid var(--line);border-radius:10px;margin-bottom:11px;
+overflow:hidden}
+.draft-head{display:flex;gap:9px;align-items:center;padding:8px 12px;
+background:var(--hair);border-bottom:1px solid var(--line);font-size:12.5px;
+color:var(--mut);font-weight:550}
+.draft-body{padding:13px;white-space:pre-wrap;font-size:14.5px;line-height:1.6}
+.draft-body.ja{font-size:15px;line-height:1.9}
+.draft-en{margin:0;padding:0 13px 13px;font-size:13px;color:var(--soft)}
+.warn{background:var(--amber-bg);border:1px solid var(--amber-line);
+border-radius:10px;padding:12px 15px;margin-top:15px}
+.warn h3{color:var(--amber)}
+.warn ul{margin:6px 0 0;padding-left:18px;font-size:14px;color:var(--amber-ink)}
+.empty{color:var(--soft);font-style:italic;margin:0;font-size:14.5px}
+.gaps{padding:16px 20px;margin-top:22px}
+.gaps>summary{cursor:pointer;font-size:11.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--soft);font-weight:650;display:flex;gap:8px;align-items:center}
+.gaps>summary .q{text-transform:none;letter-spacing:0;font-weight:500}
+.gaps h2{font-size:11.5px;text-transform:uppercase;letter-spacing:.09em;
+color:var(--soft);margin:0;display:inline-block;font-weight:700}
+.gaps ul{margin:8px 0 0;padding-left:18px}
+.foot{text-align:center;color:var(--soft);font-size:12px;margin-top:28px}
+.keys{color:#7b8cab;font-size:11px}
+
+/* Getting somewhere fast. The chips are the obvious way and cost no learning;
+   the finder is the fast way once you know it is there. */
+/* No frost on this one any more. A blurred sticky bar under a sticky header had
+   the compositor re-sampling what was behind it every frame, which is what made
+   the dark bar above stutter on a fast scroll, and at this opacity there was
+   never anything to see through it. */
+.jump{position:sticky;top:42px;z-index:20;display:flex;gap:6px;align-items:center;
+flex-wrap:nowrap;margin:0 0 16px;padding:6px 10px;border:1px solid var(--line);
+border-radius:11px;background:var(--hair);box-shadow:var(--shadow);
+transform:translateZ(0);will-change:transform;backface-visibility:hidden}
+.jump .lab{flex:none;font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+color:var(--soft);font-weight:700;padding-right:2px;white-space:nowrap}
+.jump-track{display:flex;gap:4px;align-items:center;flex-wrap:nowrap;flex:1;
+min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+.jump-track::-webkit-scrollbar{display:none}
+.jump a{flex:none;font-size:11.5px;font-weight:600;color:var(--mut);text-decoration:none;
+padding:3px 7px;border-radius:7px;border:1px solid transparent;white-space:nowrap}
+.jump a:hover{background:var(--hair);color:var(--ink)}
+.jump a.on{background:var(--accent-bg);color:var(--accent-ink);
+border-color:var(--accent-line)}
+.jump a .c{font-size:10px;font-weight:700;color:var(--red);margin-left:4px}
+.jump a .ord{font-size:10px;font-weight:600;color:var(--soft);margin-left:5px}
+.jump .find{flex:none;margin-left:auto;font:600 11px/1 var(--font);color:var(--soft);
+background:var(--card);border:1px solid var(--line);border-radius:7px;padding:4px 8px;
+cursor:pointer;display:flex;gap:5px;align-items:center;white-space:nowrap}
+.jump .find:hover{color:var(--accent);border-color:var(--accent-line)}
+/* A key. `min-width` so `/` and `esc` both come out as tidy keys rather than
+   one sliver and one slab, and the border is a box-shadow so it adds no layout
+   width and composes with the top highlight in one property. Radius 4px inside
+   a 7px control, because a small chip needs a tighter curve than its container
+   to look concentric. */
+kbd{font:700 10.5px/14px ui-monospace,SFMono-Regular,Menlo,monospace;
+min-width:18px;display:inline-block;text-align:center;
+background:var(--card);border-radius:4px;padding:2px 5px;color:var(--mut);
+box-shadow:0 0 0 1px var(--line),inset 0 1px 0 rgba(255,255,255,.8),
+0 1px 1px rgba(20,26,40,.06)}
+
+/* The finder. Type a ticket, a number or a word and land on it. */
+.pal{position:fixed;inset:0;z-index:60;background:rgba(9,14,26,.44);
+display:flex;align-items:flex-start;justify-content:center;padding:11vh 16px 16px}
+.pal-box{width:min(640px,100%);background:var(--card);border-radius:15px;
+box-shadow:0 24px 60px rgba(9,14,26,.35);overflow:hidden;display:flex;
+flex-direction:column;max-height:74vh}
+.pal input{border:0;border-bottom:1px solid var(--line);padding:16px 19px;
+font:16px/1.4 var(--font);outline:0;color:var(--ink)}
+.pal ul{list-style:none;margin:0;padding:7px;overflow:auto}
+.pal li{padding:9px 11px;border-radius:9px;display:flex;gap:10px;
+align-items:center;cursor:pointer}
+.pal li[aria-selected="true"]{background:var(--accent-bg)}
+.pal .p-tag{flex:none;font-size:10.5px;font-weight:700;color:var(--accent-ink);
+background:var(--accent-bg);border:1px solid var(--accent-line);padding:1px 7px;
+border-radius:5px}
+.pal .p-t{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;
+text-overflow:ellipsis}
+.pal .p-s{flex:none;font-size:11.5px;color:var(--soft)}
+.pal .p-none{padding:16px 19px;color:var(--soft);font-size:14px;font-style:italic}
+.pal-foot{padding:9px 14px;border-top:1px solid var(--line);background:var(--hair);
+font-size:11.5px;color:var(--soft);display:flex;gap:14px}
+
+/* How to work this thing. Reachable from the header on every view, because the
+   answer to "how do I close this" should never be somewhere else. */
+dialog.help{border:0;padding:0;border-radius:16px;width:min(680px,92vw);
+box-shadow:0 24px 60px rgba(9,14,26,.4);color:var(--ink)}
+dialog.help::backdrop{background:rgba(9,14,26,.5)}
+.help-in{padding:24px 28px 26px;position:relative}
+.help-in h2{margin:0 0 4px;font-size:19px;letter-spacing:-.015em}
+.help-in .lead{margin:0 0 18px;color:var(--mut);font-size:14px}
+.help-in h3{margin:18px 0 7px;font-size:12.5px;font-weight:750;color:var(--ink);
+display:flex;align-items:center;gap:8px}
+.help-in h3:before{content:"";width:3px;height:14px;border-radius:2px;
+background:var(--accent)}
+.help-in p{margin:0 0 8px;font-size:14px;color:var(--mut)}
+.help-in code{font:600 12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+background:var(--hair);border:1px solid var(--line);border-radius:5px;padding:1px 5px;
+color:var(--accent-ink)}
+.say-list{list-style:none;margin:0;padding:0;display:grid;gap:1px;
+background:var(--line);border:1px solid var(--line);border-radius:10px;
+overflow:hidden}
+.say-list li{background:var(--card);padding:8px 12px;display:flex;gap:12px;
+align-items:baseline;font-size:13.5px}
+.say-list .said{flex:none;min-width:186px;font-weight:650;color:var(--accent-ink);
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.say-list .does{flex:1;min-width:0;color:var(--mut)}
+.help-close{position:absolute;top:14px;right:16px;font:700 13px/1 var(--font);
+background:var(--card);border:1px solid var(--line);border-radius:7px;padding:6px 10px;
+cursor:pointer;color:var(--mut)}
+.help-close:hover{color:var(--ink);border-color:var(--soft)}
+
+/* The strip under your work: how to close something, in the page, not a manual. */
+.howto{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 20px;
+padding:11px 15px;border:1px dashed var(--line);border-radius:11px;
+background:rgba(255,255,255,.6);font-size:13px;color:var(--mut)}
+.howto b{color:var(--ink);font-weight:650}
+.howto>span{flex:1;min-width:300px}
+.howto code{font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+background:var(--card);border:1px solid var(--line);border-radius:5px;padding:2px 6px;
+color:var(--accent-ink);white-space:nowrap}
+.howto .more{margin-left:auto;font:650 12px/1 var(--font);background:var(--card);
+border:1px solid var(--line);border-radius:7px;padding:6px 11px;cursor:pointer;
+color:var(--accent)}
+.howto .more:hover{border-color:var(--accent-line);background:var(--accent-bg)}
+
+/* Script-only: everything that is not the client-language script gets out of
+   the way. The one thing that stays is the ask. Reading their own words out loud
+   is exactly when the owner notices the line is wrong, and having to leave the reading view to say so is
+   how a wrong line survives to the meeting. */
+body.script-only .sub:not(.script):not(.ask),body.script-only .st-head .pos,
+body.script-only details,body.script-only .st-brief,body.script-only .st-raise,
+body.script-only .st-warn,body.script-only .st-cons,body.script-only .st-land,
+body.script-only .st-run,body.script-only .sess{display:none}
+/* Rewrite or ask stays. It sits in the Say this header, on the words themselves,
+   and reading them out loud is when the owner notices one is wrong. */
+body.script-only .say .ask-here{display:inline-flex}
+body.script-only .sub.ask details{display:block}
+body.script-only .sub.ask{border-top:1px solid var(--line);margin-top:16px}
+body.script-only .sub.ask>h3{display:none}
+body.script-only .jp{font-size:21px;line-height:2}
+body.script-only .en{font-size:13.5px}
+body.script-only .st-tk{padding:18px 22px}
+.err{background:var(--red-bg);border:1px solid var(--red-line);border-radius:12px;
+padding:22px;color:var(--red)}
+.err pre{white-space:pre-wrap;font-size:13px;background:var(--card);padding:13px;
+border-radius:8px;margin:13px 0 0;color:var(--ink)}
+/* A window narrower than the desk it was drawn for. The header is navigation and
+   it wraps, so the way to keep it short is to drop what is written elsewhere on
+   the page rather than to let it grow a third line: two is already a lot of the
+   top of the screen, and a bar that changes height as they resize moves
+   everything they are reading.
+
+   The brand is decoration. The room this script is for is in Next room and at
+   the top of the speaking view. The date and how long ago it was checked are the
+   first real loss, so they go last, and the countdown pill stays throughout
+   because it is the one thing up here that is about the next hour. */
+@media (max-width:1240px){
+.brand,.views .sub{display:none}
+}
+@media (max-width:1020px){
+.top .date{display:none}
+}
+
+/* On a phone the whole page is one column, and the header keeps the tabs, the
+   two buttons and nothing else. */
+@media (max-width:640px){
+.wrap{padding:14px 12px 60px}
+.top-in{padding:5px 10px;gap:6px;min-width:0}
+.brand,.date,#countdown,.views .sub,.views .k{display:none}
+.top .btn{display:none}
+.views,.acts{min-width:0}
+.top-in{overflow-x:hidden}
+.views,.acts{overflow-x:auto;scrollbar-width:none}
+.views::-webkit-scrollbar,.acts::-webkit-scrollbar{display:none}
+.views button{padding:0 9px;flex:none}
+/* Flex children default to their content width, which is what pushes a phone
+   into sideways scrolling. Nothing on this page needs to be wider than it. */
+.tr-title,.act-title,.thr-body,.nk-sum,.q-en,.mv-what,.terms dd,
+.howto>span,.act-head,.tk-meta,.st-run a{min-width:0}
+.terms dt{width:auto}
+.term{flex-direction:column;gap:4px}
+.tk,.st-tk{padding-left:14px;padding-right:14px}
+.tk-head{margin:0 -14px;padding-left:14px;padding-right:14px}
+.tr,.news li{flex-wrap:wrap}
+.tr-title{flex-basis:100%;order:-1}
+.tr-min,.act-min{display:none}
+.thr-where{min-width:0;flex-basis:100%}
+.cons-row{flex-wrap:wrap}
+.cons-row dt{width:100%;padding-bottom:0}
+.jp{font-size:16.5px;line-height:1.85}
+.jump{position:static}
+}
+/* Scrollbars. `background-clip:content-box` with a transparent border floats a
+   6px thumb inside a 12px hit area: a hairline to look at, a full-size target
+   to grab. The states reassign one custom property rather than restating the
+   colour three times. */
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-track{background:0 0}
+::-webkit-scrollbar-thumb{--sb:rgba(20,26,40,.16);background-color:var(--sb);
+border-radius:9999px;background-clip:content-box;border:3px solid transparent}
+::-webkit-scrollbar-thumb:hover{--sb:rgba(20,26,40,.28)}
+::-webkit-scrollbar-thumb:active{--sb:rgba(20,26,40,.42)}
+body[data-theme="yoru"] ::-webkit-scrollbar-thumb{--sb:rgba(255,255,255,.14)}
+body[data-theme="yoru"] ::-webkit-scrollbar-thumb:hover{--sb:rgba(255,255,255,.24)}
+
+/* ── 波 ──────────────────────────────────────────────────────────────────────
+   Closing a job. It happens in a terminal, so the page's only job here is to
+   notice and say well done: the crest draws itself left to right, the foam
+   pops after it, a 判子 seal presses down over the lot, and the whole thing
+   leaves after two and a half seconds. Nothing under it is clickable while it
+   is there, because it removes itself rather than hiding.
+
+   `pointer-events:none` throughout regardless, because a celebration that eats
+   a click on the card behind it is not a celebration. */
+.nami{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);z-index:70;
+pointer-events:none;display:grid;place-items:center;
+animation:nami-go 2.6s var(--ease) both}
+.nami-w{width:250px;height:156px;overflow:visible;
+filter:drop-shadow(0 6px 18px rgba(18,83,158,.28))}
+.nami-b,.nami-c{fill:none;stroke:var(--accent);stroke-width:5;
+stroke-linecap:round;stroke-linejoin:round}
+.nami-c{fill:rgba(18,83,158,.1);stroke-width:4}
+/* The crest is one path, so drawing it is one dash offset. 620 is comfortably
+   longer than the path, which is all that matters. */
+.nami-b,.nami-c{stroke-dasharray:620;stroke-dashoffset:620;
+animation:nami-draw .72s var(--ease) both}
+.nami-c{animation-delay:.16s}
+.nami-f circle{fill:#fff;stroke:var(--accent);stroke-width:2.5;
+opacity:0;transform-origin:center;animation:nami-foam .5s var(--spring) both}
+.nami-f circle:nth-child(1){animation-delay:.52s}
+.nami-f circle:nth-child(2){animation-delay:.60s}
+.nami-f circle:nth-child(3){animation-delay:.68s}
+.nami-f circle:nth-child(4){animation-delay:.76s}
+.nami-f circle:nth-child(5){animation-delay:.84s}
+/* 判子. A round vermilion seal, pressed, with the slight over-rotation of a
+   stamp put down by hand. */
+.nami-seal{position:absolute;width:62px;height:62px;border-radius:50%;
+display:grid;place-items:center;background:#c0362b;color:#fff;
+font:800 30px/1 "Hiragino Sans","Noto Sans JP",serif;
+box-shadow:0 4px 14px rgba(192,54,43,.45);
+animation:nami-seal .5s var(--spring) .82s both}
+.nami-said{position:absolute;bottom:-6px;white-space:nowrap;
+font:700 12.5px/1 var(--font);color:var(--accent-ink);background:var(--card);
+border:1px solid var(--accent-line);border-radius:20px;padding:5px 13px;
+box-shadow:var(--shadow);animation:nami-said .4s var(--ease) 1s both}
+@keyframes nami-draw{from{stroke-dashoffset:620}to{stroke-dashoffset:0}}
+@keyframes nami-foam{from{opacity:0;transform:scale(.4)}
+to{opacity:1;transform:scale(1)}}
+@keyframes nami-seal{from{opacity:0;transform:scale(2.1) rotate(-22deg)}
+70%{opacity:1;transform:scale(.94) rotate(-7deg)}
+to{opacity:1;transform:scale(1) rotate(-9deg)}}
+@keyframes nami-said{from{opacity:0;transform:translateY(6px)}
+to{opacity:1;transform:none}}
+/* The whole group fades at the end rather than each part unwinding. */
+@keyframes nami-go{0%,82%{opacity:1}100%{opacity:0;transform:translateX(-50%) scale(.96)}}
+
+/* Someone who has asked the operating system for less movement gets none of
+   it. Not reduced, none: the whole page still works without a single
+   transition, because every state it shows is also a colour or a word. */
+@media (prefers-reduced-motion:reduce){
+*,*:before,*:after{animation-duration:1ms!important;animation-delay:0ms!important;
+animation-iteration-count:1!important;transition-duration:1ms!important;
+transition-delay:0ms!important;scroll-behavior:auto!important}
+.btn:hover,.tk:hover,.st-tk:hover{transform:none}
+}
+/* Same again, asked for in Settings rather than in the operating system. */
+body[data-motion="off"] *,body[data-motion="off"] *:before,
+body[data-motion="off"] *:after{animation-duration:1ms!important;
+animation-delay:0ms!important;animation-iteration-count:1!important;
+transition-duration:1ms!important;transition-delay:0ms!important}
+body[data-motion="off"] .btn:hover,body[data-motion="off"] .tk:hover,
+body[data-motion="off"] .st-tk:hover{transform:none}
+body[data-motion="off"] .nami{display:none}
+
+/* The theme picker. Each swatch paints itself with the wash it is offering, so
+   the choice is the thing rather than a description of the thing. */
+/* `align-items:start` and a wider column, because a row whose children are
+   centred and whose basis is 196px let the "Using this" badge take the width
+   off the label: "Ukiyo-e 浮世絵" came out as one character per line beside a
+   badge with room to spare. The badge is now a row of its own under the text,
+   which also means it never changes the height of the card it is on. */
+.thms{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));
+gap:8px;margin:10px 0 4px;align-items:start}
+.thm{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;
+align-items:start;text-align:left;font:inherit;
+cursor:pointer;padding:10px 12px;border:1px solid var(--line);border-radius:10px;
+background:var(--card);color:var(--ink);
+transition:border-color var(--t-off) var(--ease-in),
+box-shadow var(--t-off) var(--ease-in),transform var(--t-off) var(--ease-in)}
+.thm:hover{transition-duration:var(--t-on)}
+.thm:hover{border-color:var(--accent-line);transform:translateY(-1px);
+box-shadow:0 2px 8px rgba(20,26,40,.07)}
+.thm:active{transform:scale(.985);transition-duration:60ms}
+.thm[aria-pressed="true"]{border-color:var(--accent);
+box-shadow:0 0 0 3px var(--accent-bg)}
+.thm-sw{grid-row:1/span 2;width:34px;height:34px;border-radius:8px;
+border:1px solid rgba(20,26,40,.12);background:#f3f5fa;align-self:start}
+.thm-t{min-width:0;font-size:12px;color:var(--soft);line-height:1.4}
+/* The name stays on one line. A wrapped "Ukiyo-e 浮世絵" was the whole bug. */
+.thm-t b{display:block;font-size:13px;font-weight:700;color:var(--ink);
+margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Its own row under the text rather than a third column competing for width,
+   and hidden rather than absent when not selected so nothing shifts. */
+.thm-on{grid-column:2;justify-self:start;visibility:hidden;
+font:700 9.5px/1 var(--font);text-transform:uppercase;
+letter-spacing:.06em;color:var(--accent);background:var(--accent-bg);
+border:1px solid var(--accent-line);border-radius:4px;padding:3px 6px}
+.thm[aria-pressed="true"] .thm-on{visibility:visible}
+/* The rows with no swatch (motion, opening view) have only the one column. */
+.thm.wide{grid-template-columns:1fr;padding:11px 13px}
+.thm.wide .thm-on{grid-column:1}
+/* The swatches, each the wash of the theme it names. */
+.thm-plain{background:#f3f5fa}
+.thm-ukiyoe{background:var(--u-print) no-repeat 52% 40%/auto 44px,#e8e0d2}
+.thm-ai{background:linear-gradient(180deg,#12539e,#d9e2ef 86%)}
+.thm-sakura{background:var(--s-branch) no-repeat left -6px top 2px/46px auto,radial-gradient(24px 18px at 76% 16%,rgba(200,90,130,.5),transparent 68%),#f4dfe6}
+.thm-koke{background:radial-gradient(24px 18px at 22% 16%,rgba(10,107,74,.8),transparent 68%),#dde8e0}
+.thm-sumi{background:linear-gradient(180deg,#3b4250,#eceef2)}
+.thm-yoru{background:linear-gradient(150deg,#0e1118 42%,#2a3752),
+radial-gradient(18px 14px at 76% 22%,rgba(106,165,240,.7),transparent 70%)}
+
+/* Test connections. Three separate questions with three separate answers, so
+   the panel is a list of rows rather than one green tick: on 28 September the
+   servers were all fine and the credential was not, and a single verdict would
+   have said "broken" without saying which half. */
+.chk-bar{display:flex;gap:11px;align-items:center;margin:10px 0 0;flex-wrap:wrap}
+.chk-go{font-weight:650}
+.chk-when{font-size:11.5px;color:var(--soft);font-variant-numeric:tabular-nums}
+.chk-rows{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:1px;
+background:var(--line);border:1px solid var(--line);border-radius:10px;
+overflow:hidden}
+.chk-rows:empty{display:none}
+.chk{background:var(--card);display:flex;gap:10px;align-items:baseline;padding:9px 12px;
+animation:fold-in var(--t-mid) var(--ease) both}
+.chk-m{flex:none;width:17px;height:17px;border-radius:50%;display:grid;
+place-items:center;font:800 9.5px/1 var(--font);color:#fff;align-self:center}
+.chk.ok .chk-m{background:var(--green)}
+.chk.bad .chk-m{background:var(--red)}
+.chk.unsure .chk-m{background:var(--amber)}
+.chk-b{flex:1;min-width:0;font-size:12.5px;color:var(--mut);line-height:1.45}
+.chk-b b{display:block;font-size:13px;font-weight:700;color:var(--ink)}
+.chk-b i{display:block;font-style:normal;font-size:12px;color:var(--amber-ink);
+margin-top:2px}
+.chk-note{margin:9px 0 0;font-size:12.5px;font-weight:600;color:var(--mut)}
+.chk-note:empty{display:none}
+@media print{header.top,.btn,.copy,.toggle,.views,.jump,.howto{display:none}
+body{background:var(--card)}.tk,.st-tk{break-inside:avoid;border-color:#ccc;box-shadow:none}
+details{display:block}details>summary{display:none}}
