@@ -76,6 +76,28 @@ print("\n".join(kind.command(model, effort=agent.effort_for("post"), job="post")
 
 AGENT_BIN="${AGENT_CMD[1]}"
 
+# The run's settings make apiKeyHelper read ANTHROPIC_API_KEY back from the
+# environment, so the key has to be in it. Without this every post run since
+# the helper was pinned died on "apiKeyHelper failed: exited 1" and a 401, and
+# the retries reported it as "no note yet". kind.env() is the same environment
+# a refresh from the page gets: key pinned, MCP startup waited for, the
+# attending host's variables dropped.
+RUN_ENV="$(python3 -c '
+import os, shlex, sys
+import agent
+kind = agent.pick()
+if kind is None or not kind.wait_for_credential():
+    sys.exit(4)
+env = kind.env()
+for k in sorted(os.environ):
+    if k not in env:
+        print(f"unset {k}")
+for k in ("ANTHROPIC_API_KEY", *sorted(kind.mcp_env)):
+    print(f"export {k}={shlex.quote(env[k])}")
+')" || fail "Claude Code could not fetch its model credential. Unlock 1Password, then run: DANDORI post"
+eval "$RUN_ENV"
+unset RUN_ENV
+
 LOCK="$STATE_DIR/refresh.lock"
 
 lock_is_held() {
@@ -131,6 +153,12 @@ while true; do
   log "attempt $attempt, looking for today's meeting note"
 
   take_lock
+
+  if note_found && [[ $FORCE -eq 0 ]]; then
+    release_lock
+    log "today's note is now on the board (folded in by a concurrent run)"
+    break
+  fi
 
   python3 "$REPO/core/keep.py" post >>"$LOG" 2>&1 || true
 

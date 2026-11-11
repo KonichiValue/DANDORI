@@ -55,6 +55,47 @@ this shape, and a sweep that keeps it finishes in a few minutes:
    run it again.
 4. **Then `./core/check.py`, fix what it prints with a second small patch, and report.**
 
+### Delta mode (when triggered by the background scout)
+
+When a note at the end of this prompt says **Delta refresh**, Stage 1
+(`./core/scout.py`) has just checked the unfiltered Asana census, the
+`modified_at_after` gates, every live Slack thread, your own sends, your
+mentions, and any open Slack canvases, and wrote only what moved to
+`tmp/delta.json`:
+
+1. **Turn 1: `./core/digest.py --delta`, once.** Never run plain `./core/digest.py`
+   or `--full` on top of it; `--delta` already prints `DELTA FINDINGS`, `BRIEF`,
+   `SCRIPT`, every touched or out-of-date ticket in full, and one-line summaries
+   of every unchanged ticket.
+2. **Turn 2: fetch only `TO FETCH IN ONE PARALLEL TURN`.** Do **not** re-run the
+   Asana census, the Slack thread reads, or the Slack searches already printed
+   verbatim in `DELTA FINDINGS`. Only call `get_task_stories`, `get_task` or
+   `drive_read_file` on the specific task GIDs and meeting docs listed under
+   `TO FETCH` (plus a `slack_read_thread` only if a new Slack search hit links
+   to a thread whose surrounding replies you need). If `TO FETCH` is absent
+   because every change was a Slack message already printed in full, make zero
+   source calls and write the patch straight away.
+3. **Apply every board rule below identically**, write `tmp/patch.json` with
+   `"swept": true` (`apply.py` stamps every quiet thread verified by the scout
+   automatically), and run `./core/check.py`.
+4. **Pre-room speaking sync (only when `DELTA FINDINGS` shows `!! PRE-ROOM SCRIPT SYNC ACTIVE`).**
+   When a speaking session is within 90 minutes and today's `script` is already
+   built for it, keep `What I say` aligned with `My work` by also updating
+   `tickets.<ref>.prep` **only on the ticket(s) whose state, timeline or asks
+   changed in this delta** (or setting `"prep": null` if that ticket is now
+   completed or settled with nothing owed in the room):
+   - Follow the profile's `## Writing to the client` and `## Never reaches the client`
+     rules: register, spoken flow, exact domain vocabulary, zero internal details
+     (no KT numbers, story points, queue position or engineer names), and
+     `{word|reading}` on whole words when `config.json` `language.readings` is
+     true (`./core/check.py` verifies every spoken line).
+   - Keep `prep` to `{order, board_position, issue, why_it_matters, consequences,
+     open_questions, script, client_ask_needed, built_at}` (plus `decisions` /
+     `pushback` only for an onsite or weekly review that uses them; keep the
+     ticket's existing `order` and `board_position`).
+   - Leave unchanged tickets' `prep` blocks completely untouched. Outside this
+     90-minute pre-room window, never touch `prep` or `script`.
+
 Banned outright, because each one is a detour a real sweep has taken:
 
 - **No Python against the board.** No `python3 -c`, no `import board`, no
@@ -155,16 +196,18 @@ stayed invisible here because only the incremental gate was run.
    from sitting stale for days, which is the failure this half exists to prevent.
 
 2. **The incremental gate: what to read.** A `search_tasks` with
-   `modified_at.after` set to the board's `checked_at` date, across the same
-   project gids, returns the tickets that moved since the last sweep. This
-   decides depth, not membership: everything unchanged costs nothing, so you do
-   not call `get_task` or `get_task_stories` on a ticket the gate did not return
-   and no thread flagged. Calling `get_task` on all of them and then pulling every
-   `get_task_stories` regardless is the wasteful shape this replaces. The things
-   that earn a deep read are a ticket the gate returned, a ticket whose thread
-   moved in step 4, and **any ticket the census turned up that is not yet on the
-   board**: a brand-new ticket is read in full the first time however old its
-   last edit is.
+   `modified_at_after` set to the exact UTC timestamp the SWEEP PLAN prints
+   (two minutes before `checked_at`), across `projects_any`, returns only the
+   tickets that moved since the last sweep. This decides depth, not membership:
+   everything unchanged costs nothing, so you do not call `get_task` or
+   `get_task_stories` on a ticket the gate did not return and no thread flagged.
+   For the tickets the gate did return, batch their stories into a single call,
+   `get_task_stories(task_ids=[...], created_after=<since_utc>)`, so Asana
+   returns only the comments and activity created since the last sweep. The
+   things that earn a deep read are a ticket the gate returned, a ticket whose
+   thread moved in step 4, and **any ticket the census turned up that is not yet
+   on the board**: a brand-new ticket is read in full the first time however old
+   its last edit is.
 
 The SWEEP PLAN names the incremental gate. It does not replace the census: run
 the census even when the plan does not mention it, because the plan is built from
@@ -207,6 +250,47 @@ Against that combined set:
   all of them in one call, so trueing up every ticket's Status costs nothing, and
   a status the page shows must match the ticket the moment the owner opens it, so
   this is not optional and not gated on a comment having appeared.
+- **Then say whether that Status is behind what happened.** On a ticket assigned
+  to the owner and still open, when the timeline has moved past what Asana says
+  (a build released while the ticket still waits for an engineer, an engineer
+  building it while it still says waiting for one, the client re-testing while
+  it says ready for development), write `asana.status_should`, one of the
+  project's Status options exactly as `config.json` `asana.status_field.options`
+  spells them, and `asana.status_why`, one short line naming the event and its
+  date. Only from an event you can quote, never from a guess at what comes
+  next. Never on a ticket assigned to someone else, and never for a CE build's
+  own Status, which is the refining engineer's to set. When Asana already
+  agrees, take both fields off (`null`). The card draws both chips in Asana's
+  colours and the owner sets it with one press; you never set it yourself.
+- **Status follows the build.** `config.json` `asana.status_field.by_stage` says
+  which client Status each CE build stage means (an engineer building it is "in
+  development", whatever the client's word for that is). After step 3, any
+  ticket the owner owns whose build stage maps to a Status later than the one
+  Asana shows gets `status_should` set to that Status, and `status_why` naming
+  the build event and its date ("engineer picked up the build 3 Nov"), never the
+  engineer or the KT number, since the owner may paste it. The digest lists the
+  tickets this already applies to under step 3; re-check them against the stage
+  you read now. `./core/audit.py` flags one you missed.
+- **When an engineer first picks up a bigger build, the client hears that
+  development has begun.** On the sweep where a build first reaches `building`
+  (no earlier `building` event on the ticket), and the build is 3 story points or
+  more, an M t-shirt or larger, or one the client has asked the timing of, raise
+  or update an item with a **drafted** Asana comment on the client ticket, in the
+  client's language and the house style: development has started, what is being
+  built in the client's own words, and what the client will be asked to do next
+  (usually test it). Work out when it should be done only from something you can
+  quote: a date the engineer gave in a thread, the build task's `due_on`, or the
+  release the build is scheduled into. That estimate always goes in `prepared`
+  with its source, as a target and never a promise. It goes in the comment too
+  only when the profile's `## Never reaches the client` allows delivery dates;
+  where it forbids them, the comment says the owner will share the timing and
+  the date stays on the desk. With no source at all, add a step to ask the
+  engineer for one, following the ask-don't-propose rule. When a comment went out
+  saying the timing would follow and a source turns up on a later sweep, draft
+  the follow-up comment with the estimate, where the profile allows it, on the
+  same item. Nothing internal goes
+  in the comment: no engineer's name, no story points, no build ticket. A small
+  build gets the Status change alone. Set the draft's `expects_reply` false.
 - New tickets since the last sweep get added, with `where_it_stands`, `terms`
   and `threads` filled in the same way the morning prep does it.
 - A ticket completed in Asana is **finished**: set `asana.completed` true, move it
@@ -261,6 +345,24 @@ Against that combined set:
   a ticket head to close with its production flag still showing off or blank
   when it is actually on. The desk never writes to Asana, so this is a draft the
   owner posts, like any other client-facing change.
+- **When a feature or bug-fix reaches `review` or `released` and logically has
+  testable output, ensure concrete test evidence exists before asking the client
+  to sign off or rolling out to production.** Unless the change does not
+  logically involve test data or visible output (for example a pure doc/process
+  note or a zero-data config cleanup), a plain-text description of an engineer's
+  local test run is not enough for the client. Either:
+  1. **The owner's desk review**: switch on the feature flag in TEST immediately
+     (where the profile allows turning on TEST flags without asking the client
+     first), verify the fix on a TEST account (or capture screenshots of the
+     result), and attach the screenshots (`prepared.files` with `path` or `how`,
+     tagged to the client draft's `draft` number) or cite the TEST account in
+     the draft.
+  2. **The engineer's evidence**: if setting up a TEST account is too complex or
+     needs jobs/data the owner cannot run, draft a message to the engineer on
+     the internal build ticket asking them to switch on the flag in TEST and
+     provide a TEST account, or share screenshots of the account status from
+     their local/test run. Do not draft a text-only test summary to the client
+     while concrete evidence is still missing.
 
 For a ticket the gate returned, a bump is not always a comment: a section move, a
 status change or a bulk edit stamps `modified_at` too, and several tickets
@@ -285,6 +387,38 @@ land on the owner's tickets. Store what you read in `migration_note`, same shape
 as `meeting_note`: `date`, `found`, `url` (the notes page's link, with the day's
 anchor where it has one). Do not re-read a programme-meeting note you have
 already folded in.
+
+**The standup.** The main standup is the post run's job, but that run can fail
+or still be polling when you start, and a sweep after the standup that leaves it
+out hands the owner a page that is a morning old. So when the digest has a step
+D, the standup has run and `meeting_note` has not caught up: fold it in here.
+Read the doc it names with `mcp__google__drive_read_file` in the same message as
+the census and the Slack reads, the transcript tab as well as the summary
+(the transcript is where the pushback and the quiet promises are). With no doc
+named, look where step D says, and when nothing is there either, leave
+`meeting_note` alone and say so in `gaps`. When step D says the call has not
+ended yet, read nothing and leave `meeting_note` alone: Gemini writes the notes
+when the call ends, and the next sweep picks it up.
+
+What was said goes on the owner's tickets the way everything else in this sweep
+does: an event at the minute it was said (the transcript has the timestamps),
+attributed to the meeting and to the side the speaker is on, with the notes doc
+as its `source_url` and the meeting's calendar name at the start of `where`
+("Billing Stand Up (Gemini notes)"). That pair is how the week strip ties the
+meeting to the tickets it moved, so an event without them is a meeting that
+shows as having touched nothing. Then the items it moves,
+following steps 6 and 7; a new number only for work the meeting gave them that
+no open item already covers; and `news` for what moved around them with a route
+to one of their tickets. A topic the standup closed out with nothing owed back
+gets its event and no new item. Keep `sessions` true when the meeting said a
+room is not happening or something else is happening instead. Then set
+`meeting_note` to `{date, found: true, url, gist}`, the gist one line per
+ticket it moved.
+
+When step D says the doc sits on a programme-wide room that shares the standup's
+Meet call, the one doc is both meetings: fold the programme part in as section 3
+says and set `migration_note` to the same url and date too, so step N does not
+offer it again.
 
 When the owner points you at a note from some other room, read it the same way
 and record it in `other_notes` with `date`, `title`, `url`, `found` and a `gist`
@@ -367,11 +501,17 @@ words) and the digest marks it `[ticked done by the owner]`. That is them saying
 the step happened, so trust it: take that step out of `steps` and move on from
 the step after it. The tick goes with the step on its own, so leave `steps_done`
 alone. Never tick a step yourself; a step you rewrite in new words starts
-unticked, which is right only if it is still to do. Ticking every step is not closing the job: only the owner's
-status press or Posted it does that.
+unticked, which is right only if it is still to do. If every step in `steps` is
+ticked in `steps_done` and no unsent draft remains, the owner has finished the
+item: close it (`done`).
 
-Whenever you touch an item, leave its `steps` fit to act on: two to four, in
-order, verb first, aimed at the owner, naming the place and the thing.
+Whenever you touch an item, leave its `steps` fit to act on: one to four, in
+order, verb first, aimed at the owner, naming the place and the thing. A job
+that is one action is one step. Going to the place is part of the action done
+there, never a step before it: "Open the canvas, section 3" then "Paste the entry
+below" is one step, "In the canvas, section 3 (link), paste the entry below".
+Never split a step to fill a count; if you merge steps, move the draft's `step`
+to the number it now has.
 Commentary is not a step and belongs in `why`. Leave a `done_when` saying what
 the finished thing is. If the steps tell the owner to ask, tell, confirm or
 reply, there is a `draft`; if they tell them to read or compare, say so in a step
@@ -424,7 +564,7 @@ the step does not name the draft's recipient or say "draft N" itself.
 work view is only worth trusting if nothing on it is left over, so read every
 `draft` still on the ticket against what you have just found. If the thread
 moved, rewrite the draft into the message they would send this minute and say in
-`progress_note` what changed and why. If the reason for the message has gone,
+`progress_note` what changed and why. Format every draft so it pastes cleanly into Slack and Asana (the Copy button copies both rich HTML and plain text): use `- ` on its own line for bullets (never `•`), `1. ` `2. ` on its own line for numbered lists, `**bold**` for bold (never `*single asterisks*`), and full uncompressed `https://...` URLs (never `[label](url)` or truncated links). If the reason for the message has gone,
 delete the draft and the step that asked for it. A draft written yesterday
 morning is the most dangerous thing on the page, because it reads as ready to
 paste and it is addressed to the client.
@@ -512,6 +652,16 @@ drafts are addressed to the same person on the same ticket are one item, however
 they got there, and the way to find them is to read the `target` of every open
 draft on a ticket together. Three numbers that end in one Asana comment cost the
 owner three readings and a decision about ordering that does not exist.
+Likewise, **never create or keep a numbered item that duplicates a dedicated
+desk feature**:
+- Moving a client ticket's Asana `Status` field belongs in `asana.status_should`
+  + `asana.status_why` (the one-click `Set in Asana` button on the ticket
+  header), never a standalone item ("Set <ref> Status to ... in Asana").
+- Raising refined CE builds for the recurring prioritization round belongs in
+  `prioritization.builds` (the `Prioritization` card, its drafted note to the
+  lead, and the calendar's `by Raise builds` entry), never a numbered item on a
+  ticket ("Raise KT-... with <lead> for the prioritization round").
+- Never fold work for two different tickets into one ticket's item.
 
 **Then chain what is genuinely sequential, with `after`.** Most of what is left
 on a ticket is a queue rather than a menu: the scope cannot be confirmed before
@@ -547,14 +697,19 @@ strip is how they plan, and it gets a job's day from one of two places:
   never a sentence: `"chase_on": "Only if they raise it again"` is a job with no
   day, and it is invisible on the strip. Put that sentence in `waits_on.what` and
   give `chase_on` a date, or leave it out and set `urgency: monitor`.
-- Work sitting with **the owner** carries no date, only `urgency`, and the strip
-  reads it: `today` lands on today, `this-week` on the next working day,
-  `monitor` stays off. So an actionable job marked `monitor` is a job they will
-  not see coming, and that is the one mistake to avoid here.
+- Work sitting with **the owner** carries `urgency`, and the strip reads it:
+  `today` lands on today, `this-week` on the next working day, `monitor` stays
+  off. So an actionable job marked `monitor` is a job they will not see coming,
+  and that is the one mistake to avoid here.
+- Work of the owner's that has **a deadline** rather than a start ("by Fri 6 Nov",
+  the working day before a prioritization round, a date the client set) also
+  carries `due_by`, an ISO date. Without it the job reads "Do now" a week early;
+  with it the card reads "By 6 Nov", the strip draws it on that day, and it turns
+  "Due today" when the day comes. Keep `urgency` on it too.
 
 A job is therefore either somebody else's with a real `chase_on`, or the owner's
-with an honest `urgency`. Anything else disappears from the week they plan
-against.
+with an honest `urgency` and, when it has a deadline, a `due_by`. Anything else
+disappears from the week they plan against.
 
 **`at_standup` follows `sessions`, not habit.** The main standup runs on the
 days in `config.json` `meeting.days`, so check the next live session before you
@@ -563,7 +718,8 @@ is a session where the owner does not walk their tickets, take the flag off and
 put the written route in the steps instead: no standup means it goes on the
 ticket. Correct `sessions` itself when you find a room that is not happening or
 one that nobody put there, and drop entries whose date has passed. Never touch
-`prep` or `script`: those are the words, and `prompts/prep.md` owns them.
+`prep` or `script` unless `DELTA FINDINGS` explicitly marks `PRE-ROOM SCRIPT SYNC ACTIVE`
+for a moved ticket: outside that 90-minute pre-room window, `prompts/prep.md` owns them.
 
 **Do the part of the item you can do.** If a step could be followed without
 judgement, following it was your job, not the owner's: read the comments and
@@ -586,7 +742,27 @@ room on that basis, so an honest gap is worth more than a confident paragraph.
 Keep table cells to a phrase and mark the row that is the point with a toned
 cell. When the product is a document the client will read rather than words the
 owner will say, write it into the client's `docs/` folder as HTML, run `python3 core/make_doc.py`, and
-point `prepared.files` at the HTML and the PDF.
+point `prepared.files` at the HTML and the PDF, with `draft` set to the draft
+that sends them. Only what goes out or what the owner opens is a file; an export
+or script made on the way is not. `./audit.py` flags a block over four findings
+or six files, and the fix is to rewrite it whole: `save()` keeps what you cut.
+
+A draft that claims or asks for evidence carries it. A screenshot, a query
+result or an export that proves what the message says is saved in the client's
+`docs/` (an Asana or Slack attachment downloaded, a `SELECT` result written as
+CSV) and goes in `prepared.files` with `draft` set, and the page shows an image
+in that message's box. Crop out account numbers, names and addresses before a
+screenshot leaves Kraken. Evidence only the owner can make, a screen behind a
+login you do not have, a test record to create, is an entry with `label`, `how`
+and `draft` and no `path`: in `how`, the page or query to open, what to do, what
+the result must show, and the `docs/` path to save it as. Never write "attached"
+in a draft that has nothing attached and no `how` saying how to get it. Likewise,
+when a draft reports feature or bug-fix test results to the client for sign-off
+or rollout (and the change logically involves test data, calculations or UI
+output), never rely on a text-only summary of an engineer's local run: pair the
+draft with a TEST account ID the client can inspect, a screenshot in
+`prepared.files` (`path` or `how`), or a step/draft asking the engineer on the
+build ticket to provide a TEST account or local screenshots first.
 
 ## 6b. A quiet client ticket gets a status draft, and a stalled build gets a chase
 
@@ -686,13 +862,15 @@ builds, and the desk card and the note to the prioritization lead are drawn from
 it. Your part is to keep that block true. The profile's `## Kraken routes` says
 more about how the round works.
 
-- The SWEEP PLAN's `P.` reads the owner's known builds by gid and searches the CE
-  projects (`prioritization.ce_projects`) for new ones. **Keep a build only if
-  its CDL-Owner (the field `prioritization.cdl_owner_field`) is the owner,
-  `owner.name`.** Asana ignores a CDL-Owner filter on search, so check the field
-  on every hit. Another CDL's build never goes in, even one on the same client
-  ticket as the owner's.
-- Write the whole list as `"board": {"prioritization.builds": [...]}`, one
+- The digest prints the current `PRIORITIZATION` list (`builds.<n>`), and the
+  SWEEP PLAN's `P.` searches the CE projects (`prioritization.ce_projects`) with
+  `modified_at_after` from `prioritization.checked_at` so unchanged builds cost
+  nothing to re-read. **Keep a build only if its CDL-Owner (the field
+  `prioritization.cdl_owner_field`) is the owner, `owner.name`.** Asana ignores a
+  CDL-Owner filter on search, so check the field on every hit. Another CDL's
+  build never goes in, even one on the same client ticket as the owner's.
+- Update changed fields by position (`"board": {"prioritization.builds.0.status": "..."}`)
+  or write the whole list as `"board": {"prioritization.builds": [...]}`, one
   record per build: `kt`, `gid`, `url`, `name`, `ticket` (the board ref it
   serves, or ""), `status` (Status (Kraken Cust)), `refinement` (🟢 etc.),
   `size` ("3 SP"), `client_order` (the client's own order field on the build, as
@@ -708,6 +886,11 @@ more about how the round works.
   `prioritization.last_round` to `{date, url, ordered: [KT...], not_pushed:
   [KT...]}`, the owner's builds only. A build ordered there gets its client order
   (`client_order`) from Asana on the next read; do not write one Asana does not show.
+- When the owner has already posted the prioritization note in `prioritization.channel`
+  for the upcoming round `next_round.date`, set `prioritization.raised` to
+  `{round: "<YYYY-MM-DD>", at: "<YYYY-MM-DD HH:MM>", url: "<Slack URL>", kts: ["KT-..."]}`
+  so the Prioritization card marks those builds `Raised` and the calendar hides
+  `by Raise builds`.
 - Set `prioritization.checked_at` to now whenever you wrote the list.
 - A CE build's Status is CE's to set: the engineer who finished refinement
   moves it on. A 🟢 build still reading New or Solution Refinement is not a fix

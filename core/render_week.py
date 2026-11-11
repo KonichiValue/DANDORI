@@ -86,16 +86,85 @@ def same_room(s: dict, events: list[dict]) -> dict | None:
     return next((e for e in events if at and e.get("at") == at and e.get("work")), None)
 
 
-def meet_links(e: dict, past: bool) -> str:
-    """Join while it can still be joined, Notes once there are some."""
+def meet_links(e: dict, past: bool, mins: dict | None = None) -> str:
+    """Join while it can still be joined, Notes once there are some.
+
+    Notes opens Gemini's notes for the call when there are any, even when Meet
+    put them on the next meeting on the same link, rather than the shared
+    running doc every standup in the series carries."""
     out = ""
     if e.get("join") and not past:
         out += (f'<a class="wm-join" href="{esc_url(e["join"])}" target="_blank" rel="noopener"'
                 f' title="Join in Google Meet">Join</a>')
-    for n in (e.get("notes") or [])[:1]:
+    notes = [mins["notes"]] if mins and mins.get("notes") else (e.get("notes") or [])[:1]
+    for n in notes:
         out += (f'<a class="wm-notes" href="{esc_url(n["url"])}" target="_blank" rel="noopener"'
                 f' title="{esc(n["title"])}">Notes</a>')
     return out
+
+
+# How many tickets a meeting row names before it counts the rest. A column is
+# narrow, and three refs is the most that still reads as a line.
+CHIPS = 3
+
+
+def chips(refs: list[str], anchors: dict[str, str], tip: str, view: str = "") -> str:
+    """Ticket refs as links to their cards, the first few and a count."""
+    live = [r for r in refs if anchors.get(r)]
+    if not live:
+        return ""
+    out = "".join(
+        f'<a class="wm-ref" href="#{esc(view + anchors[r].removeprefix("t-") if view else anchors[r])}"'
+        f' title="{esc(tip.format(ref=r))}">{esc(r)}</a>'
+        for r in live[:CHIPS]
+    )
+    if len(live) > CHIPS:
+        rest = ", ".join(live[CHIPS:])
+        out += f'<span class="wm-ref-more" title="{esc(rest)}">+{len(live) - CHIPS}</span>'
+    return out
+
+
+def minutes_line(e: dict, mins: dict | None, anchors: dict[str, str]) -> str:
+    """Under a meeting that has ended: what it moved on the board.
+
+    The tickets whose timeline a sweep wrote from this meeting's notes, each a
+    link to its card. Until a sweep has read the notes it says so instead,
+    because a meeting that has happened and is not on the board yet is the one
+    the owner has to know about. A meeting whose notes were read and touched
+    none of their tickets says that too, so silence never means "not looked at".
+    """
+    if not mins or not over(e):
+        return ""
+    if mins["state"] == "unread":
+        return ('<span class="wm-tix"><span class="wm-fold" title="Gemini\'s notes are in and'
+                ' no refresh has read them yet. The next refresh folds them into your tickets.">'
+                'Notes not read yet</span></span>')
+    line = chips(mins["refs"], anchors, "{ref}: on its timeline from this meeting")
+    if not line:
+        return ('<span class="wm-tix"><span class="wm-none" title="A refresh read these notes'
+                ' and nothing in them touched one of your tickets.">Read, nothing on yours</span></span>')
+    return f'<span class="wm-tix">{line}</span>'
+
+
+def script_line(board: dict, s: dict, e: dict | None, anchors: dict[str, str]) -> str:
+    """Under the room the current script was written for: the tickets in it.
+
+    Each opens that ticket on the speaking view, in speaking order, so the room
+    on the strip leads to the words for it.
+    """
+    meta = board.get("script") or {}
+    if e and over(e):
+        return ""
+    if not meta.get("for_date") or meta["for_date"] != s.get("date"):
+        return ""
+    if meta.get("at") and s.get("at") and meta["at"] != s["at"]:
+        return ""
+    spoken = sorted(
+        (t for t in board.get("tickets") or [] if (t.get("prep") or {}).get("script")),
+        key=lambda t: (t.get("prep") or {}).get("order", 99),
+    )
+    line = chips([t.get("ref", "") for t in spoken], anchors, "{ref}: what you say about it", view="s-")
+    return f'<span class="wm-tix wm-say">{line}</span>' if line else ""
 
 
 def over(e: dict) -> bool:
@@ -106,13 +175,15 @@ def over(e: dict) -> bool:
         return False
 
 
-def meet_row(e: dict, today: date) -> str:
+def meet_row(e: dict, today: date, mins: dict | None = None,
+             anchors: dict[str, str] | None = None) -> str:
     past = over(e)
     answer = e.get("answer", "")
     klass = " ".join(filter(None, [
         "wm", "work" if e.get("work") else "side", "client" if e.get("client") else "",
         "tent" if answer in {"tentative", "needsAction"} else "",
         "past" if past else "",
+        "unread" if mins and mins["state"] == "unread" and past else "",
     ]))
     span = e["at"] + (f'&ndash;{esc(e["until"])}' if e.get("until") else "")
     said = {"tentative": " · maybe", "needsAction": " · not answered"}.get(answer, "")
@@ -120,7 +191,8 @@ def meet_row(e: dict, today: date) -> str:
               <span class="wm-t">{esc(e["at"])}</span>
               <a class="wm-w" href="{esc_url(e.get("link", ""))}" target="_blank" rel="noopener"
                  title="{esc(e["title"])} {span}{esc(said)}">{esc(e["title"])}</a>
-              <span class="wm-go">{meet_links(e, past)}</span></div>"""
+              <span class="wm-go">{meet_links(e, past, mins)}</span>
+              {minutes_line(e, mins, anchors or {})}</div>"""
 
 
 def whose(item: dict, st: dict) -> tuple[str, str]:
@@ -168,8 +240,12 @@ def dated(item: dict, st: dict, today: date) -> str:
     So urgency is read as a day. `today` means today, `this-week` means the next
     working day the owner has not passed yet (today, on a Friday), and `monitor` is genuinely undated and
     stays off the strip. It is an inference rather than a fact, so the row says
-    so and the card stays the place the real state lives.
+    so and the card stays the place the real state lives. A job of theirs with a
+    `due_by` deadline is the exception: that is a date the board set, so it wins.
     """
+    due_by = item.get("due_by") or ""
+    if st["state"] == "todo" and ISO.fullmatch(due_by):
+        return due_by
     chase = (item.get("waits_on") or {}).get("chase_on") or ""
     if ISO.fullmatch(chase or ""):
         return chase
@@ -258,8 +334,9 @@ def due_rows(
                 # Whether the day came from the board or from the urgency. An
                 # inferred day is drawn dashed, because "this-week means
                 # tomorrow" is this renderer's opinion and not a fact the owner set.
-                "guess": not ISO.fullmatch(
-                    (i.get("waits_on") or {}).get("chase_on") or ""
+                "guess": not (
+                    ISO.fullmatch((i.get("waits_on") or {}).get("chase_on") or "")
+                    or (st["state"] == "todo" and ISO.fullmatch(i.get("due_by") or ""))
                 ),
             }
             by_day.setdefault(lands, []).append(row)
@@ -287,6 +364,9 @@ def render(
         if s.get("date"):
             rooms.setdefault(s["date"], []).append(s)
     cal = meetings(days)
+    # What each meeting that has ended moved on the board, so a meeting on the
+    # strip leads to the tickets it touched, or says nobody has read it yet.
+    mins = calendar_sync.minutes(board, [e for v in cal.values() for e in v])
 
     # The prioritization lead's thread (`prioritization.who`), and the last day
     # to raise a build before it. Neither is a meeting the owner sits in, so they
@@ -294,9 +374,13 @@ def render(
     # link to the card. With no `prioritization` block there are no rounds and
     # neither is drawn.
     flags: dict[str, list[tuple[str, str]]] = {}
+    ps = prioritize.summary(board, today)
+    nxt_round = (ps.get("next") or {}).get("date")
+    need_raise = bool(ps.get("raise"))
     for r in prioritize.rounds(start=days[0], count=2):
         flags.setdefault(r["date"], []).append((r["at"], "Prioritization"))
-        flags.setdefault(r["ask_by"], []).append(("by", "Raise builds"))
+        if r["date"] != nxt_round or need_raise:
+            flags.setdefault(r["ask_by"], []).append(("by", "Raise builds"))
 
     cells = []
     for n, d in enumerate(days):
@@ -327,8 +411,10 @@ def render(
             e = same_room(s, events)
             if e:
                 used.add(e["id"])
-            links = meet_links(e, over(e)) if e else ""
+            m = mins.get(e["id"]) if e else None
+            links = meet_links(e, over(e), m) if e else ""
             sort_at = s.get("at") or (e.get("at") if e else "") or "00:00"
+            under = script_line(board, s, e, refs) + (minutes_line(e, m, refs) if e else "")
             timed.append((
                 sort_at,
                 idx,
@@ -337,7 +423,7 @@ def render(
               {f'data-start="{esc(e["start"])}" data-end="{esc(e["end"])}"' if e else ""}>
               <b>{esc(s.get("at", ""))}</b>
               <span class="wd-room-w">{esc((s.get("tab") or s.get("name") or s.get("kind") or "Session"))}</span>
-              {f'<span class="wm-go">{links}</span>' if links else ""}</span>""",
+              {f'<span class="wm-go">{links}</span>' if links else ""}{under}</span>""",
             ))
         rest_meets = [e for e in events if e["id"] not in used]
         lo, hi = DESK_HOURS
@@ -347,14 +433,14 @@ def render(
             key=lambda e: (e.get("at") or "99:99", e.get("start") or ""),
         )
         for idx, e in enumerate(front, start=100):
-            timed.append((e.get("at") or "00:00", idx, meet_row(e, today)))
+            timed.append((e.get("at") or "00:00", idx, meet_row(e, today, mins.get(e["id"]), refs)))
         timed.sort(key=lambda item: (item[0], item[1]))
         meet_html = "".join(html for _, _, html in timed)
         if folded:
             meet_html += (
                 '<details class="wm-more">'
                 f'<summary>{len(folded)} other meeting{"s" if len(folded) != 1 else ""}</summary>'
-                + "".join(meet_row(e, today) for e in folded) + "</details>"
+                + "".join(meet_row(e, today, mins.get(e["id"]), refs) for e in folded) + "</details>"
             )
         # The owner's own work is never folded away, however long the day is.
         # Only the rest competes for the remaining rows.
@@ -364,8 +450,12 @@ def render(
         shown, rest = own + others[:room], others[room:]
         rows = "".join(
             f"""<a class="wd-job {esc(r["tone"])}{" guess" if r["guess"] else ""}"
+               data-week-job="{esc(r["id"])}"
                href="#{esc(refs.get(r["ref"], ""))}"
                title="{esc(r["title"])}{esc(
+                   " (your part is done; this is the day to chase if they stay quiet)"
+                   if r["tone"] == "theirs" else ""
+               )}{esc(
                    f' (really due {day_words(r["on"])})' if r["moved"]
                    else " (no date on the board, placed by its urgency)"
                    if r["guess"] else ""
@@ -373,7 +463,8 @@ def render(
               <span class="wd-n">{esc(r["id"])}</span>
               <span class="wd-w">{esc(r["title"])}</span>
               <span class="wd-who">{esc(r["who"])}{
-                  esc(f' · due {day_words(r["on"])}') if r["moved"] else ""
+                  esc(f' · due {day_words(r["on"])}') if r["moved"]
+                  else " · chase if silent" if r["tone"] == "theirs" else ""
               }</span></a>"""
             for r in shown
         )

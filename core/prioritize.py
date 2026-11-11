@@ -42,7 +42,10 @@ sys.path.insert(0, str(ROOT))
 import settings  # noqa: E402
 
 # Done builds are not in the round at all.
-FINISHED = {"done", "complete", "completed", "released", "closed", "won't do"}
+FINISHED = {
+    "done", "complete", "completed", "released", "closed", "won't do",
+    "cancelled", "withdrawn", "cancelled / withdrawn",
+}
 
 
 def config() -> dict:
@@ -187,10 +190,11 @@ def next_round(cfg: dict | None = None, today: date | None = None) -> dict:
     return {}
 
 
-def kind(build: dict) -> str:
-    """Which of four things a build is, for this round.
+def kind(build: dict, raised_kts: set[str] | None = None, nxt_date: str = "") -> str:
+    """Which of five things a build is, for this round.
 
     raise    refined and sized, no client order: say it should be ordered
+    raised   refined and sized, no client order yet, already raised for this round
     ordered  has a client order (`client_order`): only its dates and status need to be right
     refining not refined yet, so it cannot be ordered this round
     done     finished, not part of the round
@@ -200,7 +204,11 @@ def kind(build: dict) -> str:
         return "done"
     if str(build.get("client_order") or "").strip():
         return "ordered"
-    if build.get("refinement") == "🟢" or status == "ready to build":
+    ref = str(build.get("refinement") or build.get("ref") or "").strip()
+    if ref == "🟢" or status == "ready to build":
+        kt = str(build.get("kt") or "").strip()
+        if (raised_kts and kt in raised_kts) or (nxt_date and build.get("raised_for") == nxt_date):
+            return "raised"
         return "raise"
     return "refining"
 
@@ -237,17 +245,24 @@ def summary(board: dict, today: date | None = None) -> dict:
     cfg = config()
     block = board.get("prioritization") or {}
     builds = [b for b in block.get("builds") or [] if isinstance(b, dict)]
+    nxt = next_round(cfg, today)
+    nxt_date = nxt.get("date") or ""
+    raised_block = block.get("raised") if isinstance(block.get("raised"), dict) else {}
+    raised_kts = (
+        {str(k).strip() for k in (raised_block.get("kts") or []) if k}
+        if nxt_date and raised_block.get("round") == nxt_date
+        else set()
+    )
     rows = []
     for b in builds:
-        k = kind(b)
+        k = kind(b, raised_kts, nxt_date)
         if k != "done":
             rows.append({**b, "kind": k, "fixes": fixes(b)})
     # Ordered builds by their client order; the rest keep the board's order,
     # which is the order the owner would ask for them in.
-    order = {"raise": 0, "ordered": 1, "refining": 2}
+    order = {"raise": 0, "raised": 1, "ordered": 2, "refining": 3}
     rows.sort(key=lambda r: (order[r["kind"]],
                              int(r["client_order"]) if str(r.get("client_order") or "").isdigit() else 0))
-    nxt = next_round(cfg, today)
     checked = block.get("checked_at", "")
     stale = ""
     last = previous(cfg, today)
@@ -262,8 +277,10 @@ def summary(board: dict, today: date | None = None) -> dict:
         "next": nxt,
         "last": last,
         "last_round": block.get("last_round") or {},
+        "raised_info": raised_block if raised_kts else {},
         "rows": rows,
         "raise": [r for r in rows if r["kind"] == "raise"],
+        "raised": [r for r in rows if r["kind"] == "raised"],
         "fixes": [r for r in rows if r["fixes"]],
         "checked_at": checked,
         "stale": stale,
@@ -278,7 +295,7 @@ def message(s: dict) -> str:
     never goes anywhere by itself: the page shows it with a copy button.
     """
     nxt = s.get("next") or {}
-    if not nxt or (not s["raise"] and not s["fixes"]):
+    if not nxt or not s["raise"]:
         return ""
     when = ""
     if nxt.get("date"):
@@ -293,8 +310,10 @@ def message(s: dict) -> str:
             bits = [r.get("size", "")]
             if r.get("why"):
                 bits.append(r["why"])
+            if r.get("url"):
+                bits.append(r["url"])
             tail = ", ".join(b for b in bits if b)
-            lines.append(f"• {r.get('kt', '')} {short(r.get('name', ''))}" + (f" ({tail})" if tail else ""))
+            lines.append(f"- {r.get('kt', '')} {short(r.get('name', ''))}" + (f" ({tail})" if tail else ""))
     ordered = [r for r in s["rows"] if r["kind"] == "ordered"]
     if ordered:
         lines.append("")
@@ -334,7 +353,12 @@ def main() -> int:
         print(f"  {s['stale']}")
     short_name = settings.client_short()
     for r in s["rows"]:
-        tag = {"raise": "RAISE", "ordered": f"{short_name}#{r.get('client_order')}", "refining": "refining"}[r["kind"]]
+        tag = {
+            "raise": "RAISE",
+            "raised": "RAISED",
+            "ordered": f"{short_name}#{r.get('client_order')}",
+            "refining": "refining",
+        }[r["kind"]]
         print(f"  {tag:9} {r.get('kt', ''):10} {r.get('ticket') or '-':8} "
               f"{r.get('status', '')} {r.get('size', '')} due {r.get('due_on') or '-'}")
         for f in r["fixes"]:

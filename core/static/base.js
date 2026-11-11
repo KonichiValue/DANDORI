@@ -45,24 +45,37 @@
     if(d<1800)el.classList.add('soon');
   }
   if(el&&!isNaN(target)){tick();setInterval(tick,20000)}
-  function putPlain(s){
-    // Slack only turns `foo` into code when the clipboard carries plain text,
-    // so never let a rich-text flavour reach it.
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      return navigator.clipboard.writeText(s).catch(function(){legacy(s)});
+  function putPlain(s,h){
+    if(h&&navigator.clipboard&&navigator.clipboard.write&&typeof ClipboardItem!=='undefined'){
+      var items={'text/plain':new Blob([s],{type:'text/plain'}),
+                 'text/html':new Blob([h],{type:'text/html'})};
+      return navigator.clipboard.write([new ClipboardItem(items)]).catch(function(){legacy(s,h)});
     }
-    legacy(s);
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      return navigator.clipboard.writeText(s).catch(function(){legacy(s,h)});
+    }
+    legacy(s,h);
   }
-  function legacy(s){
+  function legacy(s,h){
+    function onCopy(e){
+      if(!e.clipboardData)return;
+      e.clipboardData.setData('text/plain',s);
+      if(h)e.clipboardData.setData('text/html',h);
+      e.preventDefault();
+    }
+    document.addEventListener('copy',onCopy,true);
     var a=document.createElement('textarea');
     a.value=s;a.setAttribute('readonly','');
     a.style.cssText='position:fixed;top:-1000px';
     document.body.appendChild(a);a.select();
-    try{document.execCommand('copy')}finally{document.body.removeChild(a)}
+    try{document.execCommand('copy')}finally{
+      document.removeEventListener('copy',onCopy,true);
+      document.body.removeChild(a);
+    }
   }
   document.querySelectorAll('.copy').forEach(function(b){
     b.addEventListener('click',function(){
-      putPlain(b.dataset.copy);
+      putPlain(b.dataset.copy,b.dataset.copyHtml);
       var o=b.textContent;b.textContent='copied';
       setTimeout(function(){b.textContent=o},1200);
     });
@@ -399,11 +412,13 @@
     var themeBtns=[].slice.call(settings.querySelectorAll('[data-theme-set]'));
     var motionBtns=[].slice.call(settings.querySelectorAll('[data-motion-set]'));
     var openBtns=[].slice.call(settings.querySelectorAll('[data-open-set]'));
+    var autoBtns=[].slice.call(settings.querySelectorAll('[data-auto-set]'));
     function stored(key,fallback){return getPref(key)||fallback}
     function mark(){
       var now=document.body.dataset.theme||'plain';
       var moving=document.body.dataset.motion!=='off';
       var opening=stored('desk-open','auto');
+      var autoMode=stored('desk-auto','15');
       themeBtns.forEach(function(b){
         b.setAttribute('aria-pressed',b.dataset.themeSet===now);
       });
@@ -413,10 +428,19 @@
       openBtns.forEach(function(b){
         b.setAttribute('aria-pressed',b.dataset.openSet===opening);
       });
+      autoBtns.forEach(function(b){
+        b.setAttribute('aria-pressed',b.dataset.autoSet===autoMode);
+      });
     }
     openBtns.forEach(function(b){
       b.addEventListener('click',function(){
         setPref('desk-open',b.dataset.openSet);
+        mark();
+      });
+    });
+    autoBtns.forEach(function(b){
+      b.addEventListener('click',function(){
+        setPref('desk-auto',b.dataset.autoSet);
         mark();
       });
     });
@@ -428,7 +452,7 @@
     var forgetSaid=settings.querySelector('[data-forget-said]');
     if(forget)forget.addEventListener('click',function(){
       try{
-        var keep={'desk-theme':1,'desk-motion':1,'desk-open':1};
+        var keep={'desk-theme':1,'desk-motion':1,'desk-open':1,'desk-auto':1};
         var drop=Object.keys(P);
         for(var i=0;i<localStorage.length;i++)drop.push(localStorage.key(i));
         drop.forEach(function(k){
@@ -466,22 +490,6 @@
       if(t==='INPUT'||t==='TEXTAREA'||e.target.isContentEditable)return;
       e.preventDefault();
       if(!settings.open)settings.showModal();
-    });
-  }
-
-  // The chip for the ticket you are looking at lights up as you scroll.
-  var chips=[].slice.call(document.querySelectorAll('.jump a[href^="#t-"]'));
-  if(chips.length&&'IntersectionObserver' in window){
-    var seen={};
-    var eye=new IntersectionObserver(function(rows){
-      rows.forEach(function(r){seen[r.target.id]=r.isIntersecting});
-      var live=chips.filter(function(a){return seen[a.getAttribute('href').slice(1)]});
-      chips.forEach(function(a){a.classList.remove('on')});
-      if(live.length)live[0].classList.add('on');
-    },{rootMargin:'-90px 0px -70% 0px'});
-    chips.forEach(function(a){
-      var el=document.getElementById(a.getAttribute('href').slice(1));
-      if(el)eye.observe(el);
     });
   }
 
@@ -529,10 +537,13 @@
     if(!nav)return;
     var links=[].slice.call(nav.querySelectorAll('a[href^="#"]'));
     var map={},targets=[];
+    // Several jobs can sit on one ticket, so a ticket lights every chip it holds.
     links.forEach(function(a){
       var id=decodeURIComponent(a.getAttribute('href').slice(1));
       var el=document.getElementById(id);
-      if(el){map[id]=a;targets.push(el);}
+      if(!el)return;
+      if(!map[id]){map[id]=[];targets.push(el);}
+      map[id].push(a);
     });
     if(!targets.length)return;
     var ticking=false;
@@ -544,7 +555,7 @@
       for(var i=0;i<targets.length;i++){
         if(targets[i].getBoundingClientRect().top-line<=0)current=targets[i].id;
       }
-      links.forEach(function(a){a.classList.toggle('on',map[current]===a);});
+      links.forEach(function(a){a.classList.toggle('on',(map[current]||[]).indexOf(a)>=0);});
     }
     function onScroll(){if(!ticking){ticking=true;requestAnimationFrame(paint);}}
     window.addEventListener('scroll',onScroll,{passive:true});

@@ -77,9 +77,12 @@ def help_dialog() -> str:
       ticket and draft. Asks a question or makes a change to that one
       thing.</span></li>
     </ul>
-    <p>Refresh leaves the script alone on purpose, so a sweep at 17:00 cannot
-    throw away the wording you fixed at 16:00. When the script is older than the
-    board, both tabs say so in amber.</p>
+    <p>In the background on weekdays (and when you come back after copying a
+    draft), a lightweight Haiku check watches Asana and Slack every 15 minutes
+    and runs a fast delta refresh only when something moved. Outside the 90
+    minutes before a meeting, delta refreshes leave your speaking script alone;
+    inside that 90-minute window, once today's script is built, any ticket that
+    moves has its script line updated too.</p>
 
     <h3>Ask or change</h3>
     <p>Type, press <kbd>enter</kbd>, get an answer on the card in a minute or
@@ -118,7 +121,7 @@ def help_dialog() -> str:
     Copying a draft lights its button up so it is waiting when you come back.</p>
     <p>For anything else, press its status, the coloured label on the right of every job. It lists
     the moves open from where the job stands, and each one is the same as
-    <code>./tick.py</code> in a terminal, with an Undo for six seconds.</p>
+    <code>./core/tick.py</code> in a terminal, with an Undo for six seconds.</p>
     <ul class="say-list">
       <li><span class="said">With you</span><span class="does">Sent, waiting
       on who (filled from the draft, so <kbd>x</kbd> then Enter), done,
@@ -177,7 +180,7 @@ def help_dialog() -> str:
 
     <h3>If a button says it cannot read anything</h3>
     <p>The sweep needs Asana and Slack. <code>{esc(cmd)} mcp</code> says where those
-    connections stand, and <code>./setup-mcp.sh</code> fixes them: it adds
+    connections stand, and <code>./core/scripts/setup-mcp.sh</code> fixes them: it adds
     anything missing, then opens a browser tab per approval. <b>Log in</b> on the
     page does the same for a grant that has merely lapsed.</p>
 
@@ -247,9 +250,10 @@ def settings_dialog() -> str:
         who = f"Nobody has set this {esc(settings.desk_name())} {ver} up yet."
     who += (
         " The owner, the client, the rooms and the terminal command live in"
-        " <code>config.json</code>, and the house style in <code>me/profile.md</code>."
+        f" <code>{esc(settings.client_rel(settings.CONFIG))}</code>, and the house style in"
+        f" <code>{esc(settings.client_rel(settings.PROFILE))}</code>."
         ' <a href="/setup">Open the setup page</a> to change any of them, or run'
-        " <code>./setup.py</code> in the folder."
+        " <code>./core/setup.py</code> in the folder."
     )
     return f"""
 <dialog class="help set" id="settings">
@@ -307,6 +311,28 @@ def settings_dialog() -> str:
       </button>
     </div>
 
+    <h3>Automatic updates</h3>
+    <p>Checks Asana and Slack in the background with Haiku on weekdays and when
+    you return after copying a draft, running a delta refresh only when
+    something moved.</p>
+    <div class="thms">
+      <button type="button" class="thm wide" data-auto-set="15"
+              aria-pressed="false">
+        <span class="thm-t"><b>Every 15 min</b>Plus when you return from posting.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+      <button type="button" class="thm wide" data-auto-set="30"
+              aria-pressed="false">
+        <span class="thm-t"><b>Every 30 min</b>Plus when you return from posting.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+      <button type="button" class="thm wide" data-auto-set="off"
+              aria-pressed="false">
+        <span class="thm-t"><b>Buttons only</b>Only when you press Refresh or Write prep.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+    </div>
+
     <h3>Connections</h3>
     <p>A sweep needs a model credential and it needs Asana and Slack. These are
     three separate things: every server can report connected while a prep dies
@@ -319,7 +345,7 @@ def settings_dialog() -> str:
     <ul class="chk-rows"></ul>
     <p class="chk-note"></p>
     <p>Only you can approve a grant in a browser, so a lapsed one needs
-    <b>Log in</b> in the header, or <code>./setup-mcp.sh</code> in a terminal.
+    <b>Log in</b> in the header, or <code>./core/scripts/setup-mcp.sh</code> in a terminal.
     A credential that will not answer is usually a locked 1Password:
     <code>op signin</code>.</p>
 

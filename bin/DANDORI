@@ -12,9 +12,12 @@
 #   DANDORI ask REF "..."    same thing about a whole ticket
 #   DANDORI ask day "..."    about the day rather than one job, answered in numbers
 #   DANDORI refresh          sweep every open ticket and thread, rebuild, open
+#   DANDORI scout            run the fast Haiku delta scout (--status for watermarks)
 #   DANDORI prep             sweep, then write the next meeting's script
+#   DANDORI client [slug]    list client workspaces in clients/, or switch to <slug>
 #   DANDORI scripts          list client workflow scripts in clients/<client>/scripts/
 #   DANDORI run <name> ...   run a client workflow script from clients/<client>/scripts/
+#   DANDORI doctor           run pre-flight health checks on server, MCPs, DB and board
 #   DANDORI check            run the repository and board gate checks
 #   DANDORI audit            check what on the board has gone out of date
 #   DANDORI digest ...       print the readable board digest
@@ -174,7 +177,104 @@ PY
 
 run_agent() {
   # $1 is the prompt file, $2 is what to print while it works.
+  #
+  # The run goes through the page server, the same as the Refresh and Write prep
+  # buttons, so a sweep typed here or fired by the morning schedule is the same
+  # run: it waits for a missed Touch ID prompt, walks a lapsed Asana or Slack
+  # login, and picks itself back up when the connection to the model drops
+  # mid-run. Piping the prompt straight into the CLI had none of that, and one
+  # dropped stream was a dead morning brief.
   local job="${1:t:r}"   # core/prompts/refresh.md -> refresh, matching config.json
+  job="${job#prompt-}"
+  local url
+  if url="$(serve_url)"; then
+    run_on_server "$job" "${url##*k=}" "$2"
+    return $?
+  fi
+  print -u2 "DANDORI server would not start, so this runs without its retries"
+  run_direct "$@"
+}
+
+run_on_server() {
+  # $1 is refresh or prep, $2 the server key, $3 what to print while it works.
+  JOB="$1" KEY="$2" PORT="$PORT" LOGS="$LOGS_DIR" SAY="$3" python3 - <<'PY'
+import json, os, sys, time, urllib.error, urllib.request
+from datetime import datetime
+
+base = "http://127.0.0.1:%s" % os.environ["PORT"]
+key, kind = os.environ["KEY"], os.environ["JOB"]
+
+
+def status():
+    return json.load(urllib.request.urlopen(f"{base}/api/status?k={key}", timeout=10))
+
+
+req = urllib.request.Request(f"{base}/api/{kind}?k={key}", data=b"{}",
+                             headers={"Content-Type": "application/json"})
+try:
+    urllib.request.urlopen(req, timeout=10)
+except urllib.error.HTTPError as exc:
+    print(json.load(exc).get("message") or exc.reason, file=sys.stderr)
+    raise SystemExit(1)
+print(os.environ["SAY"], flush=True)
+print("(Ctrl-C stops watching; the run carries on and the page shows it.)", file=sys.stderr)
+
+said, url, quiet, idle, boot = "", "", 0, 0, None
+while True:
+    try:
+        time.sleep(3)
+    except KeyboardInterrupt:
+        print("\nstopped watching; the run carries on, see the page", file=sys.stderr)
+        raise SystemExit(130)
+    try:
+        state = status()
+    except (OSError, ValueError):
+        quiet += 1
+        if quiet > 20:
+            print("the DANDORI server stopped answering", file=sys.stderr)
+            raise SystemExit(1)
+        continue
+    boot = boot or state.get("boot")
+    if state.get("boot") != boot:
+        print("the DANDORI server restarted mid-run, so the run went with it", file=sys.stderr)
+        raise SystemExit(1)
+    now = state.get("state")
+    if state.get("message") != said:
+        said = state.get("message") or ""
+        print(f"{said}...", file=sys.stderr, flush=True)
+    if state.get("url") and state["url"] != url:
+        url = state["url"]
+        print(f"Approve it here: {url}", file=sys.stderr, flush=True)
+    quiet = 0
+    if now in ("running", "signing_in"):
+        idle = 0
+        continue
+    # A sign-in walked before the run ends on idle, and the run's own preflight
+    # can take a while after that, so idle only counts once it has held a minute.
+    if now == "idle":
+        idle += 1
+        if idle < 20:
+            continue
+    break
+
+# The run's own report is the text after its last progress line in the log. Only
+# on success: a run stopped at the preflight wrote nothing, and the log's last
+# report is then an earlier run's.
+log = os.path.join(os.environ["LOGS"], f"{kind}-{datetime.now():%Y-%m-%d}.log")
+try:
+    text = open(log, encoding="utf-8").read() if now == "done" else ""
+    last = text.rsplit(f" {kind} on ", 1)[-1].splitlines()[1:]
+    report = [ln for ln in last if not ln.startswith("  [") and not ln.startswith("=== ")]
+    print("\n".join(report).strip())
+except OSError:
+    pass
+print(f"{now}: {said}", file=sys.stderr)
+raise SystemExit(0 if now == "done" else 1)
+PY
+}
+
+run_direct() {
+  local job="${1:t:r}"
   rm -f "$TMP_DIR"/*.json(N) tmp/*.json(N)  # a dead run's unapplied patch; see serve.run_agent
   job="${job#prompt-}"
 
@@ -246,13 +346,27 @@ case "${1:-}" in
   s|st|status)   python3 "$REPO/core/tick.py" ;;
   refresh|r)
     run_agent core/prompts/refresh.md "Looking for what moved since the page was built..." || exit 1
-    python3 "$REPO/core/tick.py" --rebuild >/dev/null; page ;;
+    python3 "$REPO/core/tick.py" --rebuild >/dev/null
+    python3 "$REPO/core/notify.py" --sync-reminders --quiet >/dev/null 2>&1 &
+    page ;;
   prep|p)
     run_agent core/prompts/prep.md "Sweeping everything, then writing today's script..." || exit 1
-    python3 "$REPO/core/tick.py" --rebuild >/dev/null; page ;;
+    python3 "$REPO/core/tick.py" --rebuild >/dev/null
+    python3 "$REPO/core/notify.py" --sync-reminders --quiet >/dev/null 2>&1 &
+    page ;;
   ask|a)         shift; ask "$@" ;;
+  client|clients)
+    shift
+    python3 "$REPO/core/settings.py" --client "$@" || exit $?
+    if [[ -n "${1:-}" && "${1:-}" != "list" && "${1:-}" != "-l" && "${1:-}" != "--list" ]]; then
+      python3 "$REPO/core/launchd.py" on serve >/dev/null 2>&1 || true
+    fi ;;
   scripts)       shift; python3 "$REPO/core/plugins.py" list "$@" ;;
   run)           shift; python3 "$REPO/core/plugins.py" run "$@" ;;
+  doctor)        shift; python3 "$REPO/core/doctor.py" "$@" ;;
+  scout)         shift; python3 "$REPO/core/scout.py" "$@" ;;
+  notify)        shift; python3 "$REPO/core/notify.py" "$@" ;;
+  remind)        shift; python3 "$REPO/core/remind.py" "$BOARD" "$@" ;;
   check)         shift; python3 "$REPO/core/check.py" "$@" ;;
   audit)         shift; python3 "$REPO/core/audit.py" "$@" ;;
   digest)        shift; python3 "$REPO/core/digest.py" "$@" ;;

@@ -21,10 +21,11 @@ from datetime import date
 
 import prioritize as P
 import settings
-from render import day_words, esc, esc_url, link_btn, ticket_tags
+from render import day_words, draft_html, draft_plain, esc, esc_url, link_btn, ticket_tags
 
 KIND = {
     "raise": ("Raise", "red"),
+    "raised": ("Raised", "blue"),
     "ordered": ("Ordered", "green"),
     "refining": ("Not refined", "grey"),
 }
@@ -82,7 +83,10 @@ def render(board: dict, refs: dict[str, str]) -> str:
     cfg = s["config"]
     who = lead(cfg)
     ask_days = nxt["ask_days"]
-    if ask_days < 0:
+    raise_n, raised_n, fix_n = len(s["raise"]), len(s.get("raised") or []), len(s["fixes"])
+    if not raise_n and raised_n:
+        due, tone = f"Raised for {when(nxt['date'])}", "green"
+    elif ask_days < 0:
         due, tone = f"Ask-by day passed ({when(nxt['ask_by'])}); raise it first thing", "red"
     elif ask_days == 0:
         due, tone = "Raise anything today", "red"
@@ -91,10 +95,11 @@ def render(board: dict, refs: dict[str, str]) -> str:
     else:
         due, tone = f"Raise anything by {when(nxt['ask_by'])}", "grey"
     moved = f' <span class="pr-moved">(moved: {esc(nxt["moved"])})</span>' if nxt.get("moved") else ""
-    raise_n, fix_n = len(s["raise"]), len(s["fixes"])
     counts = []
     if raise_n:
         counts.append(f"{raise_n} to raise")
+    if raised_n:
+        counts.append(f"{raised_n} raised")
     if fix_n:
         counts.append(f"{fix_n} to fix in Asana")
     tally = " · ".join(counts) or "nothing to raise"
@@ -108,9 +113,9 @@ def render(board: dict, refs: dict[str, str]) -> str:
         <div class="draft-head">
           <span>To {esc(lead_first(cfg))}, in {esc(cfg.get("channel") or "Slack")}, before {esc(when(nxt["date"]))} {esc(nxt["at"])}</span>
           {link_btn(cfg.get("example_thread", ""), "Last round's thread")}
-          <button class="copy" data-copy="{esc(text)}">copy</button>
+          <button class="copy" data-copy="{esc(draft_plain(text))}" data-copy-html="{esc(draft_html(text, ruby=False))}">copy</button>
         </div>
-        <div class="draft-body">{esc(text)}</div>
+        <div class="draft-body">{draft_html(text, ruby=False)}</div>
       </div>"""
     last = s["last_round"]
     last_line = ""
@@ -124,15 +129,21 @@ def render(board: dict, refs: dict[str, str]) -> str:
                      f'{esc("; ".join(bits) or "nothing of yours")}. '
                      f'{link_btn(last.get("url", ""), "Thread")}</p>')
     stale = f'<p class="pr-stale">{esc(s["stale"])}</p>' if s["stale"] else ""
+    # One line until the owner opens it. The round is weekly at most and most
+    # days there is nothing to do about it, so the card it used to be stood
+    # between them and their work every morning to say "not yet". It opens on
+    # its own only on the last day to raise a build, and only if there is one.
+    quiet = not (raise_n or fix_n) and ask_days > 1
     return f"""
-    <details class="pr" id="prioritization" data-remember="prioritization"{" open" if ask_days <= 1 and (raise_n or fix_n) else ""}>
+    <details class="pr{" quiet" if quiet else ""}" id="prioritization" data-remember="prioritization"{" open" if ask_days <= 0 and (raise_n or fix_n) else ""}>
       <summary class="pr-head">
         <span class="pr-kind">Prioritization</span>
-        <span class="pr-name-h">{esc(when(nxt["date"]))} {esc(nxt["at"])}, {esc(who)}'s thread{moved}</span>
+        <span class="pr-name-h">{esc(when(nxt["date"]))} {esc(nxt["at"])}{moved}</span>
         <span class="pr-due {tone}">{esc(due)}</span>
         <span class="pr-sum">{esc(tally)}</span>
         <span class="fold-hint"></span>
       </summary>
+      <p class="pr-where">In {esc(who)}'s thread{f" in {esc(cfg.get('channel'))}" if cfg.get("channel") else ""}.</p>
       {stale}
       <ul class="pr-rows">{rows or '<li class="pr-row">No builds of yours on the board yet.</li>'}</ul>
       {note}

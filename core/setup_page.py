@@ -155,7 +155,7 @@ def steps() -> list[dict]:
     phase = (p.get("phase") or "claude") if p["state"] != "done" else ""
     have_cfg = setup.CONFIG.exists()
     cfg = setup.load()
-    gaps = [g for g in setup.missing(cfg) if g != "me/profile.md" and "optional" not in g] if have_cfg else []
+    gaps = [g for g in setup.missing(cfg) if "profile.md" not in g and "optional" not in g] if have_cfg else []
     mcps = p["mcps"]
     needed = [n for n in agent.NEEDED_MCPS if mcps.get(n) != "connected"]
     out = []
@@ -446,6 +446,7 @@ FIELDS = (
     ("slack.channel_hints", "list", False),
     ("desk.name", "text", True), ("desk.command", "command", True),
     ("desk.port", "int", True), ("desk.morning_sweep", "hhmm", False),
+    ("desk.auto_sweep_minutes", "int", False),
 )
 LANGUAGE_FIELDS = (("language.level", "text", False), ("language.register", "text", False),
                    ("language.readings", "bool", False))
@@ -456,6 +457,7 @@ ROUND_FIELDS = (
     ("prioritization.channel", "text", False), ("prioritization.channel_id", "text", False),
     ("prioritization.anchor", "date", True), ("prioritization.every_days", "int", True),
     ("prioritization.thread_at", "hhmm", False),
+    ("prioritization.ce_projects", "gids", False), ("prioritization.cdl_owner_field", "digits", False),
 )
 # Only the port requires rebinding the listening socket. Region, database MCP
 # and timezone are read dynamically on each call.
@@ -481,13 +483,17 @@ def _clean(kind: str, raw):
     """(value, why it is wrong or "")."""
     if kind == "bool":
         return bool(raw), ""
-    if kind in ("list", "days"):
+    if kind in ("list", "days", "gids"):
         items = raw if isinstance(raw, list) else re.split(r"[,\n]+", str(raw or ""))
         items = [str(x).strip() for x in items if str(x).strip()]
         if kind == "days":
             items = [d[:3].title() for d in items]
             bad = setup.days(" ".join(items))
             return items, bad or ("Pick at least one day." if not items else "")
+        if kind == "gids":
+            gids = [setup.gid_from(x) for x in items if setup.gid_from(x)]
+            bad_gids = [g for g in gids if not g.isdigit()]
+            return gids, (f"No Asana id in {bad_gids[0][:40]}." if bad_gids else "")
         return items, ""
     text = str(raw if raw is not None else "").strip()
     if kind == "int":
@@ -626,6 +632,11 @@ def save_answers(form: dict) -> tuple[int, dict]:
     if ours("post") or ours("serve"):
         try:
             launchd.on("post")
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if ours("doctor") or ours("serve"):
+        try:
+            launchd.on("doctor")
         except (OSError, subprocess.SubprocessError):
             pass
     if ours("brief"):

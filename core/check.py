@@ -92,7 +92,7 @@ def setup_state() -> list[str]:
     elif not settings.conf():
         notes.append("config.json is empty or does not parse, so every check ran on neutral defaults.")
     if not settings.PROFILE.exists():
-        notes.append("no me/profile.md yet, so a headless run gets no house style. The setup page starts it.")
+        notes.append(f"no {settings.client_rel(settings.PROFILE)} yet, so a headless run gets no house style. The setup page starts it.")
     board()
     if _BOARD.get("empty"):
         state = "is empty" if B.BOARD.exists() else "does not exist yet"
@@ -115,6 +115,7 @@ def python_parses() -> list[str]:
     bad = []
     paths = (
         sorted(settings.CORE.glob("*.py"))
+        + sorted(settings.SCRIPTS.glob("*.py"))
         + sorted(settings.PACKAGING.glob("*.py"))
         + (sorted(settings.CLIENT_DIR.glob("*.py")) if settings.CLIENT_DIR.exists() else [])
         + (sorted(settings.CLIENT_SCRIPTS_DIR.glob("*.py")) if settings.CLIENT_SCRIPTS_DIR.exists() else [])
@@ -272,6 +273,21 @@ def local_server_stays_local() -> list[str]:
         for line in (done.stdout + done.stderr).splitlines()
         if line.startswith("FAIL:")
     ] or ["tests/local_only.py failed"]
+
+
+def scout_delta_holds() -> list[str]:
+    """The background scout misses no source and never re-triggers on swept data."""
+    done = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "scout_delta.py")],
+        capture_output=True, text=True, check=False, cwd=ROOT,
+    )
+    if done.returncode == 0:
+        return []
+    return [
+        line.removeprefix("FAIL: ").strip()
+        for line in (done.stdout + done.stderr).splitlines()
+        if line.startswith("FAIL:")
+    ] or ["tests/scout_delta.py failed"]
 
 
 def pages_render() -> list[str]:
@@ -625,6 +641,7 @@ CHECKS = (
     ("Every font shorthand is one the browser keeps", font_shorthands_hold),
     ("The page reloads itself, but never over the owner's typing", reload_guard_holds),
     ("The page server stays on this Mac", local_server_stays_local),
+    ("The background scout loses nothing and never loops", scout_delta_holds),
     ("The board is the shape the renderers expect", board_shape),
     ("Spoken lines carry their readings", furigana_present),
     ("Every page renders", pages_render),

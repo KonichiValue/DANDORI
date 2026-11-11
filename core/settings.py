@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import date, datetime, timedelta, timezone, tzinfo
@@ -44,8 +45,8 @@ STATIC = CORE / "static"
 SETUP_DIR = CORE / "setup"
 SCRIPTS = CORE / "scripts"
 
-VERSION = "1.1.0"
-VERSION_NAME = "Kinkaku"
+VERSION = "1.2.0"
+VERSION_NAME = "Shigure"
 
 _cache: dict = {"stamp": None, "data": {}}
 
@@ -135,6 +136,7 @@ def activate_client(slug: str) -> Path:
         ("setup_page", {"BOARD": STATE_DIR / "board.json", "LOG": LOGS_DIR / "setup.log"}),
         ("keep", {"BOARD": STATE_DIR / "board.json", "HISTORY": STATE_DIR / "history"}),
         ("calendar_sync", {"STORE": STATE_DIR / "calendar.json", "SEEN": STATE_DIR / "calendar-seen.json", "LOCK": STATE_DIR / "calendar.lock"}),
+        ("scout", {"SEEN": STATE_DIR / "scout-seen.json", "DELTA": TMP_DIR / "delta.json", "LOCK": STATE_DIR / "scout.lock", "LOG": LOGS_DIR / "scout.log"}),
         ("render", {"PREFS": STATE_DIR / "prefs.json"}),
         ("make_doc", {"DOCS": DOCS_DIR}),
         ("compact", {"LOG": LOGS_DIR / "compact.log"}),
@@ -335,6 +337,32 @@ def morning_sweep() -> str:
     return str(value or "")
 
 
+def auto_sweep_mins() -> int:
+    """Minutes between background delta scouts on working days, or 0 when off.
+
+    Settings on the page writes `desk-auto` into `state/prefs.json` ("15", "30",
+    or "off"), overriding `config.json` `desk.auto_sweep_minutes` (default 15).
+    `DANDORI_AUTO_SWEEP` overrides both for testing or a single session.
+    """
+    raw = env("AUTO_SWEEP")
+    if not raw:
+        try:
+            prefs = json.loads((STATE_DIR / "prefs.json").read_text(encoding="utf-8"))
+            raw = str(prefs.get("desk-auto") or "").strip()
+        except (OSError, ValueError):
+            raw = ""
+    if not raw:
+        val = section("desk").get("auto_sweep_minutes", 15)
+        raw = str(val if val is not None else 15).strip()
+    if raw.lower() in ("0", "off", "false", "none", "manual"):
+        return 0
+    try:
+        mins = int(raw)
+    except ValueError:
+        return 15
+    return max(5, mins) if mins > 0 else 0
+
+
 def prioritization() -> dict:
     """The optional build-order round. Empty when the owner has none: skip it all."""
     p = section("prioritization")
@@ -363,6 +391,56 @@ def work_words() -> tuple[str, ...]:
 def database_mcp() -> str:
     """The MCP server for a read-only production replica, or "" for none."""
     return str(section("database").get("mcp") or "")
+
+
+def asana_status_field() -> dict:
+    """The client project's Status field: its gid and its options.
+
+    `{"gid": "...", "options": {"<name>": {"gid": "...", "color": "orange"}}}`,
+    from `config.json` `asana.status_field`. With it the page draws each Status
+    in the colour Asana gives it and can set one when the owner presses the
+    button; without it the desk still says which tickets are behind, in plain
+    chips, and the owner changes them by hand.
+    """
+    raw = section("asana").get("status_field")
+    if not isinstance(raw, dict):
+        return {}
+    opts = raw.get("options") if isinstance(raw.get("options"), dict) else {}
+    return {
+        "gid": str(raw.get("gid") or ""),
+        "options": {str(k): v for k, v in opts.items() if isinstance(v, dict)},
+    }
+
+
+def asana_status_by_stage() -> dict[str, str]:
+    """The client Status a CE build's stage means, `{stage: option}`.
+
+    From `config.json` `asana.status_field.by_stage`, e.g. an engineer building
+    it means the client ticket should read "in development". Only stages from
+    `internal_ticket.build.stage` and only options the field actually has, so a
+    typo is dropped here rather than drawn as a Status Asana cannot take. Empty
+    when unset, and then the desk only says a Status is behind when a sweep
+    found an event that moved it.
+    """
+    raw = (section("asana").get("status_field") or {})
+    raw = raw.get("by_stage") if isinstance(raw, dict) else None
+    opts = asana_status_field().get("options", {})
+    stages = ("refining", "queued", "building", "review", "released", "verified")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if k in stages and str(v) in opts}
+
+
+def asana_status_rank(name: str) -> int:
+    """Where one Status sits in the field's own order, or -1 when it is not one."""
+    names = list(asana_status_field().get("options", {}))
+    return names.index(str(name or "")) if str(name or "") in names else -1
+
+
+def asana_status_color(name: str) -> str:
+    """Asana's colour name for one Status option, or "" when it is not known."""
+    opt = asana_status_field().get("options", {}).get(str(name or "")) or {}
+    return re.sub(r"[^a-z-]", "", str(opt.get("color") or "").lower())
 
 
 REGIONS = ("eu", "us", "apac")
@@ -483,10 +561,48 @@ def prompt(path: Path | str) -> str:
     return context() + resolve_prompt(path).read_text(encoding="utf-8")
 
 
+def client_cmd(args: list[str]) -> int:
+    """List client workspaces in `clients/` or activate `clients/<slug>/`."""
+    sub = (args[0] if args else "list").strip().lower()
+    if sub in ("list", "-l", "--list", ""):
+        folders = sorted(
+            p for p in CLIENTS.iterdir()
+            if p.is_dir() and p.name != "active" and not p.name.startswith(".")
+        ) if CLIENTS.is_dir() else []
+        if not folders:
+            print("No client workspaces in clients/ yet. Run `DANDORI setup` to create one.")
+            return 0
+        print("Client workspaces in clients/:\n")
+        for p in folders:
+            mark = "*" if p.resolve() == CLIENT_DIR.resolve() else " "
+            cfg_path = p / "config.json"
+            info = "(not configured yet)"
+            if cfg_path.exists():
+                try:
+                    c = json.loads(cfg_path.read_text(encoding="utf-8"))
+                    cname = (c.get("client") or {}).get("name") or p.name.upper()
+                    oname = (c.get("owner") or {}).get("name") or ""
+                    ws = (c.get("owner") or {}).get("workstream") or ""
+                    info = f"{cname}" + (f", {oname}" if oname else "") + (f" ({ws})" if ws else "")
+                except (OSError, ValueError):
+                    pass
+            print(f" {mark} {p.name:<12} {info}")
+        print(f"\nSwitch or create a workspace with: {command()} client <slug>")
+        return 0
+    target = activate_client(sub)
+    if CONFIG.exists():
+        return main([])
+    print(f"Activated client workspace {client_rel(target)}/ (no config.json yet).")
+    print(f"Run `{command()} setup` to configure this client workspace.")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "--prompt":
         sys.stdout.write(prompt(argv[1]))
         return 0
+    if len(argv) >= 1 and argv[0] in ("--client", "client"):
+        return client_cmd(argv[1:])
     if len(argv) >= 1 and argv[0] in ("--version", "-v"):
         print(f"{desk_name()} {version_label()}")
         return 0

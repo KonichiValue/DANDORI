@@ -44,7 +44,13 @@ for word in $words; do
   ln -sf "$DIR/bin/DANDORI" "$BIN/$word"
   print -r -- "linked $BIN/$word"
 done
-[[ "$USER_PATH" == *":$BIN:"* ]] || print -r -- "add $BIN to your PATH (echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc)"
+if [[ "$USER_PATH" != *":$BIN:"* ]]; then
+  ZSHRC="$HOME/.zshrc"
+  if [[ ! -f "$ZSHRC" ]] || ! grep -q '\.local/bin' "$ZSHRC" 2>/dev/null; then
+    print -r -- 'export PATH="$HOME/.local/bin:$PATH"' >> "$ZSHRC"
+    print -r -- "added ~/.local/bin to PATH in ~/.zshrc"
+  fi
+fi
 
 # Icon: drawn here rather than shipped as a binary blob in the repo.
 python3 "$DIR/packaging/make_icon.py" "$DIR/packaging/icon.png" >/dev/null
@@ -68,11 +74,17 @@ done
 
 # osacompile rather than a hand-rolled bundle: LaunchServices refuses to open a
 # bare script bundle on this macOS, and this one comes out signed and valid.
-rm -rf "$APP"
-osacompile -o "$APP" -e "do shell script \"'$DIR/bin/DANDORI' open\""
-[[ -f "$DIR/packaging/icon.icns" ]] && cp "$DIR/packaging/icon.icns" "$APP/Contents/Resources/applet.icns"
-touch "$APP"
-print -r -- "built $APP ($VER)"
+# Skip creating a duplicate in ~/Applications when /Applications/$NAME.app was
+# already installed from the .dmg or .pkg.
+if [[ -d "/Applications/$NAME.app" && ! -d "$APP" ]]; then
+  print -r -- "using /Applications/$NAME.app ($VER)"
+else
+  rm -rf "$APP"
+  osacompile -o "$APP" -e "do shell script \"'$DIR/bin/DANDORI' open\""
+  [[ -f "$DIR/packaging/icon.icns" ]] && cp "$DIR/packaging/icon.icns" "$APP/Contents/Resources/applet.icns"
+  touch "$APP"
+  print -r -- "built $APP ($VER)"
+fi
 
 # Keep the page server up from login, so an installed web app always finds it.
 pkill -f "serve.py --port $PORT" 2>/dev/null || true
@@ -85,6 +97,7 @@ print -r -- "page server running on http://127.0.0.1:$PORT/"
 # the setup questions are answered: until then there is no standup to fold in.
 if [[ -f "$CFG_PATH" ]]; then
   python3 "$DIR/core/launchd.py" on post || print -r -- "could not load the post-standup agent"
+  python3 "$DIR/core/launchd.py" on doctor || print -r -- "could not load the proactive doctor agent"
 fi
 
 if [[ -z "${DANDORI_NO_OPEN:-}" ]]; then

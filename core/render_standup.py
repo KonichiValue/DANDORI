@@ -18,6 +18,7 @@ home, and what to say when the client pushes back.
 
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 
 import render_milestone
@@ -83,12 +84,24 @@ def also_room(kinds: tuple[str, ...], default: str) -> str:
     names them. An owner who has one lists it in `meeting.also` with a `kind`
     of `rollup` or `huddle`, and the card takes its name from there.
     """
+    room = room_of(kinds)
+    name = str(room.get("tab") or room.get("name") or "").strip()
+    return name or default
+
+
+def room_of(kinds: tuple[str, ...]) -> dict:
+    """The first room in `meeting.also` with one of these kinds, or {}."""
     for room in settings.meeting().get("also") or []:
         if isinstance(room, dict) and str(room.get("kind", "")).lower() in kinds:
-            name = str(room.get("tab") or room.get("name") or "").strip()
-            if name:
-                return name
-    return default
+            return room
+    return {}
+
+
+def room_link(kinds: tuple[str, ...]) -> str:
+    """The room's own page (`link` on its `meeting.also` entry), if it has one:
+    the Notion page the huddle walks, say. Only an http(s) address is drawn."""
+    url = str(room_of(kinds).get("link") or "").strip()
+    return url if url.startswith(("https://", "http://")) else ""
 
 
 def rollup_name() -> str:
@@ -695,47 +708,127 @@ def render_xws(board: dict, ids: dict[str, str]) -> str:
   </details>"""
 
 
-def render_huddle(board: dict) -> str:
-    """The team huddle rollup, a short internal update folded at the top.
+# The huddle's own words for a status, as the Notion milestone and blocker
+# databases spell them, so a copied line pastes into the column it belongs in.
+MS_WORDS = {"on-track": "🟢 On track", "at-risk": "🟠 At risk", "off-track": "🔴 Off track",
+            "not-started": "⚪ Not started", "done": "✅ Done"}
+BLOCK_WORDS = {"blocked": "🔴 Blocked", "waiting": "🟡 Waiting", "resolved": "✅ Resolved"}
 
-    A weekly Kraken-side huddle (English, internal), not a client room, so it is
-    not one of the sessions and does not drive the walk. Its name comes from
-    `meeting.also` (see `huddle_name`). Kept to the shape such an update is
-    written in: a terse "on my plate" list and, only when something is genuinely
-    stuck, a blocker or two. The owner opens the card on the day and copies it
-    across.
+
+def huddle_milestones(board: dict) -> list[dict]:
+    """Every open milestone the huddle talks about, merged with what the prep
+    wrote for it (`huddle.milestones`, keyed by `id`). A milestone the prep has not
+    reached still shows, with its status and target and no update line, so the
+    card never drops one the owner leads."""
+    h = board.get("huddle") or {}
+    said = {m.get("id"): m for m in h.get("milestones") or [] if isinstance(m, dict)}
+    out = []
+    for ms in board.get("milestones") or []:
+        if not isinstance(ms, dict) or (ms.get("status") == "done" and ms.get("id") not in said):
+            continue
+        out.append(dict(ms, **{k: v for k, v in said.pop(ms.get("id"), {}).items() if v}))
+    # One the prep named that the board does not hold is still worth its line.
+    out += [m for m in said.values() if m.get("name") or m.get("update")]
+    return out
+
+
+def huddle_blockers(h: dict) -> list[dict]:
+    """`blockers` as rows. A plain string is the older shape, and "No blockers"
+    written as a row is the absence of one rather than a blocker."""
+    rows = []
+    for b in h.get("blockers") or []:
+        row = b if isinstance(b, dict) else {"blocker": str(b)}
+        if re.fullmatch(r"\s*no blockers?\.?\s*", row.get("blocker", ""), re.I):
+            continue
+        rows.append(row)
+    return rows
+
+
+def render_huddle(board: dict) -> str:
+    """The team huddle card: milestones first, then blockers, which is what the
+    huddle now walks (a Notion page with a milestones database and a blockers
+    database). Kraken-side and English, not a client room, so it is not one of the
+    sessions. Each milestone carries the one-line Latest update and each blocker
+    its row, ready to copy into the database it goes in. What is on the owner's
+    plate is still kept, folded, for the week they are asked.
     """
     h = board.get("huddle") or {}
-    if not h.get("for_date") and not h.get("plate") and not h.get("blockers"):
+    mss = huddle_milestones(board)
+    blockers = huddle_blockers(h)
+    plate = h.get("plate") or []
+    if not h.get("for_date") and not mss and not blockers:
         return ""
     when = when_words(h.get("for_date", ""), h.get("at", ""))
-    plate = h.get("plate", [])
-    blockers = h.get("blockers", [])
-    plate_html = "".join(f"<li>{esc(x)}</li>" for x in plate)
-    if blockers:
-        rows = "".join(f"<li>{esc(x)}</li>" for x in blockers)
-        blockers_block = (
-            '<p class="xws-lead"><b>Blockers</b></p>'
-            f'<ul class="xws-list">{rows}</ul>'
-        )
-        sum_line = (
-            f"{len(plate)} on your plate, "
-            f"{len(blockers)} blocker{'s' if len(blockers) != 1 else ''}"
-        )
-    else:
-        blockers_block = '<p class="xws-none">No blockers.</p>'
-        sum_line = f"{len(plate)} on your plate, no blockers"
+
+    def copy(text: str) -> str:
+        return f'<button class="copy" data-copy="{esc(text)}">copy</button>' if text else ""
+
+    ms_rows = ""
+    for ms in mss:
+        st = ms.get("status", "")
+        conf = ms.get("confidence", "")
+        target = ms.get("target", "")
+        update = ms.get("update", "")
+        ms_rows += f"""
+        <li class="hd-ms {esc(st)}">
+          <div class="hd-top">
+            <b>{esc(ms.get("name") or ms.get("name_ja") or ms.get("id", ""))}</b>
+            <span class="hd-st">{esc(MS_WORDS.get(st, st))}</span>
+            {f'<span class="hd-due">{esc(day_words(target))} &middot; {esc(render_milestone.days_left(target))}</span>' if target else ""}
+            {f'<span class="hd-conf">{esc(conf)}</span>' if conf else ""}
+          </div>
+          {f'<p class="hd-up">{esc(update)} {copy(update)}</p>' if update else '<p class="hd-none">No update written for this week yet.</p>'}
+        </li>"""
+    ms_block = (f'<p class="xws-lead"><b>Milestones</b></p><ul class="hd-list">{ms_rows}</ul>'
+                if ms_rows else "")
+
+    bl_rows = ""
+    for b in blockers:
+        st = b.get("status", "blocked")
+        meta = " &middot; ".join(esc(x) for x in [
+            b.get("milestone", ""),
+            f"waiting on {b['waiting_on']}" if b.get("waiting_on") else "",
+            f"next: {b['next_step']}" if b.get("next_step") else "",
+        ] if x)
+        bl_rows += f"""
+        <li class="hd-bl {esc(st)}">
+          <div class="hd-top"><b>{esc(b.get("blocker", ""))}</b>
+            <span class="hd-st">{esc(BLOCK_WORDS.get(st, st))}</span>{copy(b.get("blocker", ""))}</div>
+          {f'<p class="hd-meta">{meta}</p>' if meta else ""}
+        </li>"""
+    bl_block = (f'<p class="xws-lead"><b>Blockers</b></p><ul class="hd-list">{bl_rows}</ul>'
+                if bl_rows else '<p class="xws-none">No blockers.</p>')
+
+    plate_block = ""
+    if plate:
+        items = "".join(f"<li>{esc(x)}</li>" for x in plate)
+        plate_block = f"""
+      <details class="hd-plate" data-remember="prep-huddle-plate">
+        <summary>On my plate, if asked ({len(plate)})</summary>
+        <ul>{items}</ul>
+      </details>"""
+
+    risky = sum(1 for m in mss if m.get("status") in ("at-risk", "off-track"))
+    sum_line = ", ".join(filter(None, [
+        f"{len(mss)} milestone{'s' if len(mss) != 1 else ''}" if mss else "",
+        f"{risky} at risk" if risky else "",
+        f"{len(blockers)} blocker{'s' if len(blockers) != 1 else ''}" if blockers else "no blockers",
+    ]))
+    link = room_link(("huddle",))
+    link_line = (f'<p class="xws-link"><a href="{esc(link)}" target="_blank" rel="noopener">'
+                 f'Open the huddle page</a></p>' if link else "")
     return f"""
-  <details class="xws" id="prep-huddle" data-remember="prep-huddle">
+  <details class="xws hd" id="prep-huddle" data-remember="prep-huddle">
     <summary>
       <span class="xws-tag">{esc(huddle_name())}{f" &middot; {esc(when)}" if when else ""}</span>
       <span class="xws-sum">{esc(sum_line)}</span>
       <span class="fold-hint"></span>
     </summary>
     <div class="xws-in">
-      <p class="xws-lead"><b>On my plate</b></p>
-      <ul class="xws-list">{plate_html}</ul>
-      {blockers_block}
+      {link_line}
+      {ms_block}
+      {bl_block}
+      {plate_block}
     </div>
   </details>"""
 

@@ -461,7 +461,7 @@ border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer}
 .copy:hover{color:var(--accent);border-color:var(--accent-line)}
 .jp-line{margin-bottom:10px;padding-left:12px;border-left:3px solid var(--accent-line)}
 .jp{margin:0;font-size:17.5px;line-height:1.9;letter-spacing:.005em}
-ruby rt{font-size:.48em;color:var(--accent);font-weight:600;letter-spacing:0}
+ruby rt{font-size:.48em;color:var(--accent);font-weight:600;letter-spacing:0;user-select:none;-webkit-user-select:none}
 .en{margin:2px 0 0;font-size:13px;color:var(--soft);line-height:1.45}
 .qlist{list-style:none;margin:0;padding:0}
 .q{padding:9px 0;border-bottom:1px dashed var(--line)}
@@ -476,8 +476,19 @@ overflow:hidden}
 .draft-head{display:flex;gap:9px;align-items:center;padding:8px 12px;
 background:var(--hair);border-bottom:1px solid var(--line);font-size:12.5px;
 color:var(--mut);font-weight:550}
-.draft-body{padding:13px;white-space:pre-wrap;font-size:14.5px;line-height:1.6}
+.draft-body{padding:13px;font-size:14.5px;line-height:1.6;overflow-wrap:anywhere}
 .draft-body.ja{font-size:15px;line-height:1.9}
+.draft-body p,.draft-en p{margin:0 0 8px}
+.draft-body p:last-child,.draft-en p:last-child{margin-bottom:0}
+.draft-body ul,.draft-body ol,.draft-en ul,.draft-en ol{margin:0 0 8px;padding-left:20px}
+.draft-body ul:last-child,.draft-body ol:last-child,.draft-en ul:last-child,.draft-en ol:last-child{margin-bottom:0}
+.draft-body li+li,.draft-en li+li{margin-top:3px}
+.draft-body li>ul,.draft-body li>ol,.draft-en li>ul,.draft-en li>ol{margin:3px 0 0}
+.draft-body blockquote,.draft-en blockquote{margin:0 0 8px;padding-left:10px;border-left:3px solid var(--line);color:var(--mut)}
+.draft-body pre,.draft-en pre{margin:0 0 8px;padding:8px 10px;background:var(--hair);border:1px solid var(--line);border-radius:6px;white-space:pre-wrap;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.draft-body code,.draft-en code{font:600 12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--hair);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.draft-body pre code,.draft-en pre code{background:0 0;border:0;padding:0;font-weight:400}
+.draft-body a,.draft-en a{color:var(--accent);text-decoration:underline;word-break:break-all}
 .draft-en{margin:0;padding:0 13px 13px;font-size:13px;color:var(--soft)}
 .warn{background:var(--amber-bg);border:1px solid var(--amber-line);
 border-radius:10px;padding:12px 15px;margin-top:15px}
@@ -513,6 +524,21 @@ padding:3px 7px;border-radius:7px;border:1px solid transparent;white-space:nowra
 .jump a:hover{background:var(--hair);color:var(--ink)}
 .jump a.on{background:var(--accent-bg);color:var(--accent-ink);
 border-color:var(--accent-line)}
+.jump .lab b{color:var(--red);font-weight:800;margin-left:3px}
+/* One job with you: its number, its ticket, and when. Red when it is due
+   today or late, so the bar says which one to open without reading it. */
+.jump a.jb{display:inline-flex;align-items:center;gap:6px;background:var(--card);
+border-color:var(--line);padding:3px 8px 3px 4px}
+.jump a.jb b{font-size:10.5px;font-weight:800;color:#fff;background:var(--soft);
+border-radius:4px;padding:0 5px;line-height:16px;font-variant-numeric:tabular-nums}
+.jump a.jb .jb-t{max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.jump a.jb i{font-style:normal;font-size:10.5px;font-weight:650;color:var(--soft)}
+.jump a.jb.hot b{background:var(--red)}
+.jump a.jb.hot i{color:var(--red)}
+.jump a.jb.held b{background:var(--amber)}
+.jump a.jb:hover{border-color:var(--accent-line);color:var(--ink)}
+.jump a.jb.on{background:var(--accent-bg);border-color:var(--accent-line)}
+.jump a.jb-rest{flex:none;font-size:11px;color:var(--soft);font-weight:600}
 .jump a .c{font-size:10px;font-weight:700;color:var(--red);margin-left:4px}
 .jump a .ord{font-size:10px;font-weight:600;color:var(--soft);margin-left:5px}
 .jump .find{flex:none;margin-left:auto;font:600 11px/1 var(--font);color:var(--soft);

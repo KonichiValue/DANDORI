@@ -98,7 +98,7 @@ def build(data: dict) -> list[dict]:
                 title = f"{title} (not yet)"
             elif state["state"] == "waiting":
                 title = f"{title} (chase {state.get('who', 'them')})"
-            due = hold.get("revisit") or waits.get("chase_on") or today
+            due = hold.get("revisit") or waits.get("chase_on") or action.get("due_by") or today
             body = [action.get("why", "")]
             if hold:
                 body.append(f"On hold: {hold.get('why', '')}")

@@ -207,26 +207,98 @@ def check_closed_tickets(b: dict, rep: Report) -> None:
             rep.add(
                 "Open work on a ticket Asana has closed",
                 f"  {ticket.get('ref')} is completed in Asana, but {nums} "
-                f"{'is' if len(live) == 1 else 'are'} still open. Close them or say "
-                f"why they outlive the ticket.",
+                f"{'is' if len(live) == 1 else 'are'} still open. Close them, or move "
+                f"work that outlives it to the open ticket it belongs to: drop it here "
+                f"with a note naming the new number, and add it there as a new item.",
+            )
+
+
+def check_asana_status(b: dict, rep: Report) -> None:
+    """A Status in Asana that the timeline has moved past, and a stale should.
+
+    The first is the owner's to change, and the card says so. The second is the
+    sweep's: a `status_should` Asana already agrees with, still on the board.
+    """
+    for ticket in b.get("tickets", []):
+        asana = ticket.get("asana") or {}
+        should = B.status_behind(ticket)
+        if should:
+            rep.add(
+                "Asana Status behind what happened",
+                f"  {ticket.get('ref')} says {asana.get('status') or 'nothing'} in Asana, "
+                f"should be {should}" + (f": {asana['status_why']}" if asana.get("status_why") else "."),
+            )
+        elif asana.get("status_should") and not asana.get("completed"):
+            rep.add(
+                "Asana Status behind what happened",
+                f"  {ticket.get('ref')}: Asana already says {asana['status_should']}. "
+                f"Take asana.status_should and status_why off the ticket.",
+            )
+        # The build says the ticket has moved on and nobody has said so yet.
+        built = B.status_from_build(ticket)
+        if built and not should:
+            bld = (ticket.get("internal_ticket") or {}).get("build") or {}
+            rep.add(
+                "Asana Status behind what happened",
+                f"  {ticket.get('ref')} says {asana.get('status') or 'nothing'} in Asana, but "
+                f"{bld.get('kt', 'its build')} is {bld.get('stage')}, which is {built}. "
+                f"Write asana.status_should and status_why.",
             )
 
 
 def check_duplicate_targets(b: dict, rep: Report) -> None:
-    """Two open drafts on one ticket addressed to the same person.
+    """Two open drafts on one ticket addressed to the same person, or an item
+    duplicating work the desk already handles in its own UI.
 
-    That is one comment, not two. Three numbers that end in a single Asana comment
-    cost the owner three readings and a decision about ordering that does not exist.
+    Two drafts to the same target are one comment, not two. Likewise, changing a
+    ticket's Asana Status is already offered by `asana.status_should` (`Set in
+    Asana`), and raising builds for the recurring prioritization round is already
+    on the `Prioritization` card (`by Raise builds`). Adding a numbered item for
+    either puts the same task on the page and the calendar twice.
     """
     for ticket in b.get("tickets", []):
         seen: dict[str, list[str]] = {}
         for item in ticket.get("items", []):
             if not B.is_open(item):
                 continue
+            ident = str(item.get("id"))
+            title = str(item.get("title") or "")
+            steps = [str(s) for s in item.get("steps") or [] if isinstance(s, str)]
+            has_draft = any(B.unsent(d) for d in B.drafts(item))
+            if (
+                item.get("state") == "todo"
+                and steps
+                and not B.open_steps(item)
+                and not has_draft
+            ):
+                rep.add(
+                    "All steps ticked on an item still marked With you",
+                    f"  {ident} ({ticket.get('ref')}): all {len(steps)} step(s) are ticked "
+                    f"in steps_done and no unsent draft remains. Close it with "
+                    f"`./core/tick.py {ident}`.",
+                )
+            if not has_draft and len(steps) <= 1 and re.search(
+                r"\bset\b.*\bstatus\b.*\bin asana\b", title, re.I
+            ):
+                rep.add(
+                    "Duplicate task already handled by the desk",
+                    f"  {ident} ({ticket.get('ref')}): \"{title[:60]}\" duplicates the "
+                    f"ticket's Set in Asana button (asana.status_should). Drop the item "
+                    f"and use asana.status_should + status_why instead.",
+                )
+            if not has_draft and re.search(
+                r"\bprioriti[sz]ation round\b", title, re.I
+            ):
+                rep.add(
+                    "Duplicate task already handled by the desk",
+                    f"  {ident} ({ticket.get('ref')}): \"{title[:60]}\" duplicates the "
+                    f"Prioritization card and the calendar's 'by Raise builds' entry. "
+                    f"Drop the item and keep the build in prioritization.builds instead.",
+                )
             draft = item.get("draft") or {}
             target = str(draft.get("target") or "").strip().lower()
             if target:
-                seen.setdefault(target, []).append(str(item.get("id")))
+                seen.setdefault(target, []).append(ident)
         for target, nums in seen.items():
             if len(nums) > 1:
                 rep.add(
@@ -300,6 +372,13 @@ BARE_REF = re.compile(
     rf"\bthe \d+\b(?!:\d)(?! (?:{MONTHS}|accounts?|bills?|days?|menus?|files?|rates?|held|"
     rf"documents?|statements?|products?|rows?|cases?|minutes?|hours?)\b)"
 )
+# A step that only goes somewhere. "Open the canvas, section 3" followed by
+# "Paste the entry below" was one job drawn as two boxes to tick.
+GO_START = re.compile(r"^(?:On [^,]+, )?(?:open|go to|navigate to|find)\b", re.I)
+DOES = re.compile(
+    r"\b(?:paste|post|add|write|check|compare|copy|reply|send|set|ask|tell|read|"
+    r"mark|fill|update|change|move|comment|confirm|delete|remove|answer|note)\b", re.I
+)
 
 
 def check_step_shape(b: dict, rep: Report) -> None:
@@ -336,6 +415,10 @@ def check_step_shape(b: dict, rep: Report) -> None:
                 rep.add("Steps that are not steps",
                         f"{where} step {n} says \"{BARE_REF.search(text).group(0)}\" with "
                         f"nothing to say what it is. Name the group.")
+            if GO_START.match(text) and not DOES.search(text):
+                rep.add("Steps that are not steps",
+                        f"{where} step {n} only goes somewhere: \"{text[:60]}\". Fold the "
+                        f"place into the step that acts there.")
 
 
 def check_milestones(b: dict, rep: Report) -> None:
@@ -389,6 +472,33 @@ def check_prepared(b: dict, rep: Report) -> None:
             )
 
 
+# What a prepared block may hold before it is a pile rather than an answer. The
+# card shows the conclusion and what is open; past this the rest is noise the
+# owner skips, and every ask and sweep that reads the item pays for it again.
+MAX_FINDINGS = 4
+MAX_FILES = 6
+
+
+def check_prepared_size(b: dict, rep: Report) -> None:
+    """A prepared block grown past what anyone reads.
+
+    Condensing is safe: `board.save()` moves what a sweep cuts into
+    `prepared.earlier`, and `digest.py --item` leaves `earlier` out, so the cut
+    is kept and stops costing a read."""
+    for ticket, item in B.items(b):
+        if not B.is_open(item):
+            continue
+        p = item.get("prepared") or {}
+        n_find, n_files = len(p.get("findings") or []), len(p.get("files") or [])
+        if n_find > MAX_FINDINGS or n_files > MAX_FILES:
+            rep.add(
+                "Prepared block too long to read",
+                f"  {item.get('id')} ({ticket.get('ref')}): {n_find} findings, {n_files} files. "
+                f"Rewrite it whole: the conclusion, {MAX_FINDINGS} findings at most, and only "
+                f"the files that go out with a draft (tagged \"draft\": N) or that the owner opens.",
+            )
+
+
 def check_sessions(b: dict, rep: Report) -> None:
     """A script written for a room that has already happened."""
     sessions = b.get("sessions") or []
@@ -414,12 +524,14 @@ CHECKS = (
     check_freshness,
     check_wiring,
     check_closed_tickets,
+    check_asana_status,
     check_duplicate_targets,
     check_form_channels,
     check_terminal_steps,
     check_step_shape,
     check_milestones,
     check_prepared,
+    check_prepared_size,
     check_sessions,
 )
 

@@ -2,8 +2,9 @@
 
 You are in a chat on a fresh copy of DANDORI. The person talking to you is
 its new owner, a Kraken Client Delivery Lead. Your job is to leave them with a
-working `config.json` and a `me/profile.md` that makes every later run of the
-desk write as well for them as it did for the person who built it.
+working `clients/<short>/config.json` and `clients/<short>/profile.md` that
+makes every later run of the desk write as well for them as it did for the
+person who built it.
 
 Never send anything to Slack, Asana, Notion or email while you do this. Read only.
 
@@ -21,10 +22,20 @@ Never send anything to Slack, Asana, Notion or email while you do this. Read onl
 
 Use the connected tools. Ask the owner only what you cannot find.
 
-- **Asana**: their user gid (`get_me` or the users lookup), the workspace gid,
-  and the projects their open tickets sit in (search tasks assigned to them,
-  group by project). Show the projects and ask which ones are the client's,
-  and which to leave out (onboarding lists, personal lists).
+- **Asana**:
+  - Their user gid (`get_me` or the users lookup), the workspace gid, and the
+    projects their open tickets sit in (search tasks assigned to them, group by
+    project). Show the projects and ask which ones are the client's, and which
+    to leave out (onboarding lists, personal lists).
+  - Once you know the client's main Asana project, call `get_task` on one task
+    in it with `opt_fields="custom_fields.gid,custom_fields.name,custom_fields.enum_options.gid,custom_fields.enum_options.name,custom_fields.enum_options.color,custom_fields.enum_options.enabled"`.
+    Find the `Status` custom field and automatically populate `asana.status_field`
+    (`{"gid": "<field_gid>", "options": {"<option_name>": {"gid": "<opt_gid>", "color": "<color>"}}}`)
+    in `config.json` so the desk can colour status chips and offer the Set in
+    Asana button without the owner looking up GIDs.
+  - If they have a recurring CE build prioritization round, also inspect one of
+    their CE build tasks in Asana to fill `prioritization.ce_projects` and
+    `prioritization.cdl_owner_field` (the `CDL-Owner` custom field GID).
 - **Slack**: their user id (`slack_search_users` on their name), and the
   channels where their tickets are discussed (search their recent messages,
   group by channel). Ask which are client-shared and which are internal.
@@ -32,12 +43,12 @@ Use the connected tools. Ask the owner only what you cannot find.
   length) and the other recurring work meetings. Ask which one is "the" standup.
 - **Notion or Drive**: where that standup's notes land, and the note title.
 
-Write every answer into `config.json` as you get it. Never `json.dump` over
+Write every answer into the client's `config.json` as you get it. Never `json.dump` over
 the file without reading it first, and keep keys you were not asked about.
 
 ## 3. Interview for the profile
 
-Then go through `setup/profile.example.md` heading by heading and ask, a few
+Then go through `core/setup/profile.example.md` heading by heading and ask, a few
 questions at a time, in plain words. Start from what you found in step 2 ("you
 seem to talk to the client in #ext-..., is that right?"). Things that matter
 most, because the desk writes on the owner's behalf:
@@ -48,9 +59,9 @@ most, because the desk writes on the owner's behalf:
 - who the owner routes work to at Kraken, and how those people like to be asked;
 - the lessons the owner has already learned on this account.
 
-Write `me/profile.md` with the exact headings of the template. Write it as
-instructions to an agent, in the owner's terms, quoting them where the wording
-matters. Keep what they said; do not pad.
+Write the client's `profile.md` (`clients/<short>/profile.md`) with the exact
+headings of the template. Write it as instructions to an agent, in the owner's
+terms, quoting them where the wording matters. Keep what they said; do not pad.
 
 If `language.client` is not English, also fill `language` in `config.json`:
 `readings` true only if the owner wants reading markup over hard words, and

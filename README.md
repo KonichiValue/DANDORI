@@ -79,11 +79,11 @@ The setup page walks you through everything with one button per step, and each s
 6. **Install the app.** Already green if you used `DANDORI.dmg` or `install.sh`.
 7. **Build your board.** Press **Run the first refresh**. It reads everything assigned to you in Asana and Slack (5 to 10 minutes — go grab that coffee).
 
-**You're done 🎉** From now on, every morning:
+**You're done 🎉** From now on, DANDORI keeps itself current in the background:
 
-1. Open DANDORI and press **Refresh**.
-2. Work down the list. When you've posted a reply, press **Posted it**, and the job waits on whoever owes you an answer.
-3. Before your standup, press **Write prep**.
+1. Every 15 minutes on weekdays (and whenever you return after copying a draft or opening an Asana/Slack link), a fast Haiku scout checks every ticket and thread and runs a delta refresh only when something moved.
+2. Before your standup, DANDORI builds your speaking script automatically (and keeps it synced in the 90 minutes before the room if a ticket moves), or press **Write prep** any time.
+3. Work down the list. When you've posted a reply, press **Posted it** (or just come back to DANDORI and let the scout spot your post).
 
 To change an answer later: **Settings, Open the setup page**. Everything specific to your client lives in `clients/<client>/` (`config.json`, `profile.md`, `scripts/`, `docs/`, `state/`), which git never uploads 🔒
 
@@ -130,7 +130,7 @@ Either way it's the same board and the same rules as the buttons. **Copy for a c
 | A credential or 1Password error | Unlock 1Password and press **Refresh** again. Still failing? Redo setup step 2. |
 | `UNKNOWN_CERTIFICATE_VERIFICATION_ERROR` | Zscaler signing in again. Give it a minute. |
 | The model is not found | Your LiteLLM region is probably wrong (eu, us or apac). Check it in the setup questions against [hub.ai.ktl.net/models](https://hub.ai.ktl.net/models). |
-| The app won't open | Run `~/Projects/DANDORI/install.sh` in Terminal. |
+| The app won't open | Run `~/Projects/DANDORI/install.sh` in Terminal (or if macOS blocks a downloaded `.dmg` app, right-click **DANDORI** -> **Open**, or run `xattr -cr /Applications/DANDORI.app`). |
 | Anything else | Run `~/Projects/DANDORI/core/check.py` (or `DANDORI check`). It tells you what's wrong. Then ask in **#claudecode-help**. |
 
 ## 📦 Packaging for another Mac

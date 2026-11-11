@@ -20,26 +20,38 @@
   function progress(s) {
     var secs = s.seconds || 0;
     var clock = Math.floor(secs / 60) + ":" + ("0" + (secs % 60)).slice(-2);
-    var title = { refresh: "Refresh", prep: "Prep" }[s.job] || "Working";
+    var title = { refresh: "Refresh", delta: "Delta", prep: "Prep" }[s.job] || "Working";
     var doing = s.last || s.message || "Starting";
-    note.className = "refresh-note run";
-    note.title = s.message || "";
-    note.innerHTML =
-      '<span class="rn-dot" aria-hidden="true"></span>' +
-      '<b class="rn-job">' + esc(title) + "</b>" +
-      '<span class="rn-time">' + clock + "</span>" +
-      '<span class="rn-doing">' + esc(doing.slice(0, 70)) + "</span>" +
-      (s.steps ? '<span class="rn-n">' + s.steps + " step" + (s.steps > 1 ? "s" : "") + "</span>" : "");
+    var parts = [["rn-time", clock], ["rn-doing", doing.slice(0, 70)]];
+    if (s.steps) parts.push(["rn-n", s.steps + " step" + (s.steps > 1 ? "s" : "")]);
+    chip(title, s.message || "", parts);
   }
 
   // The same chip for a sign-in walk, which has phases rather than steps.
   function signingChip(text) {
+    chip("Sign-in", text, [["rn-doing", text]]);
+  }
+
+  // Built from nodes and textContent rather than an HTML string: what it shows
+  // is the server's and the CLI's words, which are never markup.
+  function chip(title, hover, parts) {
     note.className = "refresh-note run";
-    note.title = text;
-    note.innerHTML =
-      '<span class="rn-dot" aria-hidden="true"></span>' +
-      '<b class="rn-job">Sign-in</b>' +
-      '<span class="rn-doing">' + esc(text) + "</span>";
+    note.title = hover;
+    note.textContent = "";
+    var dot = document.createElement("span");
+    dot.className = "rn-dot";
+    dot.setAttribute("aria-hidden", "true");
+    note.appendChild(dot);
+    var job = document.createElement("b");
+    job.className = "rn-job";
+    job.textContent = title;
+    note.appendChild(job);
+    parts.forEach(function (p) {
+      var span = document.createElement("span");
+      span.className = p[0];
+      span.textContent = String(p[1]);
+      note.appendChild(span);
+    });
   }
 
   function ready() {
@@ -70,6 +82,22 @@
   var mine = {};
   // This page started a refresh or a prep, so a "done" belongs to us.
   var started = false;
+  var lastCheckedEpoch = 0;
+  var autoMins = 15;
+  var outboundAt = 0;
+  var scoutWait = null;
+
+  function cancelOutbound() {
+    outboundAt = 0;
+    if (scoutWait) { clearTimeout(scoutWait); scoutWait = null; }
+  }
+
+  function triggerScout() {
+    if (autoMins <= 0 || started || pending()) return;
+    fetch("/api/scout?k=" + encodeURIComponent(key), { method: "POST" })
+      .then(function () { later(400); })
+      .catch(function () {});
+  }
 
   function pending() {
     for (var k in mine) if (Object.hasOwn(mine, k)) return true;
@@ -275,10 +303,18 @@
       login.hidden = true;
       link.hidden = true;
       ready();
+      if (typeof s.auto_mins === "number") autoMins = s.auto_mins;
+      if (s.checked_epoch) lastCheckedEpoch = s.checked_epoch;
       // Idle, which is where the page spends nearly all of its life and where it
       // used to stop looking. Keep a slow heartbeat so a change made anywhere
       // else arrives on its own.
       if (boardMoved(s)) return;
+      if (s.scout && s.scout.state === "running") {
+        chip("Check", s.scout.said || "Checking Asana and Slack\u2026",
+          [["rn-doing", s.scout.said || "Checking Asana and Slack\u2026"]]);
+        later(1800);
+        return;
+      }
       say(s.message);
       later(2500);
     }).catch(function () {
@@ -1112,6 +1148,30 @@
       say(err.message, "bad");
     });
   });
+  // Set in Asana: the owner's own press, on one ticket, moving its Status to the
+  // one the timeline says it should be. The server answers once Asana has, and
+  // the board it writes reloads the page, so nothing here redraws the card.
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-asana-status]");
+    if (!b || b.getAttribute("aria-busy") === "true") return;
+    b.setAttribute("aria-busy", "true");
+    b.textContent = "Setting";
+    fetch("/api/asana-status?k=" + encodeURIComponent(key), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket: b.getAttribute("data-asana-status") })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+    }).then(function (res) {
+      if (!res.ok) throw new Error(res.j.error || "Asana did not take it");
+      b.textContent = "Set";
+      say("Asana Status is now " + res.j.now);
+    }).catch(function (err) {
+      b.removeAttribute("aria-busy");
+      b.textContent = "Set in Asana";
+      say(err.message || "lost the desk server", "bad");
+    });
+  });
   // Notes to fold in is a refresh: the sweep reads the Gemini notes the digest
   // names and puts what was said on the tickets. Same button, same run.
   document.addEventListener("click", function (e) {
@@ -1206,6 +1266,18 @@
       TONE.forEach(function (k) { c.classList.toggle(k, k === now[1]); });
       c.classList.toggle("on", !!look);
     });
+    if (document.querySelectorAll) {
+      [].slice.call(document.querySelectorAll('[data-week-job="' + n + '"]')).forEach(function (w) {
+        w.hidden = !!closing;
+        var col = w.closest && w.closest("li.wd");
+        var badge = col && col.querySelector(".wd-c");
+        if (badge && col.querySelectorAll) {
+          var left = [].slice.call(col.querySelectorAll("[data-week-job]")).filter(function (x) { return !x.hidden; }).length;
+          badge.textContent = left ? String(left) : "";
+          badge.hidden = !left;
+        }
+      });
+    }
   }
   // A row leaving the list folds up from its own height rather than vanishing,
   // so the rows under it slide up instead of jumping. Undo opens it the same way.
@@ -1342,7 +1414,13 @@
     b.setAttribute("aria-busy", "true");
     tick(n, "step", "", null, { step: k, off: !on }).then(function (j) {
       b.removeAttribute("aria-busy");
-      if (offerUndo) last = { n: n, step: b, on: on };
+      if (j && j.closed) {
+        mark(n, true, AFTER.done);
+        closed(n, true);
+        if (offerUndo) last = { n: n, before: j.before, closing: true, look: AFTER.done, step: b, on: on };
+      } else if (offerUndo) {
+        last = { n: n, step: b, on: on };
+      }
       toast(j.said || "Step " + k + " on " + n + (on ? " done" : " back to do"), offerUndo ? undoLast : null);
     }).catch(function (err) {
       b.removeAttribute("aria-busy");
@@ -1355,6 +1433,7 @@
     var b = e.target.closest && e.target.closest(".ds-n");
     if (!b) return;
     e.preventDefault();
+    cancelOutbound();
     if (b.getAttribute("aria-busy") === "true") return;
     var li = b.closest("li.ds");
     setStep(b, !(li && li.classList.contains("done")), true);
@@ -1364,7 +1443,12 @@
     if (!last) return;
     var was = last;
     last = null;
-    if (was.step) { setStep(was.step, !was.on, false); return; }
+    if (was.step && !was.closing) { setStep(was.step, !was.on, false); return; }
+    if (was.step && was.closing) {
+      var sLi = was.step.closest && was.step.closest("li.ds");
+      var sList = was.step.closest && was.step.closest("ol.steps");
+      if (sLi && sList) stepMark(sLi, sList, false);
+    }
     if (was.closing) closed(was.n, false);
     mark(was.n, false, null);
     busy(was.n, true);
@@ -1754,6 +1838,7 @@
     var t = e.target.closest && e.target.closest(".posted,.posted-more");
     if (!t) return;
     e.preventDefault();
+    cancelOutbound();
     // Immediate, or the status menu's own capture listener below sees a click
     // outside every .stat and shuts the menu this just opened.
     e.stopImmediatePropagation();
@@ -1763,12 +1848,16 @@
     if (t !== b || b.dataset.after === "ask") postedMenu(b);
     else postIt(b, "", "", false);
   }, true);
-  // Copying the words, or following the link to where they go, is the moment the
-  // owner is about to post. So the bar under that draft lights up, and stays lit
-  // until they come back and press it or another draft takes over.
+  // Copying the words, or following an Asana/Slack link to where they go, is the
+  // moment the owner is about to post or act externally. Light the bar under a
+  // draft, and remember the outbound timestamp so returning to DANDORI checks
+  // automatically whether the post or edit moved the board.
   document.addEventListener("click", function (e) {
+    var ext = e.target.closest && e.target.closest('a[href*="asana.com"],a[href*="slack.com"]');
+    if (ext) outboundAt = Date.now();
     var c = e.target.closest && e.target.closest(".act-draft.live .copy, .act-draft.live .draft-head a");
     if (!c) return;
+    outboundAt = Date.now();
     var d = box(c);
     [].forEach.call(document.querySelectorAll(".act-draft.nudge"), function (x) {
       if (x !== d) x.classList.remove("nudge");
@@ -1803,6 +1892,7 @@
     }
     e.preventDefault();
     e.stopPropagation();
+    cancelOutbound();
     if (menu && menu._from === c) closeMenu();
     else openMenu(c);
   }, true);
@@ -1845,13 +1935,34 @@
   });
 
   // Coming back to the tab is the moment worth checking. The usual way the board
-  // moves is the owner running `./tick.py <n>` in a terminal and then looking at
-  // the page, so the reload should be waiting for them rather than up to two seconds
-  // behind. It also picks the loop back up, since it stops while hidden.
-  document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) later(0);
-  });
-  window.addEventListener("focus", function () { if (!timer) later(0); });
+  // moves is the owner running `./tick.py <n>` in a terminal or posting a draft
+  // in Slack/Asana and then looking back at the page.
+  function onReturn() {
+    if (document.hidden) {
+      if (scoutWait) { clearTimeout(scoutWait); scoutWait = null; }
+      return;
+    }
+    later(0);
+    if (autoMins <= 0) return;
+    if (outboundAt > 0) {
+      var elapsed = Date.now() - outboundAt;
+      var waitMs = elapsed >= 20000 ? 1500 : (20000 - elapsed);
+      if (scoutWait) clearTimeout(scoutWait);
+      scoutWait = setTimeout(function () {
+        scoutWait = null;
+        if (document.hidden || !outboundAt) return;
+        outboundAt = 0;
+        triggerScout();
+      }, waitMs);
+      return;
+    }
+    if (lastCheckedEpoch > 0 && (Date.now() / 1000 - lastCheckedEpoch) >= autoMins * 60) {
+      var d = new Date(), wd = d.getDay(), hr = d.getHours();
+      if (wd >= 1 && wd <= 5 && hr >= 8 && hr < 20) triggerScout();
+    }
+  }
+  document.addEventListener("visibilitychange", onReturn);
+  window.addEventListener("focus", function () { if (!document.hidden) onReturn(); });
 
   poll();
 })();

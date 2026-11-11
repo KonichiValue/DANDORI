@@ -11,23 +11,26 @@ the mechanics below do not change. "The profile" below means that block's
 `me/profile.md` half, and config keys such as `client.short`, `meeting` and
 `database.mcp` mean its `config.json` half.
 
-Your deliverable is `state/board.json`, which already exists and is described in
-`board.py`. You are merging into it, not replacing it:
+Your deliverable is the active client's `state/board.json`, which already exists
+and is described in `core/board.py`. You are merging into it through
+`./core/apply.py`, never replacing it or editing `board.json` directly:
 
 - A ticket you already know keeps its entry. Update `where_it_stands`, append to
   `events`, and move its items.
 - An item keeps its number for life. Numbers are never reused and never
-  renumbered, because the owner types them. New work takes `next_id` and
-  increments it.
+  renumbered, because the owner types them. New work goes in `new_items` and
+  `apply.py` numbers it from `next_id`.
 - Never delete history. A finished item stays on the board with its `closed_at`.
-- A ticket completed in Asana comes off, and its open items close as `dropped`
-  with a note. Completed means the task is closed, not that somebody else is now
-  the assignee.
+- A ticket completed in Asana is marked `asana.completed: true`, and its open
+  items close as `dropped` with a note. Completed means the task is closed, not
+  that somebody else is now the assignee.
 
-Write the file with the file-write tool. Do not print JSON to stdout, and do not
-create any other file.
+Write your findings as a single JSON patch at `tmp/patch.json` with the Write
+tool and apply it with `./core/apply.py tmp/patch.json`, which saves through
+`board.save()`. Never edit `board.json` directly.
 
-Read `config.json` first for the Asana workspace (`asana.workspace_gid`), the
+The `Who you are working for` block above already gives you `config.json` and
+the profile, including the Asana workspace (`asana.workspace_gid`), the
 client-shared project GIDs (`asana.projects`) and the owner's identifiers
 (`owner.asana_user_gid`, `owner.slack_user_id`, `owner.email`).
 
@@ -186,6 +189,10 @@ delta and the question, not the background), write to them that way.
 The note title is `config.json` `meeting.notes_title`, or `meeting.name` when
 that is empty. Where the profile's `## My rooms` says the notes land somewhere
 other than Notion meeting notes, look there instead with the equivalent tool.
+For Gemini's notes on the Meet call, `python3 core/calendar_sync.py --standup`
+prints the doc from the calendar, including one attached to a later room that
+shares the standup's call, and says whether the call has ended. Gemini writes
+the doc when the call ends, so "notes not written yet" is the same as no note.
 
 For Notion, call the `query-meeting-notes` tool filtering `title`
 `string_contains` that title, with `created_time` `date_is` `today`. Take the
@@ -203,19 +210,23 @@ This run folds in the main standup only. The programme-wide meetings in
 `meeting.also` are not this run's note; leave them to the refresh sweep, which
 records them in `migration_note`.
 
-If no meeting note exists for today, **stop immediately.** Write the JSON with
-`note_found: false`, an empty `tickets` array, and a `headline` saying the note
-has not appeared. Do not do any other step. `run_post.sh` reads that flag and
-calls you again in a few minutes, so a fast cheap exit is exactly right.
+If no meeting note exists for today (or the Meet call has not ended yet),
+**stop immediately without touching the board.** Write nothing and reply with
+one line saying today's meeting note has not appeared yet. `run_post.sh` checks
+`meeting_note` on the board and calls you again in a few minutes, so a fast
+cheap exit with zero writes is exactly right.
 
-Set `note_found: true` once you have it and carry on.
+Once you have today's meeting note, carry on to Step 2 and record
+`meeting_note: {"date": "<YYYY-MM-DD>", "found": true, "url": "<url>", "gist": "..."}`
+under `"board"` in your patch.
 
-## Step 2: load this morning's prep
+## Step 2: read the board digest
 
-Read `output/prep-<today>.json`. That is what the owner believed at the start of
-the meeting (`meeting.time_local`), and it gives you `started_the_day` plus the
-baseline for the timeline, which is the most useful thing on the page. Carry the
-`ref` tags across unchanged so the two pages line up.
+Run `./core/digest.py` once. That gives you every open ticket on the board, its
+`ref` tag, where it stands, its open items and drafts, the SWEEP PLAN (with
+exact watermarks for Asana and Slack), and the WRITE patch format at the bottom.
+Never open `board.json` or `output/desk.md` directly; if you need one item or
+ticket unclipped, run `./core/digest.py --item <n>` or `--ticket <ref>`.
 
 `events` is a timeline, one per ticket, and it has to read as a single
 story from morning to now. Every entry carries the time it happened and who
@@ -232,8 +243,6 @@ The owner's own messages go in the timeline too, as "You". They need to see
 that they answered at 15:14 and what came back at 15:18, and a story with their
 own moves missing reads as though nothing they did counted. It is also how they
 check, at six in the evening, that something they meant to send actually went.
-
-If the file is missing, carry on and note it in `gaps`.
 
 ## Step 3: decide what belongs here
 
@@ -383,10 +392,25 @@ needs what they know and you do not. Those are the steps.
       "findings": [],
       "notes": [{"heading", "body"}],
       "unanswered": [],
-      "files": [{"label", "path"}],
+      "files": [{"label", "path", "draft": 2}],
       "meeting_use": {"label", "summary"},
       "sources": [{"label", "url"}]
     }
+
+The card shows `conclusion` (or `what`), `unanswered` and `meeting_use`, and
+folds the rest as working notes, so the folded part is read only when they doubt
+the answer. Write for that: `files`: only for what goes out with a message or what
+the owner opens, each with `draft` set to the draft number it is attached to
+(1 is `draft`, 2 the first of `drafts`) so the card puts it under that message
+as Attach; three `sources` at most, the ones that settle the conclusion.
+Intermediate files, scripts and exports you made on the way are not `files`. Evidence a message cites is a file of that
+message: the screenshot or query result in `docs/`, or an entry with `how` and no
+`path` when only the owner can make it (`prompts/refresh.md` §6). When a build
+reaches testing or rollout and logically has testable data or UI output, never
+draft a text-only test summary to the client: attach concrete evidence (a TEST
+account ID, or screenshots from the owner's desk review or the engineer's
+run via `prepared.files`), or draft a request to the engineer on the build
+ticket to provide a TEST account or screenshots first.
 
 An item with a `prepared` block has steps that begin after it. "Read this and
 disagree where you know better", "take this line into the room", "send this".
@@ -408,7 +432,7 @@ block, because they take it into a room believing it.
 
 When the product is a document somebody else reads rather than words the owner
 says, write it into `docs/` as HTML, build the PDF with `python3 make_doc.py`,
-and point `files` at both. Documents carry no `{word|reading}` markup and no
+and point `files` at both, tagged with the draft that sends them. Documents carry no `{word|reading}` markup and no
 internal detail: the reader is the client, not the owner.
 
 If the work needs a tool you do not have, or a codebase read that came back
@@ -458,9 +482,11 @@ is not short-of-the-facts; it is the facts with nothing in front of them.
 A step listed in `steps_done` was ticked off by the owner on the page; trim it
 the way `prompts/refresh.md` §6 says.
 
-`steps` is the item. Two to four of them, in order, each starting with a verb
+`steps` is the item. One to four of them, in order, each starting with a verb
 aimed at the owner, each one a thing they can do without going and working out
-what you meant. This is the field the whole page exists to deliver, so write it
+what you meant. A job that is one action is one step: going to the place is part
+of the action done there ("In the canvas, section 3 (link), paste the entry
+below"), never a step of its own, and a step is never split to fill a count. This is the field the whole page exists to deliver, so write it
 as if they are reading it with the ticket already open in front of them.
 
 - Name the place and the thing: "Open Sato-san's comment and copy the three
@@ -740,22 +766,13 @@ attribute and hedge where the certainty is not there:
 
 ### Formatting that survives paste
 
-Markdown bullets do not render when pasted into Slack or Asana, so never use `-`
-or `*` for lists. Use these instead:
+The page's Copy button puts both rich HTML (`<strong>`, `<ul>`/`<ol>`/`<li>`, `<code>`, `<a href="...">full URL</a>`) and clean plain text onto the clipboard, so pasting into either Slack or Asana formats bold, real bulleted/numbered lists, inline code and full links automatically. Write drafts so the converter and the reader both get clean structure:
 
-- Slack, English: `•` for bullets, `1.` `2.` for numbers, `*bold*` with single
-  asterisks, `_italic_`. Never `**bold**`.
-- Slack, English: wrap anything that is code in single backticks, the way the CE
-  team already write in these threads. Field and column names, pathway and action
-  names, hold names, account and charge IDs, status values. So `reading_date`,
-  `start_at`, `HOLD-RELEASE`, `A-1234ABCD`,
-  `create_and_issue_statement_for_new_charges`. Codes the client writes as a
-  word in their own language plus a number stay plain, because that is how both
-  sides write them.
-- Asana, English: `•` for bullets, `1.` for numbers, no emphasis markers at all,
-  because they render literally.
-- Asana, in the client's language: the bullet convention the client already use
-  in these tickets, which the profile's `## Writing to the client` names.
+- Use `- ` (hyphen + space) on its own line for every bullet point, and `1. ` `2. ` on its own line for numbered lists. Never use the literal unicode bullet `•`, which pastes as a dead character instead of a real list item, and never put multiple bullets on one line.
+- Use `**bold**` for bold headings or lead claims. Never use single-asterisk `*bold*`, which pastes as literal asterisks or italics.
+- Write every URL out in full (`https://...`), never truncated (`...`) and never hidden behind `[label](url)` markdown link syntax, so the reader can see the exact link and Slack/Asana unfurl it cleanly.
+- Wrap code identifiers in single backticks: field and column names, pathway and action names, hold names, account and charge IDs, status values (`reading_date`, `start_at`, `HOLD-RELEASE`, `A-1234ABCD`, `create_and_issue_statement_for_new_charges`). Codes the client writes as a word in their own language plus a number stay plain.
+- In the client's language, `- ` (or `・` for Japanese Asana comments) on its own line becomes a list item; keep one item per line.
 
 Put a real newline between list items. Keep paragraphs short enough to read in a
 Slack thread without expanding.
@@ -836,9 +853,15 @@ meaning.
 
 ## What you write into the board
 
-Merge into `state/board.json`. Set `checked_at` to now and keep `next_id` above
-every id you have used. A ticket looks like this, and an existing ticket keeps
-everything you are not changing.
+Write one JSON patch to `tmp/patch.json` with the Write tool and apply it with
+`./core/apply.py tmp/patch.json` (the WRITE section at the end of
+`./core/digest.py` shows every patch key). Include `"swept": true` and set
+`"board": {"meeting_note": {"date": "<YYYY-MM-DD>", "found": true, "url": "<url>", "gist": "..."}}`
+(and `"migration_note"` to the same url and date when the standup shares its
+Meet call and Gemini doc with a programme-wide room).
+
+On the board, a ticket and its items have this shape, and an existing ticket
+keeps everything your patch does not touch:
 
 ```json
 {
@@ -913,8 +936,8 @@ everything you are not changing.
           "who": "Who moved it, with their side: '<client.short>, Sato-san' or 'Alex Example, Kraken' or 'You'",
           "what": "What they did or said, in one or two sentences.",
           "so_what": "What it changes for the owner. Empty string when the entry is only a step in the story.",
-          "where": "Standup | Slack #channel-name | Asana",
-          "source_url": "Permalink"
+          "where": "The meeting's calendar name for something said in a room ('Billing Stand Up (Gemini notes)') | Slack #channel-name | Asana",
+          "source_url": "Permalink. For something said in a meeting, the notes doc it came from: the week strip ties the meeting to this ticket by it."
         }
       ],
       "threads": [
@@ -944,7 +967,7 @@ everything you are not changing.
             "sources": [{"label": "", "url": ""}]
           },
           "steps": [
-            "Two to four steps, in order, each starting with a verb aimed at the owner.",
+            "One to four steps, in order, each starting with a verb aimed at the owner. One action is one step.",
             "What is left after you did everything you could do yourself.",
             "Never commentary or background. That goes in why."
           ],
@@ -967,6 +990,7 @@ everything you are not changing.
           "link": "Direct URL to the exact thread or ticket to act in.",
           "blocked_by": "What must happen first. Empty string if nothing.",
           "urgency": "today | this-week | monitor",
+          "due_by": "YYYY-MM-DD when the owner's job has a deadline rather than a start, else leave it out",
           "est_minutes": 20,
           "hold": {
             "why": "Why sending or doing this today would be a mistake. One sentence.",
@@ -1020,12 +1044,10 @@ cannot write it honestly.
 
 There is no running order in the board. The page builds it from each item's
 number and state, so an item can never be ordered two different ways. Keep `ref`
-tags identical to the morning prep, and keep ticket `id` equal to the Asana gid
-so nothing is ever added twice.
+tags identical to the board's existing tickets, and keep ticket `id` equal to
+the Asana gid so nothing is ever added twice.
 
-When you have written the board, render it:
-
-```
-python3 core/render_desk.py    "$BOARD" "$OUTPUT_DIR/desk.html"
-python3 core/render_desk_md.py "$BOARD" "$OUTPUT_DIR/desk.md"
-```
+After applying `tmp/patch.json` with `./core/apply.py tmp/patch.json`, run
+`./core/check.py` and fix anything it prints with a second small patch. Do not
+rebuild the HTML or markdown pages yourself: `run_post.sh` renders both when
+your run finishes.

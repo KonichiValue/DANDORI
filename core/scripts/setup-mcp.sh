@@ -5,8 +5,8 @@
 # browser approval. Everything it does is to your user config, so it counts for
 # every folder, not only this one.
 #
-#   ./setup-mcp.sh          add what is missing, then log in to what needs it
-#   ./setup-mcp.sh --check  say where things stand, change nothing
+#   ./core/scripts/setup-mcp.sh          add what is missing, then log in to what needs it
+#   ./core/scripts/setup-mcp.sh --check  say where things stand, change nothing
 
 set -uo pipefail
 
@@ -99,11 +99,21 @@ fi
 print ""
 print "Now the browser approvals. Each opens a tab; approve it and come back."
 
+# Only the servers a run may call, the same list serve.py's Log in walks.
+# `claude mcp list` reports every server in the user's config, and on 26 Oct a
+# Glean grant this desk never uses stopped the walk on "The requested OAuth 2.0
+# Client does not exist" before it ever reached Slack.
+wanted=(${(f)"$(python3 -c 'import agent; print("\n".join(agent._mcp_allow()))' 2>/dev/null)"})
+(( ${#wanted} )) || wanted=(asana slack google notion)
+
 # Read the state fresh: a server added a moment ago always needs its grant.
+# Asana and Slack go first, because a sweep cannot run without them.
 needs=()
 while IFS= read -r line; do
   [[ "$line" == *"Needs authentication"* ]] || continue
-  needs+=("${line%%:*}")
+  name="${line%%:*}"
+  (( ${wanted[(Ie)$name]} )) || continue
+  if [[ "$name" == (asana|slack) ]]; then needs=("$name" "${needs[@]}"); else needs+=("$name"); fi
 done < <(states)
 
 if (( ${#needs} == 0 )); then

@@ -162,7 +162,7 @@ Before spending anything, the server checks that an agent CLI is installed and
 signed in and that the Asana and Slack connections are authorised. When they are
 not, the page says which one: **Log in** walks a grant that has merely lapsed,
 one browser approval at a time, and a server that was never added sends you to
-`./setup-mcp.sh`. That check exists because an agent with no tools does not stop,
+`./core/scripts/setup-mcp.sh`. That check exists because an agent with no tools does not stop,
 it improvises. Opening the HTML file directly still works and simply has no
 buttons, since a `file://` page has nothing to send a click to.
 
@@ -541,13 +541,13 @@ one, the client's production data.
 Four of those are HTTP servers on Kraken's AI Hub, at
 `https://hub.ai.ktl.net/mcp/<name>`: **Slack, Asana, Notion, Miro.** They carry
 their own OAuth sign-in, so this repo points at them rather than restating any
-credential. `./setup-mcp.sh` adds them at user scope and then walks
+credential. `./core/scripts/setup-mcp.sh` adds them at user scope and then walks
 `claude mcp login` over whatever still needs approving. In Cursor the same four
 come from marketplace plugins under Tools & MCP instead.
 
 **Database access is optional.** If you have a read-only analytics replica for
 the client, `config.json` `database.mcp` names its MCP server and
-`./setup-mcp.sh` declares it. It is for reading: a hold list or an account's
+`./core/scripts/setup-mcp.sh` declares it. It is for reading: a hold list or an account's
 charges can be checked rather than asked about, and nothing on the desk ever
 writes to it. `me/profile.md` `## Data I can reach` says which databases it
 covers and what not to query. With no `database.mcp`, the agents say they have
@@ -575,7 +575,7 @@ start a new chat, and check with a real call rather than a dot in a panel.
 **A terminal agent cannot sign itself in.** `DANDORI refresh`, `DANDORI prep`, the
 fold-in and the Ask box all run a CLI with no browser. `agent.py` refuses the run
 instead of letting it improvise, and the page says which connection needs you.
-`./setup-mcp.sh` is what opens the browser, and only you can approve what it
+`./core/scripts/setup-mcp.sh` is what opens the browser, and only you can approve what it
 opens.
 
 **A local database server is the one a terminal run can reach on its own.** When
@@ -640,7 +640,7 @@ looks for its own filename finds the same instructions.
 The page still opens, since it renders from the board and the board is only
 written by a run that finished. Most likely causes, in order: the Asana or Slack
 connection needing re-auth, no agent CLI signed in, or an agent writing malformed
-JSON. For the first, the Log in button, or `./setup-mcp.sh` when the server was
+JSON. For the first, the Log in button, or `./core/scripts/setup-mcp.sh` when the server was
 never added. For the last, run it again.
 
 ```sh

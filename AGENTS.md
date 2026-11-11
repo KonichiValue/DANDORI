@@ -107,7 +107,7 @@ because the context is in the file:
   checkout, if there is one. Read that repo's own AGENTS.md before touching it.
 - **"What does the data say"**: the production data this desk can reach is the
   read-only replica MCP named in `config.json` `database.mcp`, set up by
-  `./setup-mcp.sh`. If that key is empty, there is none: say so. Read only: a
+  `./core/scripts/setup-mcp.sh`. If that key is empty, there is none: say so. Read only: a
   `SELECT` to see how many accounts a problem covers or what a charge actually
   did is the point, and nothing here ever writes to it. The profile says what
   the replica does and does not cover; do not build a query that needs what it
@@ -315,8 +315,8 @@ same change. It touches a launchd agent only when `setup_page.ours()` says this
 checkout owns it, so a second copy of DANDORI on the same Mac never takes over
 the first one's jobs.
 
-**Every job needs a day, or it is invisible on the week strip.** Two fields, and
-which one depends on who is holding the work:
+**Every job needs a day, or it is invisible on the week strip.** Which field
+depends on who is holding the work:
 
 - The owner's own work carries `urgency`, which is **exactly one of `today`,
   `this-week`, `monitor`**, hyphen, never a space. The strip reads it as a day:
@@ -325,6 +325,9 @@ which one depends on who is holding the work:
 - Work with somebody else carries `waits_on.chase_on`, an **ISO date and never a
   sentence**. A condition ("only if they raise it again") goes in
   `waits_on.what`; a sentence in `chase_on` is a job with no day.
+- The owner's work with a deadline rather than a start ("by Fri 6 Nov") also
+  carries `due_by`, an ISO date. The card reads "By 6 Nov" instead of "Do now",
+  and the strip draws it on that day.
 
 `board.save()` refuses anything else, so a wrong value is an exception where it
 was written rather than a job quietly missing from the page an hour later.
@@ -373,8 +376,10 @@ Calendar through a one-tool headless Haiku run and writes `state/calendar.json`:
 every meeting in the four weeks the strip flips through, with its Meet link and
 any notes docs attached. A meeting is a fact about the week, not a job, so it
 never goes on the board and a sweep never writes it. `serve.py` reads it hourly
-in working hours and again just after a work meeting ends, and
-`POST /api/calendar` reads it now. Nothing ever writes to the calendar. When a
+in working hours, every quarter hour after a work meeting ends until Gemini's
+notes are on it, and before a refresh or prep whenever a meeting has ended since
+the last read (`calendar_sync.stale_for_sweep()`), so a press straight after a
+meeting sweeps its notes. `POST /api/calendar` reads it now. Nothing ever writes to the calendar. When a
 work meeting ends with Gemini notes that no `meeting_note`, `migration_note` or
 `other_notes` row covers, `calendar_sync.unread_notes()` names it, the digest
 lists it as step N, and the next refresh reads the doc and records it. A chat
@@ -440,9 +445,23 @@ A sweep is worth nothing without Asana and Slack, so `agent.blockers()` checks
 them before a token is spent. A lapsed grant is not a refusal: the Refresh and
 Write prep buttons and `DANDORI refresh` walk the login first and only then refuse,
 and a run that stops mid-way on a dead connection starts the login too.
-`./setup-mcp.sh` adds the servers and walks the logins, `./setup-mcp.sh --check`
+`./core/scripts/setup-mcp.sh` adds the servers and walks the logins, `./core/scripts/setup-mcp.sh --check`
 and `DANDORI mcp` report where they stand. Only the owner can approve a grant in a
 browser, so a lapsed one goes in `gaps` rather than being worked around.
+
+**A refresh or prep that dies part-way is picked back up, not restarted.**
+`serve.run_agent` keeps the CLI's session id from its `system/init` event, and
+when a run that had started work ends on a cut-off reply ("Response stalled
+mid-stream"), a reset connection or the stall watchdog, `serve.resumable()` says
+so and the same session carries on with `--resume` and `RESUME_NOTE`, up to
+`MID_STREAM_RESUMES` times. Starting over would redo the reading and could apply
+a patch twice. The full timeout is never resumed: that is the runaway guard.
+Before the preflight, `wait_for_credential()` asks 1Password again for a few
+minutes, so a missed Touch ID prompt is a wait rather than a dead run. All of
+this lives in the server, so `DANDORI refresh`, `DANDORI prep` and the morning
+brief post to `/api/refresh` or `/api/prep` and watch `/api/status`, the way
+`DANDORI ask` does, and only pipe the prompt into the CLI directly when the
+server will not start.
 
 Headless Claude Code has a real `Task` tool, which `cursor-agent` did not, and a
 sweep that hands itself to a subagent loses the board. `prompts/refresh.md` and

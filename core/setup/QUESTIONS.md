@@ -1,15 +1,15 @@
 # The setup questions
 
-The setup page asks these as a form (`DANDORI setup` opens it), and `./setup.py`
-asks the same ones in the terminal. Both write the answers to `config.json`.
+The setup page asks these as a form (`DANDORI setup` opens it), and `./core/setup.py`
+asks the same ones in the terminal. Both write the answers to `clients/<client>/config.json`.
 This page says what each one is for, so you can answer it well or edit
-`config.json` by hand later. Running `./setup.py` again keeps every answer you
+`config.json` by hand later. Running `./core/setup.py` again keeps every answer you
 already gave: Enter accepts the one in brackets.
 
 The prose half, how you write to the client and who your people are, goes in
-`me/profile.md`. `./setup.py` starts it from `setup/profile.example.md`. The
+`clients/<client>/profile.md`. `./core/setup.py` starts it from `core/setup/profile.example.md`. The
 quickest way to fill it is a Claude chat on this folder: say *"follow
-setup/INTERVIEW.md"* and it looks up your Asana and Slack ids, finds your
+core/setup/INTERVIEW.md"* and it looks up your Asana and Slack ids, finds your
 meetings, and interviews you for the rest.
 
 Both files are in `.gitignore`. Nothing you answer is ever committed.
@@ -50,6 +50,7 @@ Both files are in `.gitignore`. Nothing you answer is ever committed.
 | `workspace_gid` | The Asana workspace. Optional. |
 | `projects` | The projects your tickets live in, each `{gid, name}`. Paste the project URL; the setup keeps the number. Every sweep runs an *assigned to me* search across these, so a ticket newly given to you appears on the board. |
 | `exclude_projects` | Projects to ignore even when a ticket of yours is in them (an onboarding list, a personal list). |
+| `status_field` | Optional. The project's Status field, `{"gid", "options": {"<name>": {"gid", "color"}}}`, copied from the field's settings in Asana (`color` is Asana's own name: `orange`, `blue-green`...). With it the card draws each Status in Asana's colour and, when a sweep finds the Status behind what happened, offers a Set in Asana button. Without it the card still says which tickets are behind, and you change them by hand. Its `by_stage` maps a CE build's stage to the Status it means for the client ticket, e.g. `{"building": "<in development>", "review": "<in development>"}`, so the desk flags a ticket whose build an engineer has picked up while Asana still says it is waiting. |
 
 A ticket goes on the board because Asana assigns it to you, never because it
 looks important. That rule is the desk's, not a setting.
@@ -75,7 +76,8 @@ Each `also` entry takes a `kind`, which decides how the desk treats it:
 `record` says which board record proves its notes were read. Leave it out and a
 refresh reads the notes into the programme record (`migration_note`); set it to
 `""` for a room whose notes you never need folded in. `tab` and `what` override
-the short label and the description the page uses.
+the short label and the description the page uses. `link` is the room's own page
+(the Notion page a huddle walks, say), drawn at the top of its card.
 
 ## 6. Slack (`slack`)
 
@@ -83,7 +85,7 @@ the short label and the description the page uses.
 |---|---|
 | `channel_hints` | Channels where your tickets are discussed. A sweep reads every thread already on a ticket wherever it is; these are where it searches for new ones. |
 | `search_scope` | Leave as `all`. |
-| `form_channels` | Channels that only take requests through a Slack workflow form, for example an engineering team's intake channel. Each is `{"channel": "C0...", "name": "team-intake", "form": "Ask the team", "fields": ["What is this about?", "Priority:"]}`. A new message there is drafted in the form's fields, and `./audit.py` lists any draft that skips one. A reply in an existing thread is an ordinary message. Leave empty if none. |
+| `form_channels` | Channels that only take requests through a Slack workflow form, for example an engineering team's intake channel. Each is `{"channel": "C0...", "name": "team-intake", "form": "Ask the team", "fields": ["What is this about?", "Priority:"]}`. A new message there is drafted in the form's fields, and `./core/audit.py` lists any draft that skips one. A reply in an existing thread is an ordinary message. Leave empty if none. |
 
 ## 7. Writing to the client (`language`)
 
@@ -93,7 +95,7 @@ Only asked when the client language is not English.
 |---|---|
 | `level` | Your level in it (N2 spoken, B2). Scripts you read aloud are pitched for it. |
 | `register` | The register, in your words (ですます, plain not stiff keigo). |
-| `readings` | Whether lines carry `{漢字|かんじ}` reading markup the page draws as ruby. `./check.py` checks hard words have one only when this is on. |
+| `readings` | Whether lines carry `{漢字|かんじ}` reading markup the page draws as ruby. `./core/check.py` checks hard words have one only when this is on. |
 | `reading_terms`, `plain_runs` | For the reading check: words that must always carry a reading, and runs that never need one. Fill these in as the check complains. |
 
 ## 8. Production data (`database`)
@@ -104,7 +106,7 @@ database, the desk can count how many accounts a problem touches.
 | Key | What it is for |
 |---|---|
 | `mcp` | The MCP server's name. Empty means none, and nothing asks for it. |
-| `command` | The binary that serves it. `./setup-mcp.sh` adds it to Claude Code. |
+| `command` | The binary that serves it. `./core/scripts/setup-mcp.sh` adds it to Claude Code. |
 | `conn` | Its connection name, passed as `KTDB_CONN`. |
 
 ## 9. The app (`desk`)
@@ -114,6 +116,7 @@ database, the desk can count how many accounts a problem touches.
 | `name` | The app's name in the Dock and the page title. |
 | `command` | The terminal command, linked beside `DANDORI`. |
 | `port` | The local port the page runs on. Change it only if 8787 is taken. |
+| `auto_sweep_minutes` | Minutes between background Haiku delta scouts on weekdays (default `15`; `0` turns it off). Also configurable from Settings on the page. |
 | `morning_sweep` | When the optional weekday morning sweep runs (`DANDORI morning` turns it on). |
 
 ## 10. Prioritisation round (`prioritization`)

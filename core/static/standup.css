@@ -205,3 +205,23 @@ border:1px solid var(--accent-line);padding:4px 7px;border-radius:5px}
 .xws-say .jp{font-size:16px;margin:0}
 .xws-say .en{margin:3px 0 0;font-size:12.5px;color:var(--soft)}
 .xws-none{margin:0;font-size:13px;color:var(--soft)}
+.xws-link{margin:0 0 12px;font-size:13px}
+.xws-link a{color:var(--accent);font-weight:650}
+
+/* The team huddle walks milestones, then blockers. Each row is one line in the
+   database it is copied into, with its status in that database's own words. */
+.hd-list{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:10px}
+.hd-list>li{padding:9px 12px;border:1px solid var(--hair);border-left:3px solid var(--green);border-radius:8px}
+.hd-ms.at-risk,.hd-bl.waiting{border-left-color:var(--amber)}
+.hd-ms.off-track,.hd-bl.blocked{border-left-color:var(--red)}
+.hd-ms.not-started{border-left-color:var(--line)}
+.hd-top{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:13.5px}
+.hd-st{font-size:11.5px;font-weight:650;color:var(--mut)}
+.hd-due,.hd-conf{font-size:11.5px;color:var(--soft)}
+.hd-top .copy{margin-left:auto}
+.hd-up{margin:5px 0 0;font-size:13.5px;line-height:1.55;color:var(--ink)}
+.hd-up .copy{margin-left:6px}
+.hd-meta,.hd-none{margin:4px 0 0;font-size:12.5px;color:var(--soft)}
+.hd-plate{margin-top:6px;font-size:12.5px}
+.hd-plate>summary{cursor:pointer;color:var(--soft);font-weight:600}
+.hd-plate ul{margin:6px 0 0;padding-left:18px;color:var(--mut);line-height:1.6}

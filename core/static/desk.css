@@ -46,6 +46,30 @@ line-height:1.5;color:var(--amber-ink)}
 letter-spacing:.07em;color:var(--amber);margin-bottom:2px}
 .tk-chip.warn{background:var(--red-bg);color:var(--red);border-color:var(--red-line)}
 .tk-chip.warn b{color:var(--red)}
+/* Asana's Status in Asana's own colour, so the chip and the column on the
+   client's board read as the same thing. The hue is Asana's palette; the tint
+   is mixed against the card and the ink, so every theme, yoru included, keeps
+   its own contrast rather than a pastel pasted onto a dark card. */
+.as-red{--as:#e8384f}.as-orange{--as:#fd612c}.as-yellow-orange{--as:#fd9a00}
+.as-yellow{--as:#d9b200}.as-yellow-green{--as:#8fbf21}.as-green{--as:#4fbf5c}
+.as-blue-green{--as:#2fb59c}.as-aqua{--as:#20aaea}.as-blue{--as:#4186e0}
+.as-indigo{--as:#7a6ff0}.as-purple{--as:#aa62e3}.as-magenta{--as:#d94fd9}
+.as-hot-pink{--as:#ea4e9d}.as-pink{--as:#f27a9b}.as-cool-gray{--as:#8da3a6}
+.tk-chip.as-st[class*=" as-"]{background:color-mix(in srgb,var(--as) 16%,var(--card));
+border-color:color-mix(in srgb,var(--as) 50%,var(--card));
+color:color-mix(in srgb,var(--as) 45%,var(--ink))}
+.tk-chip.as-st[class*=" as-"] b{color:color-mix(in srgb,var(--as) 70%,var(--soft))}
+/* Where the timeline says the Status ought to be by now. Dashed, because it is
+   not yet true in Asana; the reason sits beside it so nobody has to hover. */
+.tk-behind{display:inline-flex;gap:6px;align-items:center}
+.tk-arrow{color:var(--soft);font-weight:700}
+.tk-chip.as-should{border-style:dashed;border-width:1.5px}
+.tk-setst{font:600 11.5px/1 var(--font);padding:4px 9px;border-radius:6px;cursor:pointer;
+color:var(--ink);background:var(--card);border:1px solid var(--line)}
+.tk-setst:hover{border-color:var(--accent);color:var(--accent)}
+.tk-setst[aria-busy="true"]{opacity:.6;cursor:progress}
+.tk-setst-hint{font-size:11.5px;color:var(--soft)}
+.tk-why{flex-basis:100%;font-size:12px;color:var(--mut);line-height:1.45}
 /* The Kraken build sits inside Where it stands, because "queued behind an
    engineer" is half the answer to where a client ticket is. Sentence case
    throughout: this is read, not scanned, and small capitals in a block this
@@ -355,8 +379,14 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wd-job.mine .wd-who{color:var(--red)}
 .wd-job.held{border-left-color:var(--amber);background:var(--amber-bg)}
 .wd-job.held .wd-n{background:var(--amber)}
-.wd-job.theirs{border-left-color:#8fbcf7}
+/* Waiting on somebody else. The owner has done their part, so the title is
+   struck through and the row steps back; what stays legible is who has it and
+   that this is the day to chase. Overdue turns it into .late, full colour. */
+.wd-job.theirs{border-left-color:#8fbcf7;background:transparent;opacity:.78}
 .wd-job.theirs .wd-n{background:var(--blue)}
+.wd-job.theirs .wd-w{color:var(--soft);font-weight:550;
+text-decoration:line-through;text-decoration-color:rgba(120,130,150,.55)}
+.wd-job.theirs:hover{opacity:1}
 /* Overdue. Loudest thing on the strip, and it sits on today rather than off the
    left edge, because a chase that slipped is more urgent, not less. */
 .wd-job.late{border-left-color:var(--red);border-color:var(--red-line);
@@ -406,6 +436,26 @@ list-style:none}
 .wm-more[open]>summary::before{content:"\2212 "}
 .wm-more[open]{display:flex;flex-direction:column;gap:2px}
 .wm.side .wm-w{font-weight:500;color:var(--mut)}
+/* The line from a meeting to the board. Under a meeting that has ended, the
+   tickets a sweep wrote from its notes, or that nobody has read them yet; under
+   the room the script is for, the tickets in it. Each is a link to the card. */
+.wm{flex-wrap:wrap}
+.wd-room:has(.wm-tix){flex-wrap:wrap}
+.wm-tix{flex-basis:100%;display:flex;flex-wrap:wrap;gap:3px;padding:1px 0 1px 1px;
+white-space:normal}
+.wm-ref,.wm-ref-more,.wm-fold,.wm-none{font-size:9.5px;font-weight:700;line-height:15px;
+border-radius:4px;padding:0 5px;text-decoration:none;white-space:nowrap}
+.wm-ref{color:var(--ink);background:var(--card);border:1px solid var(--line);
+max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.wm-ref:hover{border-color:var(--accent);color:var(--accent)}
+.wm-ref-more{color:var(--soft)}
+.wm-none{color:var(--soft);font-weight:600}
+.wm-fold{color:var(--amber);background:var(--amber-bg);border:1px solid var(--amber)}
+/* A meeting nobody has read is the one past meeting that should not step back. */
+.wm.past.unread{opacity:1}
+.wd-room .wm-ref{color:#fff;border-color:rgba(255,255,255,.55);background:rgba(255,255,255,.14)}
+.wd-room .wm-ref:hover{background:#fff;color:var(--accent)}
+.wd-room .wm-ref-more,.wd-room .wm-none{color:rgba(255,255,255,.8)}
 /* The calendar's own controls, at the end of the week's header. */
 .week-cal,.week-fold{font:inherit;font-size:11px;font-weight:700;border-radius:20px;
 padding:2px 9px;border:1px solid var(--line);background:var(--card);color:var(--soft);
@@ -621,13 +671,37 @@ border-radius:5px;padding:1px 5px;word-break:break-all}
 /* Work already done. It used to sit above the steps, as the answer they start
    from, and on a card with twelve findings that put the one thing to do three
    screens down. The steps lead now and this is what they stand on. */
-.act-prep{margin:12px 0 0;padding:11px 13px 12px;background:var(--green-bg);
-border:1px solid var(--green-line);border-radius:10px}
+/* Work already done, drawn as an answer rather than a report: a quiet card
+   with a green edge, the bottom line and what is still open in view, and the
+   reasoning one fold down. The green panel it replaced was the loudest thing
+   on the card after the reply, and the owner read past it. */
+.act-prep{margin:12px 0 0;padding:10px 13px 10px;background:var(--card);
+border:1px solid var(--line);border-left:3px solid var(--green);border-radius:9px}
 .act-lab.done{color:var(--green)}
+.pw-at{margin-left:8px;font-weight:600;color:var(--soft);text-transform:none;letter-spacing:0}
+.pw-tally{font-weight:500;color:var(--soft);text-transform:none;letter-spacing:0}
+/* The files that go out with a message, inside that message's box. */
+.draft-attach{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;
+padding:8px 12px;border-top:1px solid var(--line);background:var(--card)}
+.draft-attach>span{font-size:10.5px;font-weight:750;text-transform:uppercase;
+letter-spacing:.07em;color:var(--plum-ink);margin-right:2px}
+/* Screenshots that go with the message: checkable at a glance, draggable into the post. */
+.ev-shots{display:flex;flex-wrap:wrap;gap:8px;flex-basis:100%}
+.ev-shot{display:flex;flex-direction:column;gap:4px;width:220px;text-decoration:none;
+color:var(--soft);font-size:11.5px;line-height:1.35}
+.ev-shot img{width:100%;max-height:150px;object-fit:cover;object-position:top left;
+border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.ev-shot:hover img{border-color:var(--plum-ink)}
+/* Evidence the message needs that nobody has made yet, and how to make it. */
+.draft-toget{padding:8px 12px;border-top:1px dashed var(--line);background:var(--card)}
+.draft-toget>span{font-size:10.5px;font-weight:750;text-transform:uppercase;
+letter-spacing:.07em;color:var(--amber)}
+.draft-toget ol{margin:5px 0 0;padding-left:18px;font-size:12.5px;line-height:1.45;color:var(--ink)}
+.draft-toget li+li{margin-top:4px}
+.draft-toget li b{display:block;font-weight:650}
+.draft-toget li span{color:var(--soft)}
 .pw-what{margin:0 0 9px;font-size:14.5px;color:var(--ink);font-weight:550}
-.pw-answer{margin:0 0 10px;padding:9px 11px;background:var(--card);
-border:1px solid var(--green-line);border-radius:8px;font-size:14px;
-line-height:1.5;color:var(--ink)}
+.pw-answer{margin:0 0 8px;font-size:14px;line-height:1.5;color:var(--ink)}
 .pw-answer b,.pw-note b{display:block;margin-bottom:3px;font-size:10.5px;
 text-transform:uppercase;letter-spacing:.07em;color:var(--green)}
 .pw-t{width:100%;border-collapse:collapse;margin:0 0 10px;font-size:12.5px;
@@ -654,12 +728,14 @@ color:var(--amber-ink)}
 .pw-line{display:block;font-weight:600}
 .pw-more{display:block;margin-top:5px;font-size:13px;color:var(--mut)}
 /* The evidence, behind one line that says how much of it there is. */
-.pw-ev{margin:10px 0 0;border-top:1px solid var(--green-line);padding-top:8px}
+.pw-ev{margin:10px 0 0;border-top:1px solid var(--hair);padding-top:8px}
+.pw-ev .pw-ev{border-top-color:var(--line)}
+.pw-ev .pw-src{margin-top:10px}
 .pw-ev>summary,.pw-note>summary,.pw-one summary{cursor:pointer;list-style:none}
 .pw-ev>summary::-webkit-details-marker,.pw-note>summary::-webkit-details-marker,
 .pw-one summary::-webkit-details-marker{display:none}
 .pw-ev>summary{display:flex;gap:8px;align-items:center;font-size:11px;
-font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--green)}
+font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--soft)}
 .pw-ev>summary:hover{color:var(--ink)}
 .pw-ev[open]>summary{margin-bottom:8px}
 /* One claim per line. The proof opens under the claim it proves. */
@@ -966,10 +1042,40 @@ text-transform:uppercase;letter-spacing:.06em}
 .ask-dots i{opacity:.7}}
 .act-draft{margin:12px 0 0;border:1px solid var(--line);border-radius:9px;
 overflow:hidden}
-.act-draft.sent{background:var(--hair)}
-.act-draft.sent>summary{padding:9px 13px;cursor:pointer;font-size:11.5px;
-font-weight:700;color:var(--soft);text-transform:uppercase;letter-spacing:.06em}
-.act-draft.sent[open]>summary{border-bottom:1px solid var(--line)}
+/* Everything already sent on a job, as one line that opens to a chain. The
+   line says how many and the last one, which is usually all the owner needs;
+   opened, a rail runs down the left with a dot per message, oldest first, and
+   the newest is drawn open with a filled dot so the eye lands on it. */
+.sent-chain{margin:12px 0 0;border:1px solid var(--line);border-radius:9px;
+background:var(--hair)}
+.sent-chain>summary{display:flex;align-items:center;gap:10px;padding:8px 12px;
+cursor:pointer;list-style:none}
+.sent-chain>summary::-webkit-details-marker{display:none}
+.ch-k{display:flex;align-items:baseline;gap:9px;min-width:0;font-size:12px;
+font-weight:700;color:var(--mut)}
+.ch-last{font-weight:500;color:var(--soft);white-space:nowrap;overflow:hidden;
+text-overflow:ellipsis}
+.sent-chain[open]>summary{border-bottom:1px solid var(--line)}
+.chain{list-style:none;margin:0;padding:10px 12px 6px 30px;position:relative}
+.chain::before{content:"";position:absolute;left:17px;top:18px;bottom:20px;
+width:2px;background:var(--line);border-radius:2px}
+.ch-step{position:relative;padding:0 0 8px}
+.ch-dot{position:absolute;left:-18px;top:9px;width:10px;height:10px;
+border-radius:50%;background:var(--card);border:2px solid var(--soft);box-sizing:border-box}
+.ch-step.newest .ch-dot{background:var(--plum);border-color:var(--plum)}
+.ch-msg{border:1px solid var(--line);border-radius:8px;background:var(--card);overflow:hidden}
+.ch-msg>summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 9px;
+padding:6px 10px;cursor:pointer;list-style:none;font-size:12px}
+.ch-msg>summary::-webkit-details-marker{display:none}
+.ch-msg[open]>summary{border-bottom:1px solid var(--line)}
+.ch-at{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ch-to{color:var(--mut);min-width:0}
+.ch-reply{margin-left:auto;font-size:11px;color:var(--soft);white-space:nowrap}
+.ch-step:not(.newest) .ch-msg:not([open])>summary{background:transparent}
+.ch-step:not(.newest) .ch-msg:not([open]){border-color:transparent;background:transparent}
+.ch-msg .draft-head{padding:6px 10px;justify-content:flex-end}
+.ch-msg .draft-body{font-size:13.5px;padding:10px 12px}
+.ch-msg .draft-body.ja{font-size:14px}
 /* A reply still to send is the thing on the card the owner acts on, so it is drawn
    above the evidence with a coloured edge, and each one folds on its own. */
 .act-draft.live{border-color:var(--plum-line);border-left:3px solid var(--plum)}
@@ -1652,23 +1758,29 @@ border-color:var(--accent-line);background:var(--accent-bg,var(--card))}
 
 /* The prioritization round, when `config.json` has one: the lead's recurring
    thread, and what to raise before it goes out. Blue, so it sits beside the milestone without being one. */
-.pr{background:var(--card);border:1px solid var(--blue-line);border-left:4px solid var(--blue);
-border-radius:13px;padding:0 18px 14px;margin:0 0 16px;box-shadow:var(--shadow)}
-.pr-head{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
-padding:14px 0 12px;cursor:pointer}
+/* One row, shut, most days of the week: the owner uses it once a week at
+   most. Everything it knows is a press away; the row says when and how much. */
+.pr{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--blue);
+border-radius:10px;padding:0 14px;margin:0 0 12px}
+.pr[open]{padding-bottom:12px;border-color:var(--blue-line)}
+.pr-head{list-style:none;display:flex;align-items:center;gap:10px;
+padding:7px 0;cursor:pointer;white-space:nowrap;overflow:hidden}
+.pr-head>*{flex:none}
+.pr.quiet{background:transparent;box-shadow:none}
+.pr.quiet .pr-name-h{font-weight:600;color:var(--mut)}
+.pr-where{margin:0 0 8px;font-size:12.5px;color:var(--soft)}
 .pr-head::-webkit-details-marker{display:none}
 .pr[open]>.pr-head{border-bottom:1px dashed var(--line);margin-bottom:10px}
-.pr-kind{display:inline-flex;align-items:center;gap:6px;font:650 12px/1 var(--font);
-color:var(--blue);background:var(--blue-bg);border:1px solid var(--blue-line);
-border-radius:999px;padding:5px 10px 5px 8px}
+.pr-kind{display:inline-flex;align-items:center;gap:6px;font:750 11px/1 var(--font);
+color:var(--blue);text-transform:uppercase;letter-spacing:.06em}
 .pr-kind:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--blue)}
-.pr-name-h{font-size:15px;font-weight:700;color:var(--ink)}
+.pr-name-h{font-size:13px;font-weight:700;color:var(--ink)}
 .pr-moved{font-size:12px;font-weight:550;color:var(--mut)}
-.pr-due{display:inline-flex;align-items:center;font:650 12px/1 var(--font);
-border-radius:999px;padding:5px 10px;border:1px solid var(--line);color:var(--soft)}
+.pr-due{display:inline-flex;align-items:center;font:650 11.5px/1 var(--font);
+border-radius:999px;padding:3px 9px;border:1px solid var(--line);color:var(--soft)}
 .pr-due.red{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
 .pr-due.amber{color:var(--amber-ink);background:var(--amber-bg);border-color:var(--amber-line)}
-.pr-sum{margin-left:auto;font-size:12.5px;color:var(--soft)}
+.pr-sum{margin-left:auto;font-size:12px;color:var(--soft);flex:0 1 auto;overflow:hidden;text-overflow:ellipsis}
 .pr-stale{margin:0 0 10px;font-size:12.5px;color:var(--amber-ink)}
 .pr-rows{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:1px;
 background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}

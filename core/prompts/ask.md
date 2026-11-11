@@ -18,16 +18,16 @@ Answer that question. Nothing else.
 The block below carries the ticket, the job, its draft and prepared work, and
 anything already asked about it. It is quoted from the board itself, so it is the
 board's own text and not a summary of it. Answer from it, and do not open
-`state/board.json` to confirm something the block already says: the file can run
+the active client's `state/board.json` to confirm something the block already says: the file can run
 to hundreds of KB and the owner is sitting in front of a spinner while you read
 it. One thing the block does trim: on a ticket-wide question the other items'
 prepared findings arrive as a count, not the full prose, so read
-`state/board.json` by item number when a specific finding is the point.
+the item with `./core/digest.py --item <n>` (or `board.load()`) when a specific finding is the point.
 
 When it is not enough:
 
-- `state/board.json` is the whole board. `board.py` says what its fields mean.
-  Search it for the item number and change that part of it. Reading it end to end
+- The active client's `state/board.json` (path in *Who you are working for* above) is the whole board. `core/board.py` says what its fields mean.
+  Read one item with `./core/digest.py --item <n>` or change it through `board.load()` / `board.save()`. Reading the whole file end to end
   buys nothing that the block above has not already given you.
 - The `threads` and `source_url` links on the item are the conversations it came
   from. Read them rather than guessing what somebody said.
@@ -75,8 +75,8 @@ board instead of one ticket, and the block below says so when they do.
 
 Answer them the same way, in the same length, with one difference: **name the
 job numbers**. "Start with 8, it is the only thing Sato-san is waiting on" is
-an answer the owner can act on, and "you have a few things pending" is not. Read
-`state/board.json` before answering rather than working from the titles in the
+an answer the owner can act on, and "you have a few things pending" is not. Run
+`./core/digest.py` before answering rather than working from the titles in the
 block, because the drafts and the prepared work decide whether something is
 really ready.
 
@@ -98,23 +98,34 @@ what you said above, say that plainly and say what changed your mind.
 
 The owner will often ask for a change rather than an answer: soften a draft, cut
 a step, add a condition, fix something you got wrong. Make it, in
-`state/board.json`, on the job they asked about and nowhere else. Then say in one
+the active client's `state/board.json`, on the job they asked about and nowhere else. Then say in one
 line what you changed, so the answer on the card explains the card they are
 looking at.
 
 You may be running while a sweep or another question is writing the board.
-That is fine as long as you write through `board.save()` or `./tick.py`: the save
+That is fine as long as you write through `board.save()` or `./core/tick.py`: the save
 locks the file and merges your change with theirs. Never edit
-`state/board.json` with an edit tool or a string replace, never `json.dump` it,
+`board.json` with an edit tool or a string replace, never `json.dump` it,
 and never delete an item; close it as dropped. Text you cut from a prepared
-block is kept for you in `prepared.earlier`, so do not paste it back.
+block is kept for you in `prepared.earlier`, so do not paste it back. When you
+write `prepared`, keep it to what the card shows (`conclusion`, `unanswered`) and
+four findings at most, and give each file you attach `"draft": N`, the draft it
+goes out with, so it sits under that message as Attach. Evidence a message cites goes with it the
+same way: download or make the screenshot or query result into `docs/`, or, when
+only the owner can make it, an entry with `how` and no `path` saying exactly how
+(`prompts/refresh.md` §6, "A draft that claims or asks for evidence"). When a
+draft shares feature or bug-fix test results with the client (and the change
+logically has testable data or UI output), never leave it as text-only: include
+a TEST account ID, attach screenshots in `prepared.files` (`path` or `how`), or
+draft a request to the engineer on the build ticket to provide a TEST account or
+screenshots first.
 
 When the change touches `steps`, write them the way `prompts/refresh.md` §6 says
 (steps are only what the owner does): status in `where_it_stands`, one action per
 step with what to do with the result, lists in a `prepared` table, and no
 shorthand like "the 40" that they have to decode. "This step makes no sense"
 means rewrite the whole list that way, not reword the one line. "I did step 1"
-is `./tick.py N --step 1`, which strikes it through on the page; a step they
+is `./core/tick.py N --step 1`, which strikes it through on the page; a step they
 already ticked is in `steps_done`, so do not tell them to do it again.
 
 **Make it in one step, because the owner is watching a spinner while you work.**
@@ -141,7 +152,7 @@ the confirmation.
 
 **Never rebuild the pages from here.** `serve.py` renders both of them on every
 load, so the card the owner reads your answer on is drawn from the board after
-you wrote it. `./tick.py --rebuild` is for a chat or a terminal, where nothing
+you wrote it. `./core/tick.py --rebuild` is for a chat or a terminal, where nothing
 else will redraw them. Running it from an ask costs them a step and changes
 nothing they see.
 
@@ -153,7 +164,7 @@ thread first, then write the reply.
 Write the whole draft again rather than patching a sentence, and keep every field
 it has: `body_ruby` with the reading markup when the profile asks for readings,
 `body_en` when the draft is in the client's language, `target`, `link`,
-`language`. The house style and the reader rules above are not relaxed because
+`language`. Format every draft so it pastes cleanly into Slack and Asana (the Copy button copies both rich HTML and plain text): use `- ` on its own line for bullets (never `•`), `1. ` `2. ` on its own line for numbered lists, `**bold**` for bold (never `*single asterisks*`), and full uncompressed `https://...` URLs (never `[label](url)` or truncated links). The house style and the reader rules above are not relaxed because
 the request was casual.
 
 **When the thread does not settle it, say that in the draft.** Do not invent a
@@ -212,7 +223,7 @@ Three things bound this, and they matter more than the convenience:
   leave the state alone.
 - **Sending is not finishing.** If a reply is expected, it is `-w <who>`, so the
   page shows it sitting with them rather than pretending it is closed. Plain
-  `./tick.py <n>` is only for work where nothing comes back.
+  `./core/tick.py <n>` is only for work where nothing comes back.
 - **Only the job the owner asked from.** They are looking at one card. Moving its
   neighbours because they seem related is how they lose track of their own list.
 
@@ -221,7 +232,7 @@ quietly doing the smaller thing. "You asked me to close 17, but the description
 still shows the old figure in three places, so I have left it open" is the
 useful answer.
 
-`./tick.py` rebuilds both pages itself, which is the one case where a rebuild
+`./core/tick.py` rebuilds both pages itself, which is the one case where a rebuild
 from an ask is not wasted, so do not add `--rebuild` on top of it.
 
 **Item numbers are still permanent**, because they are how the owner refers to
@@ -249,7 +260,7 @@ you are proposing, not deciding. Three limits:
 - **Only when the evidence is in front of you**: a quoted reply, a closed
   ticket, the owner's own words. Never as a habit at the foot of every answer.
 - **Never instead of doing what the owner told you.** "Mark this done" is an
-  instruction, so run `./tick.py` as above and do not also offer the button.
+  instruction, so run `./core/tick.py` as above and do not also offer the button.
 
 `waiting` needs the person after the bar, and `dropped` takes the reason there.
 Keep that text under 90 characters.

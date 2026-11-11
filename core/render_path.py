@@ -31,8 +31,12 @@ from render import (
     blocked_on,
     status_button,
     code,
+    day_words,
+    draft_html,
+    draft_plain,
     due_words,
     esc,
+    esc_url,
     furi,
     item_order,
     item_state as state_of,
@@ -75,41 +79,181 @@ def doc_btns(files: list) -> str:
     """
     out = []
     for f in files or []:
-        path = str(f.get("path", "")).strip()
-        url = str(f.get("url", "")).strip()
-        if not path and not url:
-            continue
-        label = f.get("label") or Path(path).name or url
-        if path.startswith(("http://", "https://")):
-            href = path
-        elif path:
-            rel = re.sub(r"^(?:clients/[^/]+/)?(?:docs|scripts)/", "", path).lstrip("/")
-            href = f"/doc/{rel or Path(path).name}"
-        else:
-            href = url
-        out.append(link_btn(href, label))
+        href = doc_href(f)
+        if href:
+            out.append(link_btn(href, f.get("label") or Path(str(f.get("path") or "")).name or href))
     return " ".join(o for o in out if o)
+
+
+def doc_href(f: dict) -> str:
+    """Where the page opens a prepared file: /doc/ for one in the repo, else its url."""
+    path = str(f.get("path", "")).strip()
+    url = str(f.get("url", "")).strip()
+    if path.startswith(("http://", "https://")):
+        return path
+    if path:
+        rel = re.sub(r"^(?:clients/[^/]+/)?(?:docs|scripts)/", "", path).lstrip("/")
+        return f"/doc/{rel or Path(path).name}"
+    return url
+
+
+IMAGE = re.compile(r"\.(png|jpe?g|gif|webp)$", re.I)
+
+
+def evidence_html(files: list) -> str:
+    """Screenshots that go out with a message, drawn in its box rather than named.
+
+    Evidence is the point of the post it goes with, so a chip reading
+    "prod-dropdown.png" made the owner open it to know whether it said what the
+    words claim. Drawn as a thumbnail it can be checked against the draft at a
+    glance and dragged straight into Asana or Slack from the page.
+    """
+    out = []
+    for f in files:
+        href = doc_href(f)
+        label = f.get("label") or Path(href).name
+        out.append(
+            f'<a class="ev-shot" href="{esc_url(href)}" target="_blank" rel="noopener">'
+            f'<img src="{esc_url(href)}" alt="{esc(label)}" loading="lazy">'
+            f"<span>{esc(label)}</span></a>"
+        )
+    return "".join(out)
+
+
+def to_get_html(files: list) -> str:
+    """Evidence the message needs and nobody has made yet, with how to make it.
+
+    A draft that promises "screenshots attached" with nothing to attach is a
+    post the owner cannot send, and the work of making the evidence was nowhere
+    on the card. A file entry with `how` and no path is that work: it sits in
+    the box it is for, so it is done before the words go.
+    """
+    rows = "".join(
+        f'<li><b>{esc(f.get("label") or "Evidence")}</b>'
+        f'<span>{code(f.get("how") or "")}</span></li>'
+        for f in files
+    )
+    return f'<div class="draft-toget"><span>Still to get</span><ol>{rows}</ol></div>' if rows else ""
 
 
 item_drafts = B.drafts
 
 
 def render_drafts(r: dict, st: dict | None = None) -> str:
-    """The job's messages, each its own fold, above the evidence.
+    """The job's messages: the ones still to send, then the chain of what went.
 
-    A second message used to live as a note inside `prepared`, two folds deep,
-    and the owner could not find the reply they had to send. So every message
-    gets the same box in the same place, open while it is theirs to send, and each folds
-    shut on its own when there are several.
+    A message still to send is the thing on the card the owner acts on, so each
+    gets its own open box. What already went is history, and on a long job it
+    was most of the card: twenty grey WHAT YOU SENT bars in a row, each the same
+    height as the reply still owed. So everything sent folds into one line that
+    says how many and the last one, and opens to a chain read top to bottom.
     """
     drafts = item_drafts(r)
-    many = len(drafts) > 1
-    return "".join(
-        render_draft(
-            d, st, f"Reply {n} of {len(drafts)}" if many else "Reply to send", r, n
-        )
-        for n, d in enumerate(drafts, 1)
+    live = [(n, d) for n, d in enumerate(drafts, 1) if not draft_gone(d, st)]
+    # In the order they went, so the chain reads like the thread it was posted in.
+    went = sorted(
+        ((n, d) for n, d in enumerate(drafts, 1) if draft_gone(d, st)),
+        key=lambda nd: str(nd[1].get("sent_at") or ""),
     )
+    many = len(live) > 1
+    out = "".join(
+        render_draft(
+            d, st, f"Reply {k} of {len(live)}" if many else "Reply to send", r, n
+        )
+        for k, (n, d) in enumerate(live, 1)
+    )
+    return out + sent_chain(went, r)
+
+
+def draft_gone(d: dict, st: dict | None) -> bool:
+    """Whether a draft is history: posted, or its job has moved past the owner."""
+    return bool((st and st["state"] not in {"todo", "hold"}) or not B.unsent(d))
+
+
+def sent_when(d: dict) -> str:
+    """When a message went, as the owner would say it: "today 10:20", "Mon 26 Oct 13:18"."""
+    at = str(d.get("sent_at") or "")
+    if len(at) < 10:
+        return ""
+    return f"{day_words(at[:10])} {at[11:16]}".strip()
+
+
+def sent_chain(went: list[dict], r: dict) -> str:
+    """Every message already sent on this job, as one fold holding a timeline.
+
+    Shut by default and remembered per job, because the owner opens it to check
+    what they said, not to work from it. The newest message is the one they are
+    most likely after, so it is the one drawn open inside.
+    """
+    if not went:
+        return ""
+    last = went[-1][1]
+    n = len(went)
+    head = (
+        f"{n} message{'' if n == 1 else 's'} sent"
+        f'<span class="ch-last">last: {esc(last.get("target") or "")}'
+        f'{f" &middot; {esc(sent_when(last))}" if sent_when(last) else ""}</span>'
+    )
+    steps = []
+    for k, (num, d) in enumerate(went, 1):
+        newest = k == n
+        who = d.get("reply_from")
+        expects = d.get("expects_reply")
+        reply = (
+            f"reply from {esc(who)}" if who
+            else "nothing comes back" if expects is False
+            else ""
+        )
+        steps.append(f"""
+            <li class="ch-step{" newest" if newest else ""}">
+              <span class="ch-dot" aria-hidden="true"></span>
+              <details class="ch-msg"{" open" if newest else ""}>
+                <summary><span class="ch-at">{esc(sent_when(d) or "sent")}</span>
+                  <span class="ch-to">{esc(d.get("target") or "")}</span>
+                  {f'<span class="ch-reply">{reply}</span>' if reply else ""}</summary>
+                {draft_inner(d, sent=True)}
+                {attach_row(r, num, sent=True)}
+              </details>
+            </li>""")
+    return f"""
+        <details class="sent-chain" data-remember="chain-{esc(r.get("id", ""))}">
+          <summary><span class="ch-k">{head}</span><span class="fold-hint"></span></summary>
+          <ol class="chain">{"".join(steps)}</ol>
+        </details>"""
+
+
+def files_for(r: dict, k: int) -> list[dict]:
+    """The prepared files that go out with draft `k`, by the file's `draft` number."""
+    files = ((r or {}).get("prepared") or {}).get("files") or []
+    return [f for f in files if isinstance(f, dict) and f.get("draft") == k]
+
+
+def has_file(f: dict) -> bool:
+    return bool(str(f.get("path") or "").strip() or str(f.get("url") or "").strip())
+
+
+def attach_row(r: dict, k: int, sent: bool = False) -> str:
+    """The files that go with this message, inside the box it is sent from.
+
+    Twenty-eight files under one "Files it made" line told the owner what exists
+    and not what to do with any of it. A file that is meant to go out with a
+    message names that message (`draft`), and then it is offered where the hand
+    already is, between the words and Posted it.
+    """
+    mine = files_for(r, k)
+    have = [f for f in mine if has_file(f)]
+    shots = [f for f in have if IMAGE.search(doc_href(f))]
+    docs = doc_btns([f for f in have if f not in shots])
+    toget = "" if sent else to_get_html([f for f in mine if not has_file(f) and f.get("how")])
+    if not (docs or shots or toget):
+        return ""
+    lab = "Went with it" if sent else "Attach"
+    row = (
+        f'<div class="draft-attach"><span>{lab}</span>{docs}'
+        f'{f"<div class=ev-shots>{evidence_html(shots)}</div>" if shots else ""}</div>'
+        if docs or shots else ""
+    )
+    return row + toget
 
 
 def posted_bar(r: dict, k: int) -> str:
@@ -153,9 +297,25 @@ def render_draft(
     item: dict | None = None,
     k: int = 1,
 ) -> str:
-    """A draft to paste, or, once it has gone, a folded record of what went."""
+    """A draft still to paste, open, with Posted it at its foot."""
     if not d:
         return ""
+    inner = draft_inner(d)
+    return f"""
+        <details class="act-draft live" open data-draft-of="{esc((item or {}).get("id", ""))}">
+          <summary><b>{esc(label)}</b> {esc(d.get("target"))}</summary>
+          {inner}
+          {attach_row(item, k) if item else ""}
+          {posted_bar(item, k) if item else ""}
+        </details>"""
+
+
+def draft_inner(d: dict, sent: bool = False) -> str:
+    """The words of one message, with where they go and the copy button.
+
+    A message already sent keeps Go there and copy, since checking it against the
+    thread is why it was opened, but loses Rewrite: there is nothing left to rewrite.
+    """
     is_ja = d.get("language") == "ja"
     # Two shapes of draft. A draft in the client's language keeps its text, with any
     # {word|reading} markup, in body_ruby, and body_en is the translation shown
@@ -169,44 +329,30 @@ def render_draft(
     # never a blank card. board.check() refuses a draft with no body at all.
     if is_ja:
         body = d.get("body_ruby") or d.get("body_ja") or d.get("body", "")
-        rendered = furi(body)
+        rendered = draft_html(body, ruby=True)
         trans = (
-            f'<p class="draft-en">{esc(d.get("body_en"))}</p>'
+            f'<div class="draft-en">{draft_html(d.get("body_en"))}</div>'
             if d.get("body_en")
             else ""
         )
     else:
         body = d.get("body_en") or d.get("body_ruby") or d.get("body", "")
-        rendered = esc(body)
+        rendered = draft_html(body, ruby=False)
         trans = ""
     # The draft is the thing the owner most often wants changed rather than explained,
     # and the box that changes it is at the foot of the card. This opens that box
     # with the ask already started, so a rewrite is one click from the words.
-    inner = f"""
+    rewrite = "" if sent else f"""<button class="ask-here" type="button"
+                    data-ask-seed="Rewrite the draft {esc(d.get("target", ""))}: ">{SPARK}Rewrite or ask</button>"""
+    return f"""
           <div class="draft-head">
-            <span>{esc(d.get("target"))}</span>
+            {"" if sent else f'<span>{esc(d.get("target"))}</span>'}
             {link_btn(d.get("link", ""), "Go there")}
-            <button class="copy" data-copy="{esc(plain(body))}">copy</button>
-            <button class="ask-here" type="button"
-                    data-ask-seed="Rewrite the draft {esc(d.get("target", ""))}: ">{SPARK}Rewrite or ask</button>
+            <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False))}">copy</button>
+            {rewrite}
           </div>
           <div class="draft-body {"ja" if is_ja else ""}">{rendered}</div>
           {trans}"""
-    gone = (st and st["state"] != "todo" and st["state"] != "hold") or not B.unsent(d)
-    if gone:
-        at = str(d.get("sent_at") or "")[11:16] or (st.get("at") if st else "")
-        when = f" at {esc(at)}" if at else ""
-        return f"""
-        <details class="act-draft sent">
-          <summary>What you sent{when}: {esc(d.get("target"))}</summary>
-          {inner}
-        </details>"""
-    return f"""
-        <details class="act-draft live" open data-draft-of="{esc((item or {}).get("id", ""))}">
-          <summary><b>{esc(label)}</b> {esc(d.get("target"))}</summary>
-          {inner}
-          {posted_bar(item, k) if item else ""}
-        </details>"""
 
 
 # A finding is written as a claim and then the evidence for it: "The four
@@ -258,39 +404,73 @@ def conclusion_html(text: object) -> str:
     return f'<div class="pw-answer"><b>Bottom line</b><span class="pw-line">{code(head)}</span>{more}</div>'
 
 
+SCRIPT = re.compile(r"\.(py|sh|sql|js)$", re.I)
+
+
+def file_groups(files: list) -> str:
+    """The prepared files, sorted by what the owner does with each.
+
+    One row of twenty-eight chips was a list of everything that exists. Split by
+    use it answers the question the owner opens it with: what goes in a message,
+    what is the product itself, and what is only the means of making it again.
+    """
+    tied, made, tools = [], [], []
+    for f in files or []:
+        if not isinstance(f, dict):
+            continue
+        path = str(f.get("path") or f.get("url") or "")
+        if f.get("draft"):
+            tied.append(f)
+        elif SCRIPT.search(path):
+            tools.append(f)
+        else:
+            made.append(f)
+    rows = []
+    for lab, group in (
+        ("Goes with a message", tied),
+        ("The work itself", made),
+        ("Scripts that made it", tools),
+    ):
+        docs = doc_btns(group)
+        if docs:
+            rows.append(f'<div class="pw-src"><span>{lab}</span>{docs}</div>')
+    return "".join(rows)
+
+
 def prepared_block(p: dict, meeting_href: str = "") -> str:
-    """Work that was already done for the owner, above the steps that remain.
+    """Work already done for the owner: the answer, then how it was reached.
 
-    If a step can be followed without judgement then following it was never their
-    job, so the page carries the product rather than the instruction. What is
-    left underneath is the part only they can do: check it, decide with it, say it.
-
-    The part that needed fixing is how much of it arrives at once. A full trace
-    through the code is twelve findings, four essays and a table, and printed
-    whole it is three screens with the answer somewhere inside: the owner could
-    not tell what mattered or what to act on. So the shape is now the shape of an
-    answer. The bottom line and what is still unanswered stand on their own; the
-    evidence is one scannable claim per line behind a single fold, and each claim
-    opens to its proof. Nothing is dropped, because the proof is the reason the
-    conclusion can be trusted; it is just no longer in the way.
+    The panel used to print everything the work produced, the line naming it, a
+    bottom line, a table, every finding, every note, every file and every source,
+    in one green box below the reply. It read as a report to file, and the owner
+    went past it to the reply, which was the right instinct: the reply is where
+    the work lands. So what stays in view is only what moves the job: the answer
+    in a sentence, what is still open, and the meeting version when there is one.
+    Files that go out with a message sit in that message's box. The rest is the
+    reasoning, and it is one fold down, counted, for the moment the answer needs
+    checking. Nothing is dropped.
     """
     if not p:
         return ""
-    head = ""
     tbl = p.get("table") or {}
+    table = ""
     if tbl.get("rows"):
         cols = "".join(f"<th>{code(c)}</th>" for c in tbl.get("columns", []))
         body = "".join(
             "<tr>" + "".join(cell(c) for c in row) + "</tr>" for row in tbl["rows"]
         )
-        head = f'<table class="pw-t"><thead><tr>{cols}</tr></thead><tbody>{body}</tbody></table>'
-    finds = "".join(finding_html(f) for f in p.get("findings", []))
-    notes = "".join(
+        table = f'<table class="pw-t"><thead><tr>{cols}</tr></thead><tbody>{body}</tbody></table>'
+    findings = p.get("findings") or []
+    notes = [n for n in p.get("notes") or [] if n.get("heading") and n.get("body")]
+    files = [f for f in p.get("files") or [] if isinstance(f, dict) and (f.get("path") or f.get("url"))]
+    srcs = [s for s in p.get("sources") or [] if s.get("url")]
+    finds = "".join(finding_html(f) for f in findings)
+    note_html = "".join(
         f'<details class="pw-note"><summary><b>{esc(n.get("heading"))}</b>'
         f'<span class="fold-hint"></span></summary>{code(n.get("body"))}</details>'
-        for n in p.get("notes", [])
-        if n.get("heading") and n.get("body")
+        for n in notes
     )
+    src_html = " ".join(link_btn(s.get("url", ""), s.get("label", "Source")) for s in srcs)
     meeting = p.get("meeting_use") or {}
     meeting_block = ""
     if meeting and meeting_href:
@@ -301,56 +481,47 @@ def prepared_block(p: dict, meeting_href: str = "") -> str:
             f'{esc(meeting.get("label", "Open meeting version"))}</a></div>'
         )
     open_qs = "".join(f"<li>{code(q)}</li>" for q in p.get("unanswered", []))
-    docs = doc_btns(p.get("files", []))
-    srcs = " ".join(
-        link_btn(s.get("url", ""), s.get("label", "Source"))
-        for s in p.get("sources", [])
-        if s.get("url")
-    )
-    # The evidence, counted in words on the fold so the owner knows what is behind it
-    # without opening it. Three findings and nothing else is not worth a fold, so
-    # a small block stays open and only a long one shuts.
-    n_find = len(p.get("findings") or [])
-    n_note = len([n for n in p.get("notes") or [] if n.get("heading") and n.get("body")])
-    tally = ", ".join(
+
+    def count(n: int, word: str) -> str:
+        return f"{n} {word}{'' if n == 1 else 's'}" if n else ""
+
+    tally = " &middot; ".join(
         part
         for part in (
-            f"{n_find} finding{'' if n_find == 1 else 's'}" if n_find else "",
-            f"{n_note} note{'' if n_note == 1 else 's'}" if n_note else "",
-            "a table" if head else "",
+            "a table" if table else "",
+            count(len(findings), "finding"),
+            count(len(notes), "note"),
+            count(len(files), "file"),
+            count(len(srcs), "source"),
         )
         if part
     )
-    inside = f"""{head}
-              {f'<ul class="pw-f">{finds}</ul>' if finds else ""}
-              {notes}"""
-    heavy = n_find + n_note > 3 or (head and n_find + n_note > 1)
-    built_from = f'<div class="pw-src"><span>Built from</span>{srcs}</div>' if srcs else ""
-    if tally and heavy:
-        # The sources go inside with the evidence: they are how the owner checks it,
-        # and checking it is the only reason to open the fold.
-        evidence = f"""
+    notes_fold = ""
+    if tally or p.get("earlier"):
+        notes_fold = f"""
               <details class="pw-ev">
-                <summary>The evidence: {esc(tally)}<span class="fold-hint"></span></summary>
-                {inside}
-                {built_from}
+                <summary>Working notes<span class="pw-tally">{tally}</span><span class="fold-hint"></span></summary>
+                {table}
+                {f'<ul class="pw-f">{finds}</ul>' if finds else ""}
+                {note_html}
+                {file_groups(files)}
+                {f'<div class="pw-src"><span>Read from</span>{src_html}</div>' if src_html else ""}
+                {earlier_block(p.get("earlier") or [])}
               </details>"""
-        built_from = ""
-    else:
-        evidence = inside if tally else ""
+    # With no conclusion the line naming the work is the answer, so it stands in.
+    answer = conclusion_html(p.get("conclusion")) or (
+        f'<div class="pw-answer"><b>What is ready</b><span class="pw-line">{code(p.get("what"))}</span></div>'
+        if p.get("what") else ""
+    )
     return f"""
             <div class="act-prep">
-              <p class="act-lab done">Prepared for you{f' &middot; {esc(p.get("built_at"))}' if p.get("built_at") else ""}
+              <p class="act-lab done">Worked out for you{f'<span class="pw-at">{esc(p.get("built_at"))}</span>' if p.get("built_at") else ""}
                 <button class="ask-here" type="button"
-                        data-ask-seed="About the prepared work: ">{SPARK}Ask about this</button></p>
-              {f'<p class="pw-what">{code(p.get("what"))}</p>' if p.get("what") else ""}
-              {conclusion_html(p.get("conclusion"))}
+                        data-ask-seed="About the work done on this: ">{SPARK}Ask about this</button></p>
+              {answer}
               {f'<div class="pw-open"><b>Still open</b><ul>{open_qs}</ul></div>' if open_qs else ""}
-              {evidence}
-              {f'<div class="pw-src"><span>Files it made</span>{docs}</div>' if docs else ""}
               {meeting_block}
-              {built_from}
-              {earlier_block(p.get("earlier") or [])}
+              {notes_fold}
             </div>"""
 
 

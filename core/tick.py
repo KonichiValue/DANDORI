@@ -35,6 +35,7 @@ from pathlib import Path
 
 import board as B
 import keep
+import notify
 import people
 import settings
 from render import after_posting, item_state
@@ -163,6 +164,17 @@ def step(item: dict, k: int, untick: bool = False) -> str:
         item["steps_done"] = ticked
     else:
         item.pop("steps_done", None)
+    if (
+        not untick
+        and item.get("state", "todo") == "todo"
+        and not B.open_steps(item)
+        and not any(B.unsent(d) for d in B.drafts(item))
+    ):
+        B.set_state(item, "done", said)
+        return ""
+    if untick and item.get("state") == "done":
+        B.set_state(item, "todo", said)
+        return ""
     item.setdefault("history", []).append(
         {"at": B.now(), "state": item.get("state", "todo"), "note": said}
     )
@@ -280,6 +292,7 @@ def main() -> int:
     keep.keep("tick")
     B.save(data)
     rebuild()
+    notify.sync_reminders_bg()
     # A person at a terminal wants the whole list back. An agent or the page
     # wants to know the move landed, and the whole list is 24KB it then re-reads
     # on every later turn of its run, so it gets the moved items only.

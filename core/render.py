@@ -439,6 +439,196 @@ def plain(raw: str) -> str:
     return RUBY.sub(r"\1", raw or "")
 
 
+MD_LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^\s)]+)\)")
+URL_RE = re.compile(r"https?://[^\s<>()\"'「」『』【】（）]+")
+INLINE_CODE = re.compile(r"`([^`\n]+)`")
+BOLD_DOUBLE = re.compile(r"\*\*([^\s*][^*\n]*?[^\s*]|\S)\*\*")
+BOLD_SINGLE = re.compile(
+    r"(?:^|(?<=[\s(>「『【]))\*([^\s*][^*\n]*?[^\s*]|\S)\*(?=$|[\s.,;:!?)\]}>、。」』】])"
+)
+BULLET_LINE = re.compile(r"^(\s*)(?:[-•]|\*(?=\s)|・)\s*(.+)$")
+NUMBER_LINE = re.compile(r"^(\s*)(\d+)[.)]\s+(.+)$")
+QUOTE_LINE = re.compile(r"^\s*>\s?(.*)$")
+HR_LINE = re.compile(r"^\s*-{3,}\s*$")
+
+
+def _expand_links(text: str) -> str:
+    """Turn [label](url) into a full visible URL so no link is hidden or truncated."""
+    def repl(m: re.Match) -> str:
+        label, url = m.group(1).strip(), m.group(2).strip()
+        clean_label = label.rstrip(".…")
+        if (
+            label == url
+            or label.startswith(("http://", "https://"))
+            or (clean_label and url.startswith(clean_label))
+        ):
+            return url
+        return f"{label} ({url})"
+
+    return MD_LINK.sub(repl, text or "")
+
+
+def draft_plain(raw: str) -> str:
+    """Plain text for the clipboard's text/plain slot: no furigana, full URLs,
+    standard `- ` bullets, and no raw asterisk bold markers."""
+    text = _expand_links(plain(raw or "")).replace("\r\n", "\n")
+    out_lines = []
+    for line in text.split("\n"):
+        if not HR_LINE.match(line):
+            line = re.sub(r"^(\s*)[•]\s+", r"\1- ", line)
+        parts = INLINE_CODE.split(line)
+        for idx in range(0, len(parts), 2):
+            seg = BOLD_DOUBLE.sub(r"\1", parts[idx])
+            seg = BOLD_SINGLE.sub(r"\1", seg)
+            parts[idx] = seg
+        out_lines.append("".join(parts))
+    return "\n".join(out_lines)
+
+
+def _format_bold(escaped_html: str) -> str:
+    s = BOLD_DOUBLE.sub(r"<strong>\1</strong>", escaped_html)
+    return BOLD_SINGLE.sub(r"<strong>\1</strong>", s)
+
+
+def _inline_html(text: str, ruby: bool = False) -> str:
+    """Format one line of a draft: inline `code`, full clickable URLs, and bold."""
+    parts = INLINE_CODE.split(text or "")
+    out: list[str] = []
+    for idx, part in enumerate(parts):
+        if idx % 2 == 1:
+            out.append(f"<code>{esc(plain(part))}</code>")
+            continue
+        pos = 0
+        seg_out: list[str] = []
+        for m in URL_RE.finditer(part):
+            before = part[pos : m.start()]
+            if before:
+                seg_out.append(furi(before) if ruby else esc(before))
+            url = m.group(0)
+            trail = ""
+            while url and url[-1] in ".,;:!?)]}*":
+                if url[-1] == ")" and url.count("(") >= url.count(")"):
+                    break
+                trail = url[-1] + trail
+                url = url[:-1]
+            attrs = ' target="_blank" rel="noopener"' if ruby else ""
+            seg_out.append(f'<a href="{esc_url(url)}"{attrs}>{esc(url)}</a>')
+            if trail:
+                seg_out.append(esc(trail))
+            pos = m.end()
+        tail = part[pos:]
+        if tail:
+            seg_out.append(furi(tail) if ruby else esc(tail))
+        out.append(_format_bold("".join(seg_out)))
+    return "".join(out)
+
+
+def draft_html(raw: str, ruby: bool = False) -> str:
+    """Rich HTML for both the draft card (ruby=True on ja) and clipboard text/html
+    (ruby=False), so pasting into Slack or Asana produces native bold, lists,
+    code spans and full non-truncated links."""
+    text = (raw or "").replace("\r\n", "\n")
+    if not ruby:
+        text = plain(text)
+    text = _expand_links(text)
+    lines = text.split("\n")
+
+    blocks: list[str] = []
+    para: list[str] = []
+    quote: list[str] = []
+    list_tag = ""
+    list_items: list[tuple[str, str, list[str]]] = []
+    in_code = False
+    code_lines: list[str] = []
+
+    def flush_para() -> None:
+        if para:
+            blocks.append(f"<p>{'<br>'.join(para)}</p>")
+            para.clear()
+
+    def flush_quote() -> None:
+        if quote:
+            blocks.append(f"<blockquote>{'<br>'.join(quote)}</blockquote>")
+            quote.clear()
+
+    def flush_list() -> None:
+        nonlocal list_tag
+        if not list_items:
+            return
+        li_html = []
+        for head_html, sub_tag, subs in list_items:
+            if subs and sub_tag:
+                sub_str = f"<{sub_tag}>" + "".join(f"<li>{s}</li>" for s in subs) + f"</{sub_tag}>"
+                li_html.append(f"<li>{head_html}{sub_str}</li>")
+            else:
+                li_html.append(f"<li>{head_html}</li>")
+        blocks.append(f"<{list_tag}>{''.join(li_html)}</{list_tag}>")
+        list_items.clear()
+        list_tag = ""
+
+    for line in lines:
+        if line.strip().startswith("```"):
+            if in_code:
+                blocks.append(f"<pre><code>{esc(plain(chr(10).join(code_lines)))}</code></pre>")
+                code_lines.clear()
+                in_code = False
+            else:
+                flush_para()
+                flush_quote()
+                flush_list()
+                in_code = True
+            continue
+        if in_code:
+            code_lines.append(line)
+            continue
+
+        if not line.strip():
+            flush_para()
+            flush_quote()
+            flush_list()
+            continue
+
+        qm = QUOTE_LINE.match(line)
+        if qm:
+            flush_para()
+            flush_list()
+            quote.append(_inline_html(qm.group(1), ruby=ruby))
+            continue
+
+        is_hr = bool(HR_LINE.match(line))
+        bm = None if is_hr else BULLET_LINE.match(line)
+        nm = None if (is_hr or bm) else NUMBER_LINE.match(line)
+        if bm or nm:
+            flush_para()
+            flush_quote()
+            indent = len((bm or nm).group(1))
+            tag = "ul" if bm else "ol"
+            content = bm.group(2) if bm else nm.group(3)
+            rendered = _inline_html(content, ruby=ruby)
+            if indent >= 2 and list_items:
+                prev_head, prev_sub_tag, prev_subs = list_items[-1]
+                sub_tag = prev_sub_tag or tag
+                prev_subs.append(rendered)
+                list_items[-1] = (prev_head, sub_tag, prev_subs)
+            else:
+                if list_tag and list_tag != tag:
+                    flush_list()
+                list_tag = tag
+                list_items.append((rendered, "", []))
+            continue
+
+        flush_quote()
+        flush_list()
+        para.append(_inline_html(line, ruby=ruby))
+
+    if in_code and code_lines:
+        blocks.append(f"<pre><code>{esc(plain(chr(10).join(code_lines)))}</code></pre>")
+    flush_para()
+    flush_quote()
+    flush_list()
+    return "".join(blocks)
+
+
 def code(raw: Any) -> str:
     """Escape, then let `backticks` become code. For instructions to the owner.
 
@@ -899,6 +1089,13 @@ def when_tag(item: dict, st: dict, sess: dict | None = None) -> tuple[str, str]:
     if st["state"] == "todo":
         if item.get("at_standup") and sess:
             return f'Say it {short_when(sess.get("date", ""))}'.strip(), "next"
+        # A deadline is not a start. "By Fri 6 Nov" in a step read "Do now" a
+        # week early, as pressing as a job due this morning.
+        due = owed("Due", item.get("due_by", ""))
+        if due and due[1] == "next":
+            return f'By {day_in(item.get("due_by", ""))}', "next"
+        if due:
+            return due
         return "Do now", "now"
     if st["state"] == "hold":
         # `until` is often prose rather than a date, so it only ever supplies the
@@ -1015,15 +1212,19 @@ def after_posting(item: dict, k: int) -> tuple[str, str]:
     rest = [d for i, d in enumerate(all_drafts, 1) if i != k and B.unsent(d)]
     if rest:
         return f"{len(rest)} more to send", ""
+    # Only the message going now decides who holds the job. Drafts sent days ago
+    # had their replies already, and joining every one of their names is how a
+    # long job came to wait on five people at once.
+    going = [d for i, d in enumerate(all_drafts, 1) if i == k]
     owed = []
-    for d in all_drafts:
+    for d in going:
         name = replier(d)
         if name and name not in owed:
             owed.append(name)
     if owed:
         who = " and ".join(owed)
         return f"waiting on {people.said(who)}", who
-    if any(d.get("expects_reply") is not False for d in all_drafts):
+    if any(d.get("expects_reply") is not False for d in going):
         # A reply is owed and nobody can be read off the target: the button
         # opens the picker instead of guessing.
         return "say who replies", ""
@@ -1166,11 +1367,11 @@ def render_drafts(drafts: list[dict]) -> str:
         return ""
     out = []
     for d in drafts:
-        body = d.get("body_ruby", "")
+        body = d.get("body_ruby") or d.get("body_en") or d.get("body", "")
         is_ja = d.get("language") == "ja"
-        rendered = furi(body) if is_ja else esc(body)
+        rendered = draft_html(body, ruby=is_ja)
         trans = (
-            f'<p class="draft-en">{esc(d.get("body_en"))}</p>'
+            f'<div class="draft-en">{draft_html(d.get("body_en"))}</div>'
             if is_ja and d.get("body_en")
             else ""
         )
@@ -1180,7 +1381,7 @@ def render_drafts(drafts: list[dict]) -> str:
           <div class="draft-head">
             <span>{esc(d.get("target"))}</span>
             {link_btn(d.get("link", ""), "Go to thread")}
-            <button class="copy" data-copy="{esc(plain(body))}">copy</button>
+            <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False))}">copy</button>
           </div>
           <div class="draft-body {"ja" if is_ja else ""}">{rendered}</div>
           {trans}

@@ -60,6 +60,40 @@ SLACK_EMAIL = re.compile(r" <[\w.+-]+@[\w.-]+>")
 SLACK_REACTIONS = re.compile(r"^Reactions: .*$\n?", re.M)
 EMOJI = re.compile(r"(?<![\w/]):[a-z][a-z0-9_+-]*:(?![\w/])")
 BLANKS = re.compile(r"\n{3,}")
+CONCISE_PARENT = re.compile(r"^THREAD: [\s\S]*? \[[^\n\[\]]+\]\n\n(?=> )")
+REPLY_SPLIT = re.compile(r"\n*(?=--- Reply \d+ of \d+ ---\n)")
+MESSAGE_TS = re.compile(r"^Message TS:\s*(\d+(?:\.\d+)?)", re.M)
+
+
+def trim_slack_thread(messages: str, oldest: str) -> str:
+    """Strip the repeated parent message and any reply at or before `oldest`."""
+    if not messages or not oldest:
+        return messages
+    if "No thread mess" in messages or "=== THREAD REPLIES (0 total) ===" in messages:
+        return f"no new replies since oldest={oldest}"
+    try:
+        oldest_ts = float(oldest)
+    except ValueError:
+        oldest_ts = 0.0
+    if "=== THREAD PARENT MESSAGE ===" in messages and "=== THREAD REPLIES" in messages:
+        _, _, rest = messages.partition("=== THREAD REPLIES")
+        _, _, body = rest.partition("===\n")
+        kept = []
+        for block in REPLY_SPLIT.split(body.strip()):
+            if not block.strip():
+                continue
+            m = MESSAGE_TS.search(block)
+            if m and oldest_ts and float(m.group(1)) <= oldest_ts:
+                continue
+            kept.append(block.strip())
+        if not kept:
+            return f"no new replies since oldest={oldest}"
+        return f"=== NEW THREAD REPLIES ({len(kept)}) ===\n\n" + "\n\n".join(kept)
+    if messages.startswith("THREAD: "):
+        stripped = CONCISE_PARENT.sub("", messages, count=1)
+        if stripped != messages:
+            return stripped
+    return messages
 
 
 def text_clean(s: str) -> str:
@@ -101,7 +135,11 @@ def clean(node, key: str = ""):
                 v = v["name"]
             else:
                 v = clean(v, k)
-            if v in (None, "", [], {}) or k in ("resource_type", "Last visited time", "Source"):
+            if (
+                v in (None, "", [], {})
+                or k in ("resource_type", "Last visited time", "Source")
+                or (k == "pagination_info" and "There are no more messages" in str(v))
+            ):
                 continue
             out[k] = v
         return out
@@ -124,11 +162,16 @@ def compact_json(obj) -> str:
     return json.dumps(clean(obj), ensure_ascii=False, separators=(",", ":"))
 
 
-def compact_text(raw: str) -> str:
+def compact_text(raw: str, tool: str = "", tool_input: dict | None = None) -> str:
+    oldest = str((tool_input or {}).get("oldest") or "").strip() if "slack_read_thread" in tool else ""
     try:
-        return compact_json(json.loads(raw))
+        obj = json.loads(raw)
+        if oldest and isinstance(obj, dict) and isinstance(obj.get("messages"), str):
+            obj["messages"] = trim_slack_thread(obj["messages"], oldest)
+        return compact_json(obj)
     except ValueError:
-        return text_clean(raw)
+        text = trim_slack_thread(raw, oldest) if oldest else raw
+        return text_clean(text)
 
 
 def response_text(resp) -> str:
@@ -164,7 +207,8 @@ def main() -> int:
         raw = response_text(event.get("tool_response"))
         if not raw:
             return 0
-        small = compact_text(raw)
+        tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+        small = compact_text(raw, tool=tool, tool_input=tool_input)
         log(tool, len(raw), len(small))
         if len(small) >= len(raw):
             return 0

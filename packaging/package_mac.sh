@@ -112,9 +112,11 @@ if [[ ! -d "$TARGET/core" ]]; then
   chmod +x "$TARGET/install.sh" "$TARGET/bootstrap.sh" "$TARGET/bin/DANDORI" "$TARGET/core/"*.py "$TARGET/core/scripts/"*.sh
   exec "$TARGET/install.sh"
 elif [[ -f "$RUNTIME/core/.bundle-version" ]] && [[ "$(cat "$RUNTIME/core/.bundle-version" 2>/dev/null)" != "$(cat "$TARGET/core/.bundle-version" 2>/dev/null)" ]]; then
-  for item in core bin packaging tests install.sh bootstrap.sh AGENTS.md GUIDE.md README.md; do
+  for item in core bin packaging tests .claude install.sh bootstrap.sh AGENTS.md CLAUDE.md GEMINI.md GUIDE.md README.md; do
     [[ -e "$RUNTIME/$item" ]] && cp -R "$RUNTIME/$item" "$TARGET/"
   done
+  mkdir -p "$TARGET/clients"
+  [[ -f "$RUNTIME/clients/README.md" ]] && cp "$RUNTIME/clients/README.md" "$TARGET/clients/README.md"
   chmod +x "$TARGET/install.sh" "$TARGET/bootstrap.sh" "$TARGET/bin/DANDORI" "$TARGET/core/"*.py "$TARGET/core/scripts/"*.sh
   DANDORI_NO_OPEN=1 "$TARGET/install.sh" >/dev/null 2>&1 || true
 fi
@@ -151,7 +153,7 @@ if [[ -n "$USER_NAME" && "$USER_NAME" != "root" ]]; then
   if [[ -n "$USER_HOME" && -d "/Applications/DANDORI.app/Contents/Resources/runtime" ]]; then
     TARGET="$USER_HOME/Projects/DANDORI"
     if [[ ! -d "$TARGET/core" ]]; then
-      su -l "$USER_NAME" -c "mkdir -p '$USER_HOME/Projects' && cp -R '/Applications/DANDORI.app/Contents/Resources/runtime' '$TARGET' && '$TARGET/install.sh'" >/dev/null 2>&1 || true
+      su -l "$USER_NAME" -c "mkdir -p '$USER_HOME/Projects' && cp -R '/Applications/DANDORI.app/Contents/Resources/runtime' '$TARGET' && chmod +x '$TARGET/install.sh' '$TARGET/bootstrap.sh' '$TARGET/bin/DANDORI' '$TARGET/core/'*.py '$TARGET/core/scripts/'*.sh && '$TARGET/install.sh'" >/dev/null 2>&1 || true
     fi
   fi
 fi

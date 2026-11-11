@@ -22,7 +22,8 @@ Shape of `state/board.json`:
                   "ref": "HOLD-RELEASE",           short tag the owner uses out loud
                   "title_en", "title_ja", "asana_url",
                   "asana": {"status", "section", "priority", "category",
-                            "severity", "assignee", "project", "completed"},
+                            "severity", "assignee", "project", "completed",
+                            "status_should", "status_why"},
                   "no_ticket_yet": "why Asana has never heard of this",
                   "last_activity": {"at", "who", "where"},
                   "where_it_stands", "threads",
@@ -75,17 +76,29 @@ An empty `raised` is a fact worth walking in with, so the card still draws on it
 know, not a blank.
 
 `huddle` is the weekly Kraken-internal team huddle for the client (one of the
-meetings in `config.json` `meeting.also`), a short update in English, and like
-`xws` it is not one of the `sessions`. It renders as its own folded card on the
-speaking view and is only rewritten on the day the huddle runs.
+meetings in `config.json` `meeting.also`), in English, and like `xws` it is not
+one of the `sessions`. It renders as its own folded card on the speaking view and
+is only rewritten on the day the huddle runs. The huddle walks milestones and
+blockers, so that is what the card leads with: every open milestone on the board,
+with the prep's one-line update for it, then the blockers.
 
     {"for_date": "2026-09-16", "at": "11:30", "built_at": "ISO",
-     "plate": ["one terse line per thing on their plate now"],
-     "blockers": ["only a genuine blocker; usually one line or none"]}
+     "milestones": [{"id": "price-update",          the board milestone it speaks to
+                     "status": "on-track|at-risk|off-track|not-started|done",
+                     "confidence": "Committed|Tentative|No date yet",
+                     "update": "One line: what moved this week and what is next."}],
+     "blockers": [{"blocker": "One line: what is stuck",
+                   "milestone": "the milestone's name, or empty",
+                   "waiting_on": "who or what", "next_step": "agreed next step",
+                   "status": "blocked|waiting|resolved"}],
+     "plate": ["optional: one terse line per thing on their plate, if asked"]}
 
-Both `plate` and `blockers` are plain strings, English, no reading markup. Keep it to
-the short bullet shape the owner writes in their notes, and be selective: "No blockers" is
-the common, honest answer.
+A `huddle.milestones` entry overrides the board milestone's `status` for the card
+and adds `confidence` and `update`; a milestone it does not name still shows, with
+no update line. Each `update` and each blocker is written to paste straight into
+the huddle's milestone and blocker databases. A blocker given as a plain string
+is the older shape and still reads. Be selective: "No blockers" (an empty list)
+is the common, honest answer. All English, no reading markup.
 
 `news` is what is moving around the owner that is not one of their tickets: a
 priority that changed, an outage upstream, a decision on somebody else's ticket
@@ -216,8 +229,8 @@ An item is a piece of work with a life:
             {"id": 3, "title", "prepared", "steps": [], "done_when", "why",
              "state": "todo|waiting|hold|done|sent|dropped",
              "state_at", "state_note", "waits_on", "hold", "draft",
-             "where", "link", "urgency", "est_minutes", "opened", "closed_at",
-             "after": 17,
+             "where", "link", "urgency", "due_by", "est_minutes", "opened",
+             "closed_at", "after": 17,
              "at_standup", "at_standup_note",
              "history": [{"at", "state", "note"}]}
 
@@ -236,6 +249,11 @@ Two jobs that end in the same message are not two jobs at all: fold them into on
 item rather than chaining them, because they send one message. An `after` pointing
 at a closed item is spent and ignored, so nothing has to clean it up.
 
+`due_by` is an ISO date on work that is the owner's but not for today: the day
+it has to be done by. Without it every job of theirs reads "Do now", and a note
+due Friday week looked as pressing as one due this morning. The card reads "By
+6 Nov" until the day, then "Due today", and the week strip draws it on that day.
+
 `steps` is what the owner actually does, in order, verb first, and it is the one
 field an item cannot be useful without. `done_when` is the finished thing in a
 line, so they can tell whether they are there. `why` is last on the card and
@@ -248,6 +266,14 @@ holding what. It exists so status stops leaking into `steps`. A step is only
 something the owner does now, each one verb, place and what to do with the result; a
 list of accounts or settings goes in a `prepared` table and the step says "check
 the table in prepared". `progress_note` stays the dated log underneath.
+
+`asana.status` is what Asana says; `asana.status_should` is what the timeline
+says it ought to say by now, with `asana.status_why` the event that moved it
+("KT-108568 released 28 Oct, the client is re-testing"). A sweep writes the pair
+only on a ticket the owner owns and only from an event it can quote, and takes
+them out again once Asana agrees. The card draws both chips in Asana's own
+colours (`config.json` `asana.status_field`), and the owner either changes it
+in Asana or presses Set in Asana, which is `/api/asana-status`.
 
 `steps_done` is which of those steps the owner has ticked off on the page, as
 `{step text: when}`. It is keyed by the words rather than the number, so a sweep
@@ -305,12 +331,22 @@ and what is left for the owner is checking it, deciding with it or saying it out
      "notes": [{"heading": "what kind of information this is", "body": "..."}],
      "unanswered": ["what the work could not settle"],
      "files": [{"label": "Specification, client language, PDF",
-                "path": "docs/spec-example.pdf"},
+                "path": "docs/spec-example.pdf",
+                "draft": 2},                       optional, the draft it goes out with
+               {"label": "TEST dropdown, one of each reason",
+                "how": "On the TEST support site, open Add charge on ...",
+                "draft": 2},                       evidence still to get
                {"label": "Process diagram, Miro",
                 "url": "https://miro.com/app/board/..."}],
      "meeting_use": {"label": "Open onsite version",
                      "summary": "what was moved into the script"},
      "sources": [{"label", "url"}]}
+
+A file meant to go out with a message names that message by number in
+`draft` (1 is `draft`, 2 the first of `drafts`), and the page offers it inside
+that message's box as Attach. Everything else in the block is the reasoning and
+sits under one Working notes fold; only `conclusion`, `unanswered` and
+`meeting_use` stay in view, so those three are where the work has to land.
 
 All of it is written to be read once. One idea to a sentence, the plain word
 over the dense one, numbers and file:line rather than adjectives, and the bottom
@@ -338,6 +374,16 @@ in `docs/` as HTML and goes out as the PDF beside it, built by `make_doc.py`.
 The page serves `docs/` at `/doc/`, so the button opens the real file rather
 than a copy pasted into the board. Never reading markup in one of these: `draft`
 text is for the owner reading aloud, a document is for the reader who receives it.
+
+Evidence is a file like any other. A screenshot or export that proves what a
+message says goes in `docs/` beside the work and is tagged with that message's
+`draft`, and the page draws an image as a thumbnail in the box, so the owner
+checks it against the words and drags it into the post. Evidence the message
+needs that the agent could not make itself (a screen only the owner can log in
+to, a test account to create) is an entry with `how` and no `path`: what to
+open, what to do, what the result should show, and where to save it. The box
+lists those as Still to get, above Posted it. When the file exists, the entry
+gets its `path` and keeps its `how` as the record of how it was made.
 
 An entry may carry a `url` rather than a `path` when the thing the work produced
 cannot live in the repo, a Miro board being the case that forced it. Use it only
@@ -852,6 +898,15 @@ def check(board: dict) -> list[str]:
                     f"put any condition in waits_on.what."
                 )
 
+        # A deadline on the owner's own work, the same kind of field: the label
+        # reads "By 6 Nov" from it and the week strip draws the job on that day.
+        due_by = item.get("due_by")
+        if due_by and not ISO_DAY.fullmatch(str(due_by).strip()):
+            bad.append(
+                f"{where}: due_by is {due_by!r}, which is not a date. Use "
+                f"YYYY-MM-DD, or leave it out and let urgency place the job."
+            )
+
         prepared = item.get("prepared")
         if isinstance(prepared, dict):
             for n, entry in enumerate(prepared.get("earlier") or [], 1):
@@ -863,6 +918,20 @@ def check(board: dict) -> list[str]:
                         bad.append(
                             f"{where}: prepared.{field}[{n}] is a "
                             f"{type(entry).__name__}"
+                        )
+                    elif field == "files" and isinstance(entry, dict) and not any(
+                        str(entry.get(k) or "").strip() for k in ("path", "url", "how")
+                    ):
+                        bad.append(
+                            f"{where}: prepared.files[{n}] has no path, url or how. Name the "
+                            f"file, or say in `how` how the owner makes it"
+                        )
+                    elif field == "files" and isinstance(entry, dict) and "draft" in entry and (
+                        not isinstance(entry["draft"], int) or isinstance(entry["draft"], bool)
+                    ):
+                        bad.append(
+                            f"{where}: prepared.files[{n}] draft is {entry['draft']!r}, "
+                            f"should be the number of the draft it goes with (1 is the first)"
                         )
                     elif isinstance(entry, dict) and field == "findings":
                         bad.append(
@@ -905,6 +974,22 @@ def check(board: dict) -> list[str]:
                 f"{where}: state is {state!r}, which no renderer knows. "
                 f"One of {', '.join(OPEN_STATES + CLOSED_STATES)}."
             )
+
+    # The Status a ticket ought to have is one of the project's own options, or
+    # the button that sets it would be sending Asana a name it has never heard of.
+    statuses = settings.asana_status_field().get("options") or {}
+    for ticket in board.get("tickets", []):
+        asana = ticket.get("asana")
+        if not isinstance(asana, dict):
+            continue
+        for field in ("status_should", "status_why"):
+            if field in asana and asana[field] is not None and not isinstance(asana[field], str):
+                bad.append(f"asana.{field} on {ticket.get('ref', '?')}: "
+                           f"{type(asana[field]).__name__}, should be text")
+        should = asana.get("status_should")
+        if isinstance(should, str) and should and statuses and should not in statuses:
+            bad.append(f"asana.status_should on {ticket.get('ref', '?')}: {should!r} is "
+                       f"not a Status this project has. One of {', '.join(statuses)}.")
 
     # A prep list written as null rather than left out takes both pages down:
     # the renderers read a missing list as empty but iterate whatever is there.
@@ -971,6 +1056,28 @@ def check(board: dict) -> list[str]:
             if str(ident) not in ids:
                 bad.append(f"{where}: item {ident} is not on the board")
 
+    huddle = board.get("huddle")
+    if huddle is not None and not isinstance(huddle, dict):
+        bad.append("huddle should be an object, or left out")
+        huddle = {}
+    for field in ("milestones", "blockers", "plate"):
+        if (huddle or {}).get(field) is not None and not isinstance(huddle[field], list):
+            bad.append(f"huddle: {field} should be a list")
+    for n, row in enumerate((huddle or {}).get("milestones") or [], 1):
+        if not isinstance(row, dict) or not (row.get("id") or row.get("name")):
+            bad.append(f"huddle.milestones[{n}] needs the id of a board milestone")
+        elif row.get("status") not in (None, "", "not-started", *MILESTONE_STATUS):
+            bad.append(f"huddle.milestones[{n}]: status {row['status']!r}, "
+                       f"one of not-started, {', '.join(MILESTONE_STATUS)}")
+    for n, row in enumerate((huddle or {}).get("blockers") or [], 1):
+        if isinstance(row, str):
+            continue
+        if not isinstance(row, dict) or not row.get("blocker"):
+            bad.append(f"huddle.blockers[{n}] needs a 'blocker' line")
+        elif row.get("status") not in (None, "", "blocked", "waiting", "resolved"):
+            bad.append(f"huddle.blockers[{n}]: status {row['status']!r}, "
+                       "one of blocked, waiting, resolved")
+
     prio = board.get("prioritization")
     if prio is not None and not isinstance(prio, dict):
         bad.append("prioritization should be an object, or left out")
@@ -993,6 +1100,15 @@ def check(board: dict) -> list[str]:
         got = ((prio or {}).get("last_round") or {}).get(field)
         if got is not None and not isinstance(got, list):
             bad.append(f"prioritization.last_round.{field} should be a list of KT numbers")
+    raised = (prio or {}).get("raised")
+    if raised is not None:
+        if not isinstance(raised, dict):
+            bad.append("prioritization.raised should be an object, or left out")
+        else:
+            if raised.get("round") and not ISO_DAY.fullmatch(str(raised["round"])):
+                bad.append(f"prioritization.raised.round {raised['round']!r} is not YYYY-MM-DD")
+            if raised.get("kts") is not None and not isinstance(raised.get("kts"), list):
+                bad.append("prioritization.raised.kts should be a list of KT numbers")
 
     highest = max((int(n) for n in ids if n.isdigit()), default=0)
     if board.get("next_id", 0) <= highest:
@@ -1001,6 +1117,47 @@ def check(board: dict) -> list[str]:
             f"next writer collides. Use board.next_id(b)."
         )
     return bad
+
+
+def status_behind(ticket: dict) -> str:
+    """The Status this ticket ought to have in Asana, or "" when Asana agrees.
+
+    One answer for the card, the audit, the digest and desk.md, so none of them
+    can say a ticket is behind while another says it is not. A ticket Asana has
+    completed is finished, and is never behind.
+    """
+    asana = ticket.get("asana") or {}
+    should = str(asana.get("status_should") or "").strip()
+    if not should or asana.get("completed") or should == str(asana.get("status") or "").strip():
+        return ""
+    return should
+
+
+def status_from_build(ticket: dict) -> str:
+    """The Status the CE build's stage says this ticket has reached, or "".
+
+    An engineer picking up the build is the one move a sweep kept not turning
+    into a Status: the client ticket sat on "ready for development" while the
+    build was being written. `config.json` `asana.status_field.by_stage` says
+    which stage means which Status, and this answers only when Asana's Status is
+    earlier in the field's own order. A Status later in that order, or off the
+    path entirely (waiting on another workstream, N/A), is left alone. Only on
+    an open ticket assigned to the owner, because a ticket somebody else holds
+    is theirs to move.
+    """
+    asana = ticket.get("asana") or {}
+    if asana.get("completed"):
+        return ""
+    if str(asana.get("assignee") or "").strip().lower() not in settings.owner_aliases():
+        return ""
+    stage = str(((ticket.get("internal_ticket") or {}).get("build") or {}).get("stage") or "")
+    want = settings.asana_status_by_stage().get(stage, "")
+    if not want:
+        return ""
+    now = settings.asana_status_rank(asana.get("status"))
+    if now >= settings.asana_status_rank(want) or (now < 0 and asana.get("status")):
+        return ""
+    return want
 
 
 def by_id(board: dict, item_id: str | int) -> tuple[dict, dict] | tuple[None, None]:

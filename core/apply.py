@@ -69,6 +69,45 @@ class PatchError(ValueError):
     pass
 
 
+def _when(ev: dict) -> tuple[str, str]:
+    """(day, HH:MM) of an event, whether `at` came as "10:03" or a full ISO stamp."""
+    at = str(ev.get("at") or "")
+    day = str(ev.get("on") or "")[:10] or (at[:10] if re.match(r"\d{4}-\d\d-\d\d", at) else "")
+    hm = re.search(r"\d\d:\d\d", at)
+    return day, hm.group(0) if hm else ""
+
+
+def _url(u) -> str:
+    """A source link without its query, with both Slack hosts spelled the same."""
+    u = str(u or "").split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return u.replace("krakentech.slack.com", "kraken.enterprise.slack.com")
+
+
+def same_event(a: dict, b: dict) -> bool:
+    """Whether two event rows record one thing that happened.
+
+    A sweep that reads a message again words it differently, so comparing whole
+    rows let the same reply land on a ticket twice. The same minute, the same
+    person and a link to the same single message (a Slack permalink, an Asana
+    comment) is the same event. A meeting page or a whole ticket is not one
+    message: one meeting says several things at the same minute, by the same
+    people, so a row citing one only matches itself exactly.
+    """
+    if a == b:
+        return True
+    (da, ta), (db, tb) = _when(a), _when(b)
+    if not (ta and ta == tb and da == db):
+        return False
+    ua, ub = _url(a.get("source_url")), _url(b.get("source_url"))
+    if not (ua and ua == ub and _MESSAGE.search(ua)):
+        return False
+    wa = str(a.get("who") or "").replace(",", " ").split()[:1]
+    return bool(wa) and wa == str(b.get("who") or "").replace(",", " ").split()[:1]
+
+
+_MESSAGE = re.compile(r"/archives/\w+/p\d{10,}|/comment/\d+$")
+
+
 def find_ticket(b: dict, key: str) -> dict:
     for t in b.get("tickets", []):
         if t.get("ref") == key or str(t.get("id")) == str(key):
@@ -154,11 +193,20 @@ def apply(b: dict, patch: dict) -> list[str]:
         t = find_ticket(b, ev.pop("ticket", ""))
         if not ev.get("what"):
             raise PatchError(f"an event on {t['ref']} has no 'what'")
-        ev.setdefault("on", stamp[:10])
+        day, hm = _when(ev)
+        if hm and len(str(ev.get("at"))) > 5 and re.match(r"\d{4}-", str(ev.get("at"))):
+            ev["at"] = hm  # a full ISO stamp in `at` splits into the day and the time
+        ev["on"] = day or stamp[:10]
         if "url" in ev and "source_url" not in ev:
             ev["source_url"] = ev.pop("url")
-        if ev not in t.setdefault("events", []):
-            t["events"].append(ev)
+        rows = t.setdefault("events", [])
+        same = next((r for r in rows if same_event(r, ev)), None)
+        if same is None:
+            rows.append(ev)
+        elif len(str(ev.get("what") or "")) > len(str(same.get("what") or "")):
+            # A later sweep that read the same message more closely improves the
+            # row in place rather than adding a second one beside it.
+            same.update(ev)
     if patch.get("events"):
         said.append(f"{len(patch['events'])} event(s)")
 
@@ -169,7 +217,8 @@ def apply(b: dict, patch: dict) -> list[str]:
         if not url:
             raise PatchError(f"a thread on {t['ref']} has no url")
         rows = t.setdefault("threads", [])
-        row = next((r for r in rows if r.get("url") == url), None)
+        norm = _url(url)
+        row = next((r for r in rows if r.get("url") == url or (norm and _url(r.get("url")) == norm)), None)
         if row is None:
             row = {"url": url}
             rows.append(row)
@@ -188,6 +237,25 @@ def apply(b: dict, patch: dict) -> list[str]:
             r["checked"] = stamp
     if patch.get("checked"):
         said.append(f"checked threads on {len(patch['checked'])} ticket(s)")
+
+    checked_urls = list(patch.get("checked_urls") or [])
+    delta_file = settings.TMP_DIR / "delta.json"
+    if patch.get("swept") and delta_file.exists():
+        try:
+            d_obj = json.loads(delta_file.read_text(encoding="utf-8"))
+            checked_urls.extend(d_obj.get("checked_urls") or [])
+        except (OSError, ValueError):
+            pass
+    if checked_urls:
+        norm_checked = {_url(u) for u in checked_urls if u}
+        n_stamped = 0
+        for t in b.get("tickets") or []:
+            for r in t.get("threads") or []:
+                if _url(r.get("url")) in norm_checked:
+                    r["checked"] = stamp
+                    n_stamped += 1
+        if n_stamped:
+            said.append(f"stamped {n_stamped} scout-checked thread(s)")
 
     for ident, fields in (patch.get("items") or {}).items():
         _, item = B.by_id(b, ident)
@@ -235,7 +303,7 @@ def apply(b: dict, patch: dict) -> list[str]:
         b["checked_at"] = stamp
         said.append("checked_at = now")
 
-    unknown = set(patch) - {"events", "threads", "checked", "tickets", "items",
+    unknown = set(patch) - {"events", "threads", "checked", "checked_urls", "tickets", "items",
                             "new_items", "new_tickets", "board", "glossary", "swept"}
     if unknown:
         raise PatchError(f"unknown top-level key(s): {', '.join(sorted(unknown))}")
@@ -272,6 +340,8 @@ def main() -> int:
             # Write tool refuses to overwrite a file the run has not read, and a
             # leftover patch once cost a prep six turns working round it.
             patch_path.unlink(missing_ok=True)
+            if patch.get("swept"):
+                (settings.TMP_DIR / "delta.json").unlink(missing_ok=True)
     except (PatchError, ValueError) as e:
         print(f"nothing written: {e}", file=sys.stderr)
         return 1

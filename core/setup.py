@@ -316,7 +316,7 @@ def language(cfg: dict) -> None:
     lang["client"] = cfg.get("client", {}).get("language") or lang.get("client") or "en"
     say("\n7. Writing to the client")
     if lang["client"] == "en":
-        say("   English: nothing to set here. Put any house style in me/profile.md.")
+        say(f"   English: nothing to set here. Put any house style in {settings.client_rel(PROFILE)}.")
         return
     lang["level"] = ask(f"Your level in {lang['client']}", lang.get("level", ""),
                         "E.g. N2 spoken, B2. DANDORI pitches what it writes for you to read out.")
@@ -348,6 +348,11 @@ def desk(cfg: dict) -> None:
                        check=lambda c: "" if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", c) else "Letters, digits and dashes.")
     k["port"] = int(ask("The port the page runs on", str(k.get("port") or 8787),
                         check=lambda t: "" if t.isdigit() else "A number."))
+    k["auto_sweep_minutes"] = int(ask(
+        "Background auto-delta check interval in minutes (0 turns it off)",
+        str(k.get("auto_sweep_minutes", 15)),
+        check=lambda t: "" if t.isdigit() else "A number.",
+    ))
     k["morning_sweep"] = ask("Morning sweep time on weekdays, if you turn it on", k.get("morning_sweep") or "08:15",
                              check=hhmm)
     for job in ("ask", "refresh", "prep"):
@@ -371,8 +376,11 @@ def prioritization(cfg: dict) -> None:
                       check=lambda t: "" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t) else "As YYYY-MM-DD.")
     p["every_days"] = int(ask("Every how many days", str(p.get("every_days") or 14)))
     p["thread_at"] = ask("What time it is posted", p.get("thread_at") or "08:30", check=hhmm)
-    p.setdefault("ce_projects", [])
-    p.setdefault("cdl_owner_field", "")
+    ce_raw = ask_list("Asana CE build project URLs or ids (optional)", p.get("ce_projects") or [])
+    p["ce_projects"] = [gid_from(x) for x in ce_raw if gid_from(x)]
+    p["cdl_owner_field"] = gid_from(ask(
+        "Asana CDL-Owner custom field id (optional)", p.get("cdl_owner_field", ""), check=digits
+    ))
     p.setdefault("moved", [])
     p.setdefault("holidays", [])
     cfg["prioritization"] = p
@@ -402,7 +410,7 @@ def profile(cfg: dict) -> None:
     say(f"   Wrote {PROFILE.relative_to(ROOT)} from the template, with your answers in it.")
     say("   The rest of it is prose only you can write: house style, people, lessons.")
     say("   The quickest way is to let Claude interview you: open a chat on this folder")
-    say("   and say \"follow setup/INTERVIEW.md\".")
+    say("   and say \"follow core/setup/INTERVIEW.md\".")
 
 
 def missing(cfg: dict) -> list:
@@ -417,20 +425,20 @@ def missing(cfg: dict) -> list:
     if not (cfg.get("asana") or {}).get("projects"):
         gaps.append("asana.projects (optional: the first refresh can search instead)")
     if not PROFILE.exists():
-        gaps.append("me/profile.md")
+        gaps.append(settings.client_rel(PROFILE))
     return gaps
 
 
 def main(argv: list) -> int:
     cfg = load()
     if "--check" in argv:
-        gaps = missing(cfg) if CONFIG.exists() else ["config.json"]
+        gaps = missing(cfg) if CONFIG.exists() else [settings.client_rel(CONFIG)]
         for g in gaps:
             print(f"missing: {g}")
-        print("setup complete" if not gaps else f"{len(gaps)} to answer: run ./setup.py")
+        print("setup complete" if not gaps else f"{len(gaps)} to answer: run ./core/setup.py")
         return 0 if not gaps else 1
     say("Setting up DANDORI. Enter keeps the answer in brackets; Ctrl-C stops.")
-    say("Your answers go in config.json and me/profile.md, which git never sees.")
+    say(f"Your answers go in {settings.client_rel(CONFIG)} and {settings.client_rel(PROFILE)}, which git never sees.")
     if CONFIG.exists():
         shutil.copy(CONFIG, CONFIG.with_suffix(".json.bak"))
     try:
@@ -439,14 +447,14 @@ def main(argv: list) -> int:
             save(cfg)
     except KeyboardInterrupt:
         save(cfg)
-        say("\nStopped. What you answered so far is saved; run ./setup.py again to carry on.")
+        say("\nStopped. What you answered so far is saved; run ./core/setup.py again to carry on.")
         return 1
-    cfg.setdefault("_readme", "Your answers to the setup questions. Every key is explained in setup/QUESTIONS.md.")
+    cfg.setdefault("_readme", "Your answers to the setup questions. Every key is explained in core/setup/QUESTIONS.md.")
     save(cfg)
     profile(cfg)
     say("\nDone. Next:")
-    say("  ./setup-mcp.sh     connect Asana, Slack, Google and Notion (once)")
-    say("  ./install.sh       the Dock app, the terminal command, the page server")
+    say("  ./core/scripts/setup-mcp.sh  connect Asana, Slack, Google and Notion (once)")
+    say("  ./install.sh                 the Dock app, the terminal command, the page server")
     say("Then open the page and press Refresh.")
     return 0
 

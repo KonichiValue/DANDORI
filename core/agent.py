@@ -22,6 +22,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from typing import Callable
 
 import settings
 
@@ -81,6 +82,11 @@ def model_label(model: str | None) -> str:
 # it improvises, which is the failure this list exists to prevent. The database
 # is not here: reading a replica is something some jobs do and no job requires.
 NEEDED_MCPS = ("asana", "slack")
+
+# How long a run waits for 1Password to hand over the gateway key, and how often
+# it asks. Each ask is a Touch ID prompt, so not more often than this.
+CREDENTIAL_PATIENCE_SECS = 300
+CREDENTIAL_RETRY_SECS = 20
 
 # The servers a run is allowed to call without being asked. Wider than
 # NEEDED_MCPS on purpose: a sweep that reaches for the calendar to date a room,
@@ -193,6 +199,10 @@ class Kind:
             ["which", self.binary], capture_output=True, text=True
         ).returncode == 0
 
+    def resume(self, session: str) -> list[str]:
+        """Flags that carry on an earlier session rather than starting fresh."""
+        return []
+
 
 class Claude(Kind):
     """Claude Code, headless. The one with the MCP servers this desk needs."""
@@ -239,6 +249,9 @@ class Claude(Kind):
             cmd += ["--effort", effort]
         return cmd
 
+    def resume(self, session: str) -> list[str]:
+        return ["--resume", session] if session else []
+
     @staticmethod
     def profile(job: str) -> list[str]:
         """The tools a job is handed, as flags. See NEVER above for the why.
@@ -254,7 +267,7 @@ class Claude(Kind):
         db_never = (f"mcp__{db}__analyze*", f"mcp__{db}__get_top*", f"mcp__{db}__explain*") if db else ()
         for tool in dict.fromkeys(NEVER + db_never + (ASK_NEVER if job == "ask" else ())):
             flags += ["--disallowedTools", tool]
-        if job in ("refresh", "prep"):
+        if job in ("refresh", "delta", "prep", "post"):
             for tool in STRUCTURAL_NEVER + (PREP_NEVER if job == "prep" else ()):
                 flags += ["--disallowedTools", tool]
         if job == "ask":
@@ -285,7 +298,7 @@ class Claude(Kind):
                        "command": f"python3 {settings.CORE / 'guard.py'}",
                        "timeout": 10}],
         }]}
-        if job in ("refresh", "prep", "post"):
+        if job in ("refresh", "delta", "prep", "post"):
             conf["hooks"]["PostToolUse"] = [{
                 "matcher": "mcp__.*",
                 "hooks": [{"type": "command",
@@ -425,6 +438,42 @@ class Claude(Kind):
             Claude._credential = self._resolve_credential()
         return Claude._credential
 
+    def wait_for_credential(self, patience: int = CREDENTIAL_PATIENCE_SECS,
+                            say: Callable[[str], None] | None = None,
+                            fresh: bool = False) -> str:
+        """The key, asking 1Password again until it answers or patience runs out.
+
+        One ask is one Touch ID prompt, and it is easy to miss: on 28 Oct the
+        page server had just restarted, the prompt came and went unanswered,
+        and Prep stopped a second later on "could not fetch its model
+        credential" with the owner sitting right there. Asking again for a few
+        minutes turns a missed prompt into a short wait instead of a dead run.
+
+        `fresh` drops the remembered key first, for when the gateway has just
+        turned that key down and handing it back again would only be refused.
+        """
+        if fresh:
+            self.forget_credential()
+        deadline = time.time() + patience
+        key = self.credential()
+        while not key and time.time() < deadline:
+            if say:
+                say("Waiting for 1Password: approve Touch ID or unlock the vault")
+            time.sleep(CREDENTIAL_RETRY_SECS)
+            key = self.credential()
+        return key
+
+    def forget_credential(self) -> None:
+        """Drop the remembered key, so the next run goes back to 1Password.
+
+        The memo lasts the life of the server, which is days. On 4 Nov a prep
+        ran for two minutes on a key the server had held since the day before, then got
+        "Failed to authenticate. API Error: 403 Forbidden" from the gateway, and
+        Log in could not help: it asked for the key and was handed the same
+        refused one from memory, without 1Password ever being opened.
+        """
+        Claude._credential = ""
+
     # Set by credential() once a key has been had; "" means none yet.
     _credential = ""
 
@@ -517,6 +566,8 @@ class Claude(Kind):
         session dying, and it is given longer.
         """
         kind = raw.get("type")
+        if kind == "system" and raw.get("subtype") == "init":
+            return "session", str(raw.get("session_id") or "")
         if kind == "system" and raw.get("subtype") == "status":
             return ("model", "") if raw.get("status") == "requesting" else ("", "")
         if kind == "stream_event":
@@ -602,9 +653,10 @@ def model_for(job: str) -> str:
     Long-context sweeps use Sonnet 5.5; the shorter client-facing jobs use Opus
     5.5. Any per-job or environment choice still wins.
     """
-    chosen = settings.env(f"{job.upper()}_MODEL") or settings.env("MODEL")
-    default = "sonnet" if job in ("refresh", "prep") else "opus"
-    return chosen or settings.section(job).get("model") or settings.model_id(default, "5-5")
+    cfg_job = "refresh" if job == "delta" else job
+    chosen = settings.env(f"{job.upper()}_MODEL") or settings.env(f"{cfg_job.upper()}_MODEL") or settings.env("MODEL")
+    default = "sonnet" if cfg_job in ("refresh", "prep") else "opus"
+    return chosen or settings.section(cfg_job).get("model") or settings.model_id(default, "5-5")
 
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -619,8 +671,9 @@ def effort_for(job: str) -> str:
     or DANDORI_EFFORT overrides for one run. A value the CLI would refuse is dropped
     rather than passed, so a typo costs thinking time, not the run.
     """
-    value = (settings.env(f"{job.upper()}_EFFORT") or settings.env("EFFORT")
-             or settings.section(job).get("effort") or "")
+    cfg_job = "refresh" if job == "delta" else job
+    value = (settings.env(f"{job.upper()}_EFFORT") or settings.env(f"{cfg_job.upper()}_EFFORT")
+             or settings.env("EFFORT") or settings.section(cfg_job).get("effort") or "")
     return value if value in EFFORTS else ""
 
 
@@ -634,14 +687,24 @@ def tools_ready(kind: Kind, timeout: int = 180) -> tuple[bool, str]:
     reads the `init` event it prints before the first turn, and counts the tools
     actually registered.
 
-    It is cheap on purpose: the process is killed the moment `init` arrives, so no
-    prompt is ever sent and no model is billed.
+    It is cheap on purpose: the process is killed the moment `init` arrives, which
+    is before the first request to the model, so nothing is billed.
+
+    It does need a prompt on stdin. `--print` with an open, empty stdin gives up
+    with "Input must be provided" before `init`, and that silence used to read
+    as ready, so on 26 Oct Prep ran with Asana and Slack both at needs-auth.
     """
     cmd = kind.command(model_for("refresh"), job="refresh") + kind.stream
     proc = subprocess.Popen(
         cmd, cwd=ROOT, env=kind.env(), text=True, bufsize=1,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
+    try:
+        if proc.stdin:
+            proc.stdin.write("Reply with OK.\n")
+            proc.stdin.close()
+    except OSError:
+        pass
     deadline = time.time() + timeout
     try:
         while time.time() < deadline:
@@ -671,7 +734,12 @@ def tools_ready(kind: Kind, timeout: int = 180) -> tuple[bool, str]:
                 f"the run ({pending}). A sweep would read nothing and report gaps that "
                 "are not there, so it has not been started."
             )
-        return True, ""        # said nothing useful; let the run report for itself
+        # No `init` at all. That is not evidence of tools, so fall back to what
+        # the grants say: a needs-auth there is always a real one.
+        short = missing_mcps(kind)
+        if not short:
+            return True, ""
+        return False, f"{human(short)} {'needs' if len(short) == 1 else 'need'} authorising."
     finally:
         proc.kill()
         proc.wait(timeout=10)
@@ -710,7 +778,7 @@ READY_FOR_SECS = 240
 
 
 def forget_readiness() -> None:
-    """Drop the cached answer, after a login or a `./setup-mcp.sh`."""
+    """Drop the cached answer, after a login or a `./core/scripts/setup-mcp.sh`."""
     _ready_cache.clear()
 
 
@@ -763,7 +831,7 @@ def blockers(kind: Kind | None) -> tuple[list[str], str]:
                 f"{names} {verb} connecting before a refresh can read anything. "
                 f"{' and '.join(n.title() for n in absent)} "
                 f"{'is' if len(absent) == 1 else 'are'} not configured yet: run "
-                f"./setup-mcp.sh"
+                f"./core/scripts/setup-mcp.sh"
             )
         return missing, f"{names} {verb} authorising before a refresh can read anything."
     return ["tools"], why

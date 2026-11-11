@@ -289,17 +289,53 @@ def due(now: datetime | None = None) -> bool:
         then = None
     if then is None or now - then > timedelta(minutes=60):
         return True
-    # Ten to forty minutes after a work meeting ended, if not looked at since.
-    for e in events_on(now.date().isoformat()):
-        if not e.get("work") or e.get("notes"):
-            continue
-        try:
-            end = datetime.fromisoformat(e["end"])
-        except (KeyError, ValueError):
-            continue
-        if timedelta(minutes=10) <= now - end <= timedelta(minutes=40) and then < end + timedelta(minutes=10):
-            return True
-    return False
+    # From ten minutes to an hour and a half after a work meeting ended, every
+    # quarter of an hour until its notes are attached. Gemini takes anything from
+    # a few minutes to half an hour to write them, so one look at ten minutes
+    # used to find nothing and not look again until the hourly read.
+    return any(timedelta(minutes=10) <= now - end <= timedelta(minutes=90)
+               and now - then >= timedelta(minutes=15)
+               for end in _awaiting_notes(now))
+
+
+def _awaiting_notes(now: datetime) -> list[datetime]:
+    """When each work meeting since yesterday ended, for those that have ended
+    without Gemini's notes on them yet. A shared running doc is not Gemini's
+    notes, so only those count."""
+    out = []
+    for day in ((now - timedelta(days=1)).date().isoformat(), now.date().isoformat()):
+        for e in events_on(day):
+            if not e.get("work") or any(GEMINI.search(n.get("title", ""))
+                                        for n in e.get("notes") or []):
+                continue
+            try:
+                end = datetime.fromisoformat(e["end"])
+            except (KeyError, ValueError):
+                continue
+            if end <= now:
+                out.append(end)
+    return out
+
+
+def stale_for_sweep(now: datetime | None = None) -> bool:
+    """Whether a refresh or prep should read the calendar before it starts.
+
+    The sweep learns which meetings have notes to fold in from calendar.json
+    (unread_notes, step N of the digest), so a press made after a meeting ended
+    but before the calendar was read again would sweep without that meeting's
+    notes and not look for them until the next press. True when a work meeting
+    ended without Gemini's notes and the calendar has not been read since half
+    an hour after it ended, which is about when Gemini has finished writing.
+    """
+    now = now or settings.now()
+    last = seen_at()
+    try:
+        then = datetime.fromisoformat(last) if last else None
+    except ValueError:
+        then = None
+    if then is None:
+        return True
+    return any(then < end + timedelta(minutes=30) for end in _awaiting_notes(now))
 
 
 def _title_rx(name: str) -> re.Pattern | None:
@@ -385,6 +421,170 @@ def unread_notes(board: dict, days: int = 14) -> list[dict]:
     return sorted(out, key=lambda e: e["start"], reverse=True)
 
 
+def standup_notes(board: dict, days: int = 7) -> dict | None:
+    """The main standup's latest run, when `meeting_note` has not caught up.
+
+    None when no standup has ended in the last `days`, or `meeting_note` is
+    dated that day or later. Otherwise the standup's event with `docs`, the
+    Gemini documents that cover it, and `ready`, whether they are written yet.
+
+    Gemini writes one document per Meet call, not per calendar event. A
+    standup that shares its Meet link with the programme room after it, so the
+    two are one call, gets no Gemini doc of its own: it lands on the later
+    event, and only once the whole call has ended.
+    So a doc on any work event that day with the same `join` link, starting no
+    earlier, counts as the standup's, and `ready` waits for the last such event
+    to end. This is what lets a refresh after the standup fold it in rather
+    than recording that doc as programme news.
+    """
+    rx = [r for r, k in records() if k == "meeting_note"]
+    if not rx:
+        return None
+    note = board.get("meeting_note") or {}
+    done = str(note.get("date") or "") if note.get("found") else ""
+    now = settings.now()
+    floor = (now.date() - timedelta(days=days)).isoformat()
+    events = [e for e in load_raw().get("events") or [] if e.get("date", "") >= floor]
+    ended = []
+    for e in events:
+        if not e.get("work") or not any(r.search(e.get("title", "")) for r in rx):
+            continue
+        try:
+            if datetime.fromisoformat(e["end"]) <= now:
+                ended.append(e)
+        except (KeyError, ValueError):
+            continue
+    if not ended:
+        return None
+    last = max(ended, key=lambda e: e["start"])
+    if done >= last["date"]:
+        return None
+    call = [last] + [
+        e for e in events
+        if e is not last and e.get("work") and e.get("join")
+        and e["join"] == last.get("join") and e["date"] == last["date"]
+        and e["start"] >= last["start"]
+    ]
+    docs, seen = [], set()
+    for e in sorted(call, key=lambda e: e["start"]):
+        for n in e.get("notes") or []:
+            if not GEMINI.search(n.get("title", "")):
+                continue
+            if n["url"] not in seen:
+                seen.add(n["url"])
+                docs.append({**n, "on": e["title"], "at": e["at"]})
+    until = max((e["end"] for e in call), default=last["end"])
+    try:
+        ready = datetime.fromisoformat(until) <= now
+    except ValueError:
+        ready = True
+    return {**last, "docs": docs, "ready": ready,
+            "until": until[11:16], "shared": [e["title"] for e in call[1:]]}
+
+
+def doc_id(url: str) -> str:
+    """The document a Google Docs link opens, whatever tab or query it carries,
+    so the calendar's `?usp=meet_tnfm_calendar` and a sweep's `/edit` match."""
+    m = re.search(r"/d/([\w-]{20,})", str(url or ""))
+    return m.group(1) if m else ""
+
+
+def _calls(events: list[dict]) -> list[list[dict]]:
+    """Work meetings grouped into the Meet calls they were held on.
+
+    One call is one Gemini document, put on whichever event was last in it, so
+    a standup that runs straight into the programme room on the same link has
+    its notes on the other event. Events with no Meet link are a call each.
+    """
+    calls: dict[tuple[str, str], list[dict]] = {}
+    for e in events:
+        if not e.get("work"):
+            continue
+        key = (e.get("date", ""), e.get("join") or e.get("id", ""))
+        calls.setdefault(key, []).append(e)
+    return list(calls.values())
+
+
+def _squash(text: str) -> str:
+    """A meeting name with case, spacing and punctuation gone, for matching."""
+    return re.sub(r"[\W_]+", "", str(text or "").lower())
+
+
+def _named(where: str) -> str:
+    """The meeting a timeline event's `where` names, squashed, or "".
+
+    `where` is free text a sweep wrote ("Billing standup (Gemini notes)",
+    "Migration Daily Stand Up, 13 Oct"), so what comes before a bracket or
+    comma is the room."""
+    return _squash(re.split(r"[(,（、]", str(where or ""), maxsplit=1)[0])
+
+
+def _inside(e: dict, at: str) -> bool:
+    return bool(at) and e.get("at", "") <= at < (e.get("until") or "99:99")
+
+
+def minutes(board: dict, events: list[dict] | None = None) -> dict[str, dict]:
+    """What each work meeting did to the board, by calendar event id.
+
+    `refs` is every ticket whose timeline has something from that meeting, in
+    board order, and `state` is "unread" while Gemini's notes are in and no
+    sweep has folded them, "read" after. `notes` is the Gemini document for the
+    meeting's call, when there is one.
+
+    A timeline event belongs to a meeting when it cites the meeting's notes as
+    its source, or when it is dated that day and its `where` names the room.
+    One Meet call is one document covering every meeting on it, so an event
+    citing it goes to the meeting its time falls in, and to all of them when
+    its time lands in none. A bare "standup" is the main standup. Meetings with
+    neither notes nor anything on the board are left out, so the strip says
+    nothing rather than "nothing" about a meeting it knows nothing about.
+    This is the line from the calendar to the board: what a meeting moved, and
+    which meetings nobody has read yet.
+    """
+    events = (load_raw().get("events") or []) if events is None else events
+    unread = unread_notes(board, days=366)
+    late = {doc_id(n["url"]) for e in unread for n in e.get("notes") or []
+            if GEMINI.search(n.get("title", ""))}
+    st = standup_notes(board, days=366)
+    if st:
+        late |= {doc_id(n["url"]) for n in st.get("docs") or []}
+    main = [rx for rx, k in records() if k == "meeting_note"]
+    said = [(t.get("ref", ""), ev) for t in board.get("tickets") or [] for ev in t.get("events") or []]
+    out: dict[str, dict] = {}
+    for call in _calls(events):
+        day = call[0].get("date", "")
+        docs = [n for e in call for n in e.get("notes") or [] if GEMINI.search(n.get("title", ""))]
+        ids = {doc_id(n["url"]) for n in docs}
+        refs: dict[str, list[str]] = {e["id"]: [] for e in call}
+        for ref, ev in said:
+            on, at = ev.get("on", ""), ev.get("at", "")
+            if on and on != day:
+                continue
+            if doc_id(ev.get("source_url", "")) in ids - {""}:
+                hit = [e for e in call if _inside(e, at)] or call
+            elif on == day and (name := _named(ev.get("where", ""))):
+                if name in {"standup", "thestandup"}:
+                    hit = [e for e in call if any(rx.search(e.get("title", "")) for rx in main)]
+                elif len(name) >= 6:
+                    hit = [e for e in call if name in _squash(e.get("title", ""))]
+                else:
+                    hit = []
+                if len(hit) > 1:
+                    hit = [e for e in hit if _inside(e, at)] or hit
+            else:
+                continue
+            for e in hit:
+                if ref not in refs[e["id"]]:
+                    refs[e["id"]].append(ref)
+        for e in call:
+            if not docs and not refs[e["id"]]:
+                continue
+            out[e["id"]] = {"notes": docs[0] if docs else None,
+                            "state": "unread" if ids & late else "read",
+                            "refs": refs[e["id"]]}
+    return out
+
+
 def ago(stamp: str) -> str:
     """"just now", "12m ago", "3h ago", or the day."""
     try:
@@ -404,6 +604,19 @@ def ago(stamp: str) -> str:
 
 
 def main() -> int:
+    if "--standup" in sys.argv:
+        import board as B
+        st = standup_notes(B.load())
+        if not st:
+            print("no standup waiting: none has ended this week, or meeting_note already covers it")
+            return 0
+        print(f"{st['date']} {st['at']} {st['title']}: call ends {st['until']}, "
+              f"{'notes written' if st['ready'] else 'notes not written yet'}")
+        for d in st["docs"]:
+            print(f"  {d['at']} {d['on']}  {d['url']}")
+        if not st["docs"]:
+            print("  no Gemini doc on the calendar")
+        return 0
     if "--show" in sys.argv:
         data = load_raw()
         print(f"stored {data.get('fetched_at', 'never')}, looked {seen_at() or 'never'}, "

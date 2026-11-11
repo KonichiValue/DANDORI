@@ -24,6 +24,7 @@
     "name": "DANDORI",
     "command": "DANDORI",
     "port": 8787,
+    "auto_sweep_minutes": 15,
     "morning_sweep": "08:15"
   },
 
@@ -32,7 +33,8 @@
     "projects": [
       { "gid": "", "name": "The client-shared project your tickets live in" }
     ],
-    "exclude_projects": []
+    "exclude_projects": [],
+    "status_field": { "gid": "", "options": {}, "by_stage": {} }
   },
 
   "meeting": {
@@ -44,7 +46,7 @@
     "also": [
       { "name": "Weekly review", "time_local": "13:00", "days": ["Wed"], "kind": "weekly", "record": "" },
       { "name": "Programme daily", "time_local": "09:30", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "kind": "rollup" },
-      { "name": "Team huddle", "time_local": "16:00", "days": ["Thu"], "kind": "huddle", "record": "" }
+      { "name": "Team huddle", "time_local": "16:00", "days": ["Thu"], "kind": "huddle", "record": "", "link": "" }
     ]
   },
 

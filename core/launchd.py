@@ -37,7 +37,7 @@ ROOT = settings.REPO
 AGENTS = Path.home() / "Library" / "LaunchAgents"
 PREFIX = "com.DANDORI"
 OLD_PREFIXES = ("com.dandori",)
-JOBS = ("serve", "post", "brief")
+JOBS = ("serve", "post", "brief", "doctor")
 
 # launchd starts a job with almost nothing on PATH, and claude, node and
 # python3 all live somewhere it would not look.
@@ -109,6 +109,15 @@ def build(job: str) -> dict:
             RunAtLoad=False,
             StandardOutPath=str(logs / "launchd-brief.out.log"),
             StandardErrorPath=str(logs / "launchd-brief.err.log"),
+        )
+    elif job == "doctor":
+        python = shutil.which("python3") or "/usr/bin/python3"
+        plist.update(
+            ProgramArguments=[python, str(settings.CORE / "notify.py"), "--check", "--quiet"],
+            StartInterval=600,
+            RunAtLoad=False,
+            StandardOutPath=str(logs / "launchd-doctor.out.log"),
+            StandardErrorPath=str(logs / "launchd-doctor.err.log"),
         )
     else:
         raise SystemExit(f"no such job: {job} (one of {', '.join(JOBS)})")

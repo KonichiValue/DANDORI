@@ -213,6 +213,8 @@ def form(cfg: dict) -> str:
       {field(cfg, "prioritization.anchor", "The date of one round", "", kind="date", need=True)}
       {field(cfg, "prioritization.every_days", "Every how many days", "", kind="number", fallback="14", need=True)}
       {field(cfg, "prioritization.thread_at", "Posted at", "", kind="time", fallback="08:30")}
+      {field(cfg, "prioritization.ce_projects", "Asana CE build project links or ids", "Comma separated. Where your CE build tickets live.", place="1200000000000001, 1200000000000002", wide=True)}
+      {field(cfg, "prioritization.cdl_owner_field", "CDL-Owner custom field id", "The Asana custom field id that names the CDL owner on a build.", kind="number")}
     </div>
   </fieldset>
 
@@ -220,6 +222,7 @@ def form(cfg: dict) -> str:
     {field(cfg, "desk.name", "App name", "In the Dock and the window title.", fallback="DANDORI", need=True)}
     {field(cfg, "desk.command", "Terminal command", "<code>DANDORI</code> always works too.", fallback="DANDORI", need=True)}
     {field(cfg, "desk.port", "Port", "Change it only if 8787 is taken.", kind="number", fallback="8787", need=True)}
+    {field(cfg, "desk.auto_sweep_minutes", "Auto-delta check (minutes)", "Haiku checks Asana and Slack in the background (0 turns it off).", kind="number", fallback="15")}
     {field(cfg, "desk.morning_sweep", "Morning refresh at", "Only if you turn it on with <code>DANDORI morning</code>.", kind="time", fallback="08:15")}
   </fieldset>
 </details>
@@ -267,7 +270,7 @@ one that needs approving.</li>
      "The one that makes your drafts sound like you and not like a robot. "
      "Claude interviews you for ten minutes: how you write to the client, who your people "
      "are, what must never reach them. It looks up your ids and meetings itself. "
-     "You can also edit <code>me/profile.md</code> by hand.",
+     "You can also edit <code>clients/&lt;client&gt;/profile.md</code> by hand.",
      '<button type="button" class="btn" data-run="interview">Start the interview</button>'),
     ("app", "Install the app",
      "Puts DANDORI in your Applications folder (drag it to the Dock), adds the "

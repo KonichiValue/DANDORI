@@ -87,13 +87,21 @@ function makePage(options) {
     },
     // Kept, so a test can press something the way a click would arrive.
     clicks: [],
-    addEventListener(type, fn) { if (type === "click") this.clicks.push(fn); },
+    visListeners: [],
+    addEventListener(type, fn) {
+      if (type === "click") this.clicks.push(fn);
+      if (type === "visibilitychange") this.visListeners.push(fn);
+    },
     createElement: () => element(),
   };
 
+  const winListeners = [];
   const sandbox = {
     document,
-    window: { addEventListener() {} },
+    window: {
+      focusListeners: winListeners,
+      addEventListener(type, fn) { if (type === "focus") winListeners.push(fn); },
+    },
     location: { protocol: "http:", reload: () => { reloads.count += 1; } },
     navigator: {},
     console,
@@ -275,6 +283,43 @@ async function run() {
       `reloaded ${page.reloads.count - before} times, wanted none`);
   }
 
+  // 12. Ticking the last step on a job with no unsent drafts closes the job on the
+  //     server (`closed: true`), marks the card Done, and hides its row on the week strip.
+  {
+    const page = makePage({ stamp: "AAA" });
+    await settle();
+    const on = new Set();
+    const li = element({ classList: {
+      add: (c) => on.add(c), remove: (c) => on.delete(c), contains: (c) => on.has(c),
+      toggle: (c, f) => { if (f === undefined ? !on.has(c) : f) on.add(c); else on.delete(c); },
+    } });
+    const list = element({ querySelectorAll: () => [li] });
+    const btn = element({ dataset: { stepJob: "98", step: "1" },
+      closest: (s) => (s === "li.ds" ? li : s === "ol.steps" ? list : null) });
+    const badge = element({ textContent: "2", hidden: false });
+    const weekRow = element({ hidden: false });
+    const otherRow = element({ hidden: false });
+    const weekCol = element({
+      querySelector: (s) => (s === ".wd-c" ? badge : null),
+      querySelectorAll: (s) => (s === "[data-week-job]" ? [weekRow, otherRow] : []),
+    });
+    weekRow.closest = (s) => (s === "li.wd" ? weekCol : null);
+    const origQSA = page.sandbox.document.querySelectorAll;
+    page.sandbox.document.querySelectorAll = (sel) => {
+      if (sel === '[data-week-job="98"]') return [weekRow];
+      return origQSA(sel);
+    };
+    page.sandbox.reply = { said: "All steps done. 98 closed", closed: true, stamp: "DDD", board: "B3" };
+    const ev = { target: { closest: (s) => (s === ".ds-n" ? btn : null) },
+      preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} };
+    page.sandbox.document.clicks.forEach((fn) => fn(ev));
+    await settle();
+    check("ticking the last step hides the job on the week strip", weekRow.hidden === true,
+      "the job stayed visible on the week strip after closing");
+    check("ticking the last step updates the week strip count", badge.textContent === "1",
+      `badge read "${badge.textContent}", wanted "1"`);
+  }
+
   // A sign-in walk is progress, not a fault: the run buttons wait for it, the
   // Log in button says it is working, and the page keeps watching for its end.
   {
@@ -289,6 +334,67 @@ async function run() {
       "the browser approval link was hidden");
     check("a sign-in keeps watching", page.timers.length > 0,
       "no follow-up poll, so the end of the sign-in would never arrive");
+  }
+
+  // 13. A quiet background scout check never disables buttons and never reloads.
+  {
+    const page = makePage({ stamp: "AAA" });
+    page.sandbox.reply = {
+      state: "idle", message: "Last refreshed 15:34", asks: {}, stamp: "AAA",
+      scout: { state: "running", said: "Checking Asana and Slack…" }, auto_mins: 15,
+    };
+    await settle();
+    check("a running scout does not reload", page.reloads.count === 0,
+      `reloaded ${page.reloads.count} times`);
+    check("a running scout shows the check chip",
+      page.ids["refresh-note"].className.indexOf("run") > -1,
+      `note class was "${page.ids["refresh-note"].className}"`);
+    page.sandbox.reply = {
+      state: "idle", message: "Up to date · checked 17:20", asks: {}, stamp: "AAA",
+      scout: { state: "done", said: "Up to date" }, auto_mins: 15,
+    };
+    page.timers.splice(0).forEach((t) => t.fn());
+    await settle();
+    check("a quiet scout finish never reloads", page.reloads.count === 0,
+      `reloaded ${page.reloads.count} times`);
+    check("a quiet scout updates the header timestamp",
+      page.ids["refresh-note"].textContent === "Up to date · checked 17:20",
+      `header read "${page.ids["refresh-note"].textContent}"`);
+  }
+
+  // 14. Copying a draft and returning to the window triggers POST /api/scout,
+  //     unless the owner already pressed Posted it on the page.
+  {
+    let fakeNow = 1000000;
+    const page = makePage({ stamp: "AAA" });
+    page.sandbox.Date = { now: () => fakeNow };
+    await settle();
+    const copyBtn = element({ closest: (s) => (s === ".act-draft" ? element() : null) });
+    const copyEv = {
+      target: {
+        closest: (s) => (s.indexOf(".copy") > -1 ? copyBtn : null),
+      },
+      preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {},
+    };
+    page.sandbox.document.clicks.forEach((fn) => fn(copyEv));
+    fakeNow += 25000;
+    page.sandbox.window.focusListeners.forEach((fn) => fn());
+    page.timers.splice(0).forEach((t) => t.fn());
+    await settle();
+    check("returning after copying a draft triggers /api/scout",
+      page.sandbox.fetched.some((u) => u.indexOf("/api/scout") === 0),
+      "fetched: " + page.sandbox.fetched.join(", "));
+  }
+
+  // 15. A background delta refresh finishing while the owner is typing never reloads.
+  {
+    const page = makePage({ stamp: "AAA", typed: "let me rewrite this first" });
+    page.sandbox.reply = { state: "done", message: "Updated", asks: {}, stamp: "EEE", board: "B4" };
+    await settle();
+    check("a background delta refresh never reloads over typing", page.reloads.count === 0,
+      `reloaded ${page.reloads.count} times`);
+    check("a background delta refresh offers the reload button", page.ids.changed.hidden === false,
+      "changed button stayed hidden");
   }
 
   const bad = results.filter((r) => !r.pass);

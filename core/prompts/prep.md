@@ -52,9 +52,15 @@ redraws both pages when the run ends), and subagents: no `Task` tool, no
 
 ## Half one: bring the board up to date
 
-**If `checked_at` is within the last ~15 minutes, a sweep just ran.** Run only
-the gate (`modified_at.after=checked_at`) and the threads the plan still lists,
-fold in what they turn up, and go to the script.
+**If `scout_verified_clean_at` (printed at the top of `digest.py --full`) or
+`checked_at` is within the last ~10 minutes and the plan lists no unread meeting
+notes (`D.` / `N.`), Asana and Slack have just been verified current.** Skip the
+sweep calls completely, call only `get_tasks(section=...)` for board running
+order (when the profile names a section), and go straight to writing the script.
+
+**Otherwise, if `checked_at` is within the last ~20 minutes, a sweep just ran.**
+Run only the gate (`modified_at_after` from the SWEEP PLAN) and the threads the
+plan still lists, fold in what they turn up, and go to the script.
 
 Otherwise sweep, briefly, in the same turns as above:
 
@@ -67,8 +73,9 @@ Otherwise sweep, briefly, in the same turns as above:
   unless it says otherwise). An assigned gid not on the board is added as a
   ticket; nothing unassigned ever is, however important (that is a `news` row).
   A board ticket missing from the census was completed or reassigned: find out
-  which. The gate (`modified_at.after`, `opt_fields=name,modified_at,assignee.name,completed`)
-  decides which tickets earn `get_task_stories`.
+  which. The gate (`modified_at_after` from the SWEEP PLAN) decides which
+  tickets earn `get_task_stories(task_ids=[...], created_after=<since_utc>)` in
+  one batched call.
 - **The milestone search** (`M.` in the plan): bring its child-ticket rows and
   phase states up to date, a child assigned to the owner becomes a card, and
   nothing else does.
@@ -80,7 +87,8 @@ Otherwise sweep, briefly, in the same turns as above:
   can quote: a reply brings an item back to `todo` on the same number with its
   draft rewritten; something they sent makes it `waiting` on a named person with
   a `chase_on` date. New work goes in `new_items`. Every job needs a day:
-  `urgency` exactly `today`, `this-week` or `monitor`, or an ISO `chase_on`.
+  `urgency` exactly `today`, `this-week` or `monitor`, or an ISO `chase_on`,
+  plus an ISO `due_by` on the owner's work that has a deadline rather than a start.
 - Fix every line of the digest's `OUT OF DATE` block, update `news` (route named,
   five at most) and `brief`, and end the patch with `"swept": true`.
 
@@ -93,11 +101,23 @@ there.
 Only the speaking half is yours to write now. Do not move item states beyond
 what the sweep did, and do not rewrite `events` or `where_it_stands` beyond it.
 Reading the board per ticket to compose is the flail that runs prep past its
-budget: compose from the one `--full` read.
+budget: compose from the one `--full` read (which already includes `BRIEF`,
+`SCRIPT`, `HUDDLE`, `XWS`, and each ticket's existing `prep` summary — never
+grep `board.json` for them).
+
+**Keep an unchanged ticket's `prep` when nothing on it moved.** When a ticket
+already carries a `prep` block written for the same session kind (for example
+`standup`), and neither its `events`, its `where_it_stands`, its `asana.status`
+nor its open items changed since `prep.built_at` (and it was not closed out at a
+session since then), keep its existing spoken prose rather than rewriting it
+from scratch: update only `"tickets": {"<ref>": {"prep.order": N, "prep.board_position": "..."}}`
+when its position on the board moved.
 
 A milestone the owner leads may carry `say`: one or two client-language lines in
-the profile's house style for the room on where the programme stands, written
-only when the session will discuss it
+the profile's house style for the client room on where the programme stands,
+written only when that session will discuss it, and cleared (`[]`) once it has.
+The speaking view shows a milestone only when it has `say`; its status and target
+live on the huddle card
 (`"board": {"milestones.<id>.say": ["..."]}`). Nothing internal: no ticket links,
 sizes or engineer names.
 
@@ -203,15 +223,24 @@ nothing internal reaches the room, even though it is a programme meeting.
 
 The **`huddle`** block is the team huddle update, and it is **English and
 internal** (Kraken side, the client is not in the room), so no reading markup and
-the "nothing internal reaches the client" rule does not apply. Keep it as short as
-the owner writes it themselves: `for_date`, `at` (the meeting's time),
-`built_at`, `plate` (a terse one-line-per-item list of what is on their plate
-right now, client-language ticket names fine), and `blockers`. **Be very
-selective on `blockers`:** only a genuine blocker belongs there, something
-actually stuck on another person or an unmade decision; most weeks it is one line
-or none, and "No blockers" is the honest answer far more often than a list. Match
-the bullet style of the owner's latest written update, wherever the profile says
-they keep it. Each entry in `plate` and `blockers` is a plain string.
+the "nothing internal reaches the client" rule does not apply. The huddle walks
+**milestones and blockers**, so write those two and keep both as short as the
+owner would type them into the huddle's databases:
+
+- `milestones`: one entry per open board milestone the owner leads, `{id,
+  status, confidence, update}`. `id` is the board milestone's; `status` is
+  `on-track`, `at-risk`, `off-track`, `not-started` or `done`; `confidence` is
+  `Committed`, `Tentative` or `No date yet`; `update` is **one line** for the
+  Latest update column: what moved since last week and what is next, with a date
+  when there is one. Read it from the milestone's phases and the items they name,
+  which the `--full` read already gave you.
+- `blockers`: **be very selective.** Only something actually stuck on another
+  person or an unmade decision, as `{blocker, milestone, waiting_on, next_step,
+  status}` with `status` one of `blocked`, `waiting`, `resolved`. Most weeks it is
+  empty, and an empty list is the honest answer; never write "No blockers" as a
+  row.
+- `plate` is optional: at most five terse lines, only when the profile says the
+  huddle still asks what is on the owner's plate. Leave it out otherwise.
 
 ### The order the meeting walks
 
@@ -530,8 +559,12 @@ And once at board level:
   "for_date": "YYYY-MM-DD, the huddle's day",
   "at": "the huddle's time from meeting.also",
   "built_at": "ISO 8601 with the offset of config.json timezone",
-  "plate": ["one terse line per thing on the owner's plate now"],
-  "blockers": ["only a genuine blocker; usually one line or none"]
+  "milestones": [{"id": "the board milestone's id", "status": "on-track|at-risk|off-track|not-started|done",
+                  "confidence": "Committed|Tentative|No date yet",
+                  "update": "One line: what moved this week and what is next."}],
+  "blockers": [{"blocker": "only a genuine blocker; usually none", "milestone": "its name, or empty",
+                "waiting_on": "who or what", "next_step": "the agreed next step",
+                "status": "blocked|waiting|resolved"}]
 }
 ```
 

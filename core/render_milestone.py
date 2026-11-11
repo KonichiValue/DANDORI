@@ -295,13 +295,17 @@ def markdown(board: dict) -> str:
 
 
 def speaking(board: dict) -> str:
-    """One line per open milestone on the speaking view: where it is, and the
-    words for the room if the prep wrote any (`say`, in the client's language and
-    the profile's house style)."""
+    """The words for the room on a milestone, when the prep wrote any (`say`, in
+    the client's language and the profile's house style), and nothing otherwise.
+
+    A milestone's status and target are the team huddle's business and sit on
+    its card; a bare status line here was a box on every speaking view that the
+    owner never said out loud. So it appears only for the session the prep
+    decided would discuss it."""
     from render import furi
 
     rows = [m for m in board.get("milestones") or []
-            if isinstance(m, dict) and m.get("status") != "done"]
+            if isinstance(m, dict) and m.get("status") != "done" and m.get("say")]
     if not rows:
         return ""
     out = ""

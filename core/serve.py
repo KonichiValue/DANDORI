@@ -20,6 +20,7 @@ import gzip
 import hashlib
 import json
 import os
+import pty
 import queue
 import re
 import secrets
@@ -35,11 +36,14 @@ from typing import Callable, NamedTuple
 from urllib.parse import unquote
 
 import agent
+import asana_status
 import board
 import calendar_sync
 import keep
+import notify
 import render
 import render_desk
+import scout
 import settings
 import setup_page
 
@@ -298,26 +302,39 @@ def rebuild() -> str:
 
 
 def last_refreshed() -> str:
-    """When the board was last swept, by any route, as the header says it.
+    """When the board was last swept or verified up to date by the scout.
 
     The job's own time only knows runs this server started; a sweep from a chat
-    or a terminal writes `checked_at` on the board and nothing here. It is the
-    second key in the file, so the head of it is enough at every status poll.
+    or a terminal writes `checked_at` on the board, and the background scout
+    writes `scout-seen.json` when it verified Asana and Slack with zero changes.
     """
+    b_raw = ""
     try:
         with BOARD.open("rb") as fh:
             head = fh.read(4096).decode("utf-8", "ignore")
+        m = re.search(r'"checked_at"\s*:\s*"([^"]+)"', head)
+        if m:
+            b_raw = m.group(1)
     except OSError:
-        return ""
-    m = re.search(r'"checked_at"\s*:\s*"([^"]+)"', head)
-    if not m:
-        return ""
+        pass
+    seen = scout.load_seen()
+    s_raw = str(seen.get("verified_clean_at") or "")
     try:
-        at = datetime.fromisoformat(m.group(1))
+        b_at = datetime.fromisoformat(b_raw) if b_raw else None
     except ValueError:
+        b_at = None
+    try:
+        s_at = datetime.fromisoformat(s_raw) if s_raw else None
+    except ValueError:
+        s_at = None
+    if s_at and (b_at is None or s_at > b_at):
+        now = datetime.now(s_at.tzinfo) if s_at.tzinfo else datetime.now()
+        s_when = s_at.strftime("%H:%M") if s_at.date() == now.date() else s_at.strftime("%-d %b %H:%M")
+        return f"Up to date · checked {s_when}"
+    if b_at is None:
         return ""
-    now = datetime.now(at.tzinfo) if at.tzinfo else datetime.now()
-    when = at.strftime("%H:%M") if at.date() == now.date() else at.strftime("%-d %b %H:%M")
+    now = datetime.now(b_at.tzinfo) if b_at.tzinfo else datetime.now()
+    when = b_at.strftime("%H:%M") if b_at.date() == now.date() else b_at.strftime("%-d %b %H:%M")
     return f"Last refreshed {when}"
 
 
@@ -372,8 +389,8 @@ def guarded(work: Callable[[], None], what: str) -> Callable[[], None]:
     return run
 
 
-ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-URL_IN = re.compile(r"https://\S+")
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+URL_IN = re.compile(r"https://[^\s\x07\x1b]+")
 
 
 # The CLI holds its prose to the end in text mode, so a sweep printed nothing
@@ -434,7 +451,8 @@ def mmss(secs: float) -> str:
 def read_events(stream, said: list[str], noise: list[str], calls: list[str],
                 began: float, beat: list[float], fh=None,
                 kind: agent.Kind | None = None,
-                thinking: list[bool] | None = None, key: str = "sweep") -> None:
+                thinking: list[bool] | None = None, key: str = "sweep",
+                session: list[str] | None = None) -> None:
     """Turn the agent's event stream into progress, and into a readable log.
 
     Three things come out of one pass: the final message, whatever the CLI said
@@ -469,7 +487,10 @@ def read_events(stream, said: list[str], noise: list[str], calls: list[str],
                 noise.append(clean)
                 continue
             what, text = reader.event(event)
-            if what in ("model", "idle"):
+            if what == "session":
+                if session is not None and text:
+                    session[:] = [text]
+            elif what in ("model", "idle"):
                 thinking[0] = what == "model"
             elif what == "said":
                 said.append(text)
@@ -510,6 +531,7 @@ class Ran(NamedTuple):
     took: int
     calls: int
     stalled: bool = False  # killed for producing nothing, not for running long
+    session: str = ""      # the CLI's session id, which is what a resume needs
 
 
 # What the CLI says when it never reached the model. The case that taught it:
@@ -541,6 +563,94 @@ def connection_lost(ran: Ran) -> bool:
     if ran.calls or (ran.text and not ran.text.startswith("API Error")):
         return False
     return bool(CONNECTION_LOST.search(f"{ran.text}\n{ran.noise}"))
+
+
+# What the CLI says when a reply was cut off after the run had started work: its
+# own stream watchdog fired, the server failed mid-reply, or the connection
+# closed. 28 Oct is the case: a prep 53 tool calls in, thinking about its patch,
+# ended "API Error: Response stalled mid-stream" with nothing written.
+MID_STREAM = re.compile(
+    r"API Error: (Response stalled|Server error|Connection closed) mid-(stream|response)",
+    re.I,
+)
+# How many times one run is picked back up before it is reported.
+MID_STREAM_RESUMES = 3
+RESUME_NOTE = (
+    "Your run was interrupted: the connection to the model dropped, or a step hung "
+    "and was stopped. Every tool call whose result is above did run; one with no "
+    "result did not, so make it again if you still need it. Carry on from exactly "
+    "where you stopped and finish the job as your instructions say. "
+    "Do not start the sweep again. If you had already applied a patch with "
+    "./core/apply.py, read the board with ./core/digest.py before writing anything, "
+    "so nothing is applied twice.\n"
+)
+
+
+def resumable(ran: Ran, resumed: bool = False) -> bool:
+    """Whether a run that started work and then died can be picked back up.
+
+    Three ways a sweep has died part-way with the work itself fine, and all
+    three now carry on in the same session rather than being reported:
+
+    - the model's reply cut off (28 Oct prep: "Response stalled mid-stream");
+    - the connection reset under it (two runs ended "read ECONNRESET");
+    - nothing streamed for longer than the stall window, so the watchdog here
+      stopped it (22 Oct refresh at 41 calls, 7 Oct prep at 21).
+
+    Never on the full timeout, which is the runaway guard, and never without a
+    session id, since then there is nothing to resume. A first run that made no
+    call has done nothing worth keeping, and the retries below start it again;
+    a resumed one has, whatever it managed this time.
+    """
+    if not ran.session or not (ran.calls or resumed):
+        return False
+    if ran.code is None:
+        return ran.stalled
+    if ran.code == 0:
+        return False
+    # The CLI's own error is its last line; the text before it is narration.
+    lines = [ln for ln in f"{ran.text}\n{ran.noise}".splitlines() if ln.strip()]
+    tail = "\n".join(lines[-3:])
+    return bool(MID_STREAM.search(tail) or CONNECTION_LOST.search(tail))
+
+
+# What the CLI says when the gateway turned the model key down, as opposed to
+# never reaching it. The 4 Nov prep is the case: thirty calls in, "Failed to
+# authenticate. API Error: 403 Forbidden", reported as a plain stop with no Log
+# in button, when all it needed was the key fetched again and the same session
+# carried on.
+KEY_REFUSED = re.compile(
+    r"Failed to authenticate|API Error: 40[13]\b|Invalid API key|Malformed API Key"
+    r"|apiKeyHelper failed",
+    re.I,
+)
+# How many times one run fetches the key again before it is reported. Once is
+# enough to tell a stale key from one 1Password itself no longer has right.
+KEY_REFETCHES = 1
+
+
+def key_refused(ran: Ran) -> bool:
+    """Whether a run died because the gateway would not take its key."""
+    if ran.code in (0, None):
+        return False
+    lines = [ln for ln in f"{ran.text}\n{ran.noise}".splitlines() if ln.strip()]
+    return bool(KEY_REFUSED.search("\n".join(lines[-3:])))
+
+
+KEY_NOTE = (
+    "The model gateway turned the key down ({why}) even after it was fetched "
+    "again from 1Password. If Zscaler is asking you to sign in, do that first. "
+    "Otherwise the key 1Password holds for apiKeyHelper has been rotated or "
+    "revoked: put the current one there, then press Log in."
+)
+
+
+def refused_why(ran: Ran) -> str:
+    """The CLI's own words for the refusal, for the message on the page."""
+    for ln in reversed(f"{ran.text}\n{ran.noise}".splitlines()):
+        if KEY_REFUSED.search(ln):
+            return ln.strip()[:160]
+    return "refused"
 
 
 CONNECTION_NOTE = (
@@ -587,9 +697,11 @@ def run_stream(cmd: list[str], payload: str, timeout: int, fh=None, key: str = "
     calls: list[str] = []
     beat = [began]   # last time the agent emitted anything; read_events bumps it
     thinking = [False]  # a model request is in flight; read_events keeps it
+    session: list[str] = []
     reader = threading.Thread(
         target=read_events,
-        args=(proc.stdout, said, noise, calls, began, beat, fh, runner, thinking, key),
+        args=(proc.stdout, said, noise, calls, began, beat, fh, runner, thinking, key,
+              session),
         daemon=True,
     )
     reader.start()
@@ -629,7 +741,8 @@ def run_stream(cmd: list[str], payload: str, timeout: int, fh=None, key: str = "
     with cancel_lock:
         procs.pop(key, None)
     return Ran("".join(said).strip(), "\n".join(noise), code,
-               round(time.time() - began), len(calls), stalled)
+               round(time.time() - began), len(calls), stalled,
+               session[0] if session else "")
 
 
 def blockers() -> tuple[list[str], str]:
@@ -697,7 +810,7 @@ def run_check() -> None:
         add("MCP servers", None, f"Could not ask: {exc}")
     for name in ("asana", "slack", "google", "notion") + ((agent.DB,) if agent.DB else ()):
         if name not in states:
-            add(name, None, "Not configured.", "Run ./setup-mcp.sh")
+            add(name, None, "Not configured.", "Run ./core/scripts/setup-mcp.sh")
             continue
         state = states[name]
         add(
@@ -706,7 +819,7 @@ def run_check() -> None:
             {"connected": "Connected.", "needs-auth": "Needs authorising."}.get(
                 state, state.title() + "."
             ),
-            "" if state == "connected" else "Press Log in, or run ./setup-mcp.sh",
+            "" if state == "connected" else "Press Log in, or run ./core/scripts/setup-mcp.sh",
         )
 
     if not cred:
@@ -719,7 +832,7 @@ def run_check() -> None:
         "Tools in a real run",
         ready,
         "Asana and Slack arrive with their tools." if ready else why,
-        "" if ready else "Run ./setup-mcp.sh, then test again.",
+        "" if ready else "Run ./core/scripts/setup-mcp.sh, then test again.",
     )
     bad = [r for r in rows if r["ok"] is False]
     with health_lock:
@@ -771,61 +884,249 @@ def calendar_loop() -> None:
         time.sleep(60)
 
 
+scout_state: dict = {"state": "idle", "said": "", "at": "", "finished_ts": 0.0}
+scout_lock = threading.Lock()
+scout_proc: list["subprocess.Popen[str] | None"] = [None]
+SCOUT_MIN_GAP_SECS = 75
+
+
+def _set_scout_proc(proc: "subprocess.Popen[str] | None") -> None:
+    with scout_lock:
+        scout_proc[0] = proc
+
+
+def preempt_scout() -> None:
+    """Stop any in-flight background scout immediately so a manual Refresh or
+    Write prep button starts at once without waiting or returning 409."""
+    with scout_lock:
+        proc = scout_proc[0]
+        scout_proc[0] = None
+        if scout_state["state"] == "running":
+            scout_state.update(state="idle", said="")
+    if proc is not None:
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+    scout.LOCK.unlink(missing_ok=True)
+
+
+def _credential_ready_quiet(kind: agent.Kind | None, allow_fetch: bool = False) -> bool:
+    """Check whether a model credential is available without nagging 1Password
+    on a background timer. Action-triggered scouts (`allow_fetch=True`) may
+    resolve it once if needed."""
+    if kind is None:
+        return False
+    if os.environ.get("ANTHROPIC_API_KEY") or getattr(kind, "_credential", ""):
+        return True
+    try:
+        conf = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        if (conf.get("env") or {}).get("ANTHROPIC_API_KEY"):
+            return True
+    except (OSError, ValueError):
+        pass
+    if allow_fetch:
+        return bool(kind.credential())
+    return False
+
+
+def run_scout(force: bool = False, interactive: bool = False) -> None:
+    """Run Stage 1 Haiku scout and launch Stage 2 delta refresh only if something moved."""
+    if not BOARD.exists():
+        return
+    with job_lock:
+        if job["state"] in ("running", "signing_in"):
+            return
+    if lock_held() or signing_in():
+        return
+    kind = agent.pick()
+    if not _credential_ready_quiet(kind, allow_fetch=interactive):
+        return
+    with scout_lock:
+        if scout_state["state"] == "running":
+            return
+        if not force and time.time() - float(scout_state.get("finished_ts") or 0) < SCOUT_MIN_GAP_SECS:
+            return
+        scout_state.update(
+            state="running",
+            said="Checking Asana and Slack…",
+            at=datetime.now().strftime("%H:%M"),
+        )
+    try:
+        got = scout.check(on_proc=_set_scout_proc)
+    except Exception as exc:  # noqa: BLE001
+        got = {"error": str(exc)}
+
+    now_hm = datetime.now().strftime("%H:%M")
+    with scout_lock:
+        if scout_state["state"] == "idle":
+            # Preempted by a manual Refresh or Prep while running.
+            return
+        if got.get("error"):
+            scout_state.update(state="failed", said=str(got["error"])[:160], at=now_hm, finished_ts=time.time())
+            return
+        if not got.get("changed"):
+            scout_state.update(state="done", said="Up to date", at=now_hm, finished_ts=time.time())
+            with job_lock:
+                if job["state"] == "idle":
+                    job["message"] = last_refreshed() or job["message"]
+            return
+        summary = str(got.get("summary") or "changes found")
+        scout_state.update(state="delta", said=summary, at=now_hm, finished_ts=time.time())
+
+    # Something moved: start Stage 2 delta refresh if no manual sweep took the lock meanwhile.
+    with job_lock:
+        if job["state"] == "running" and job.get("kind") == "sweep":
+            return
+    if lock_held() or signing_in():
+        return
+    set_job("running", f"Updating what moved ({summary})")
+    threading.Thread(target=guarded(lambda: run_agent("delta"), "delta refresh"), daemon=True).start()
+
+
+def scout_loop() -> None:
+    """Run the Stage 1 scout every `auto_sweep_mins()` during weekday working hours."""
+    time.sleep(45)
+    while True:
+        try:
+            if scout.due():
+                run_scout(force=False, interactive=False)
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(30)
+
+
+GRANTS_EVERY_SECS = 600
+
+
+def watch_grants() -> None:
+    """Put Log in on the page as soon as Asana or Slack lapses, not on a press.
+
+    Before this the page only learned a grant had gone when a Refresh or Prep
+    was pressed and refused, so the owner saw no way to log in at all until a
+    run had failed. `claude mcp list` costs no model time, so it is asked every
+    ten minutes while nothing else is going on.
+
+    Only once the credential is in hand: fetching it runs apiKeyHelper, and a
+    1Password prompt out of nowhere every ten minutes would be worse than a
+    late button.
+    """
+    time.sleep(30)
+    while True:
+        try:
+            kind = agent.pick()
+            if kind is not None and getattr(kind, "_credential", ""):
+                with job_lock:
+                    quiet = job["state"] in ("idle", "needs_login") and not login_lock.locked()
+                with cancel_lock:
+                    quiet = quiet and "sweep" not in procs
+                states = kind.mcp_states() if quiet else {}
+                lapsed = [n for n in agent.NEEDED_MCPS if states.get(n) == "needs-auth"]
+                with job_lock:
+                    if job["state"] == "idle" and lapsed:
+                        agent.forget_readiness()
+                        job.update(state="needs_login", url="", kind="sweep",
+                                   at=datetime.now().strftime("%H:%M"),
+                                   message=f"{agent.human(lapsed)} "
+                                           f"{'needs' if len(lapsed) == 1 else 'need'} "
+                                           "logging in again." + login_hint(lapsed))
+                    elif (job["state"] == "needs_login" and states
+                          and all(states.get(n) == "connected" for n in agent.NEEDED_MCPS)):
+                        job.update(state="idle", message=last_refreshed(), url="")
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(GRANTS_EVERY_SECS)
+
+
 def connect_one(kind: agent.Kind, args: list[str], label: str, done) -> bool:
     """Run one auth command, show the link it prints, wait for it to land.
 
     Driving Terminal through AppleScript needs an automation permission this
     process does not have, so the command runs as a child here and the page
     shows the link. The owner approves it in the browser and this notices.
+
+    It runs on a pseudo-terminal. `claude mcp login` refuses a stdin that is not
+    a terminal ("authentication can't be completed here") and exits before it
+    prints a link, which is how on 26 Oct Log in said "printed no link" for
+    Slack and gave up. On a terminal it also opens the browser itself.
     """
+    master, slave = pty.openpty()
     try:
         proc = subprocess.Popen(
             [kind.binary, *args],
             cwd=ROOT,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
             env=kind.env(),
+            start_new_session=True,
         )
     except OSError as exc:
+        os.close(master)
         login_say("needs_login", f"could not start {label}: {exc}")
         return False
+    finally:
+        os.close(slave)
 
     login_say("signing_in", f"Starting {label}")
-    lines: list[str] = []
-    threading.Thread(
-        target=lambda: [lines.append(ANSI.sub("", ln)) for ln in proc.stdout],
-        daemon=True,
-    ).start()
+    said: list[str] = []
 
-    url, deadline = "", time.time() + 25
-    while time.time() < deadline and not url and not done():
-        for line in list(lines):
-            found = URL_IN.search(line)
+    def read() -> None:
+        while True:
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:      # EIO once the child has gone
+                return
+            if not chunk:
+                return
+            said.append(chunk.decode("utf-8", "replace"))
+
+    threading.Thread(target=read, daemon=True).start()
+
+    try:
+        url, deadline = "", time.time() + 25
+        while time.time() < deadline and not url and not done() and proc.poll() is None:
+            # The link arrives as an OSC 8 hyperlink, so escapes are stripped
+            # from the whole output rather than line by line.
+            found = URL_IN.search(ANSI.sub("", "".join(said)))
             if found:
                 url = found.group(0).rstrip('.,")')
-                break
-        if not url:
-            time.sleep(0.5)
+            else:
+                time.sleep(0.5)
 
-    login_say(
-        "signing_in",
-        f"Approve {label} in your browser, then come back here." if url else
-        f"{label} printed no link. In a Terminal run: {kind.binary} {' '.join(args)}",
-        url,
-    )
+        if not url and proc.poll() is not None and not done():
+            last = [ln.strip() for ln in ANSI.sub("", "".join(said)).splitlines() if ln.strip()]
+            login_say("needs_login",
+                      f"{label} stopped: {(last[-1] if last else 'no output')[:200]} "
+                      f"In a Terminal run: {kind.binary} {' '.join(args)}")
+            return False
 
-    end = time.time() + 240
-    while time.time() < end:
-        if done():
-            return True
-        if proc.poll() is not None:
-            time.sleep(2)
-            return done()
-        time.sleep(3)
-    return False
+        login_say(
+            "signing_in",
+            f"Approve {label} in your browser, then come back here." if url else
+            f"{label} printed no link. In a Terminal run: {kind.binary} {' '.join(args)}",
+            url,
+        )
+
+        end = time.time() + 240
+        while time.time() < end:
+            if done():
+                return True
+            if proc.poll() is not None:
+                time.sleep(2)
+                return done()
+            time.sleep(3)
+        return False
+    finally:
+        # A login left waiting holds its callback port, and the next attempt
+        # from a Terminal then times out on it.
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=10)
+        try:
+            os.close(master)
+        except OSError:
+            pass
 
 
 def login_hint(left: list[str]) -> str:
@@ -871,7 +1172,7 @@ def login_say(state: str, message: str, url: str = "") -> None:
     set_job(state, message, url)
 
 
-def start_login() -> None:
+def start_login(fresh_key: bool = False) -> None:
     """Walk everything that needs authorising, one browser approval at a time.
 
     The account sign-in is only half of it. Asana and Slack are separate grants,
@@ -888,22 +1189,27 @@ def start_login() -> None:
 
     Every phase says what it is doing as state `signing_in`, which the page
     shows as progress rather than as the red error it was pressed to fix.
+
+    `fresh_key` is the Log in button: the owner pressing it is the one time the
+    remembered model key is not to be trusted, because a refused key is the
+    other thing it is pressed to fix.
     """
     if not login_lock.acquire(blocking=False):
         return
     try:
-        _walk_logins()
+        _walk_logins(fresh_key)
     finally:
         login_lock.release()
 
 
-def _walk_logins() -> None:
+def _walk_logins(fresh_key: bool = False) -> None:
     kind = agent.pick()
     if kind is None:
         login_say("needs_login", agent.blockers(None)[1])
         return
     login_say("signing_in", "Fetching the model credential. 1Password may ask for Touch ID.")
-    if not kind.signed_in():
+    if not kind.wait_for_credential(say=lambda m: login_say("signing_in", m),
+                                    fresh=fresh_key):
         # The credential comes from apiKeyHelper, not a browser flow, so there
         # is no link this could open.
         login_say("needs_login", agent.blockers(kind)[1] + login_hint(["account"]))
@@ -919,7 +1225,7 @@ def _walk_logins() -> None:
         names = " and ".join(n.title() for n in absent)
         login_say("needs_login",
                 f"{names} {'is' if len(absent) == 1 else 'are'} not set up on this "
-                f"machine yet. In a Terminal run: ./setup-mcp.sh")
+                f"machine yet. In a Terminal run: ./core/scripts/setup-mcp.sh")
         return
     wanted = agent._mcp_allow()
     for name, state in states.items():
@@ -973,8 +1279,21 @@ def lock_held() -> bool:
 JOBS = {
     # endpoint name -> prompt, what the page says while it runs
     "refresh": ("core/prompts/refresh.md", "Reading every open ticket and the threads behind them"),
+    "delta": ("core/prompts/refresh.md", "Updating only what moved"),
     "prep": ("core/prompts/prep.md", "Sweeping everything, then writing your script"),
 }
+
+DELTA_PROMPT_TAIL = (
+    "\n\n---\n\n"
+    "## Delta refresh\n\n"
+    "Stage 1 (`./core/scout.py`) has just checked every Asana and Slack source and "
+    "saved only what moved to `{delta_rel}`. Follow **Delta mode** in the prompt above:\n"
+    "1. Turn 1: Run `./core/digest.py --delta` once (never plain `./core/digest.py` or `--full`).\n"
+    "2. Turn 2: Fetch ONLY what `TO FETCH IN ONE PARALLEL TURN` lists. Do NOT re-run the "
+    "Asana census, Slack thread reads, or Slack searches already printed in `DELTA FINDINGS`.\n"
+    "3. Write `tmp/patch.json` with `\"swept\": true`, apply with `./core/apply.py tmp/patch.json`, "
+    "run `./core/check.py`, fix anything it flags, and report concisely what moved.\n"
+)
 
 ASK_TIMEOUT_SECS = 420
 
@@ -1187,6 +1506,11 @@ def tick_from_page(body: dict) -> tuple[int, dict]:
         "step": f"Step {step} on {n} {'back to do' if body.get('off') else 'done'}",
     }.get(verb) or posted_said(n)
     reply = {"said": said, "before": before, **drawn()}
+    if verb == "step":
+        _, after_item = board.by_id(board.load(), n)
+        if render.item_state(after_item or {})["closed"] and before.get("state", "todo") == "todo":
+            reply["closed"] = True
+            reply["said"] = f"All steps done. {n} closed"
     if verb == "posted":
         # The step that said to post it ticks with it. The page paints it, since
         # it does not reload to show its own move.
@@ -1365,7 +1689,7 @@ def board_context(question: str, extra: list[str] | None = None) -> str:
         lines.append(f"Around the owner: {n.get('topic', '')}, {n.get('what', '')}")
     lines += [
         "",
-        "`state/board.json` has all of it, including the drafts and prepared work,",
+        f"`{settings.client_rel(BOARD)}` (via `./core/digest.py`) has all of it, including the drafts and prepared work,",
         "so read it rather than answering from these titles alone.",
     ]
     lines += extra or []
@@ -1414,7 +1738,7 @@ def followed(chain: list[dict]) -> list[str]:
     ]
     if len(chain) > FOLLOW_KEEP:
         lines.append(f"  ({len(chain) - FOLLOW_KEEP} earlier exchanges in this "
-                     "conversation are left out; they are in state/asks.json.)")
+                     f"conversation are left out; they are in {settings.client_rel(ASKS)}.)")
         chain = chain[-FOLLOW_KEEP:]
     for r in chain:
         lines += [f"  Q: {r.get('question', '')}", f"  A: {r.get('answer', '')}"]
@@ -1438,7 +1762,7 @@ def trim_history(hist: list | None) -> list:
     for h in hist or []:
         note = h.get("note", "")
         if isinstance(note, str) and len(note) > ASK_NOTE_CAP:
-            note = note[:ASK_NOTE_CAP] + " …(full text in board.json)"
+            note = note[:ASK_NOTE_CAP] + f" …(full text in {settings.client_rel(BOARD)})"
         out.append({**h, "note": note})
     return out
 
@@ -1465,11 +1789,11 @@ def slim_prepared(prep: dict | None) -> dict | None:
     for k in PREPARED_SUMMARISE:
         v = prep.get(k)
         if isinstance(v, list) and v:
-            slim[k] = f"{len(v)} {k} (full text in board.json under this item id)"
+            slim[k] = f"{len(v)} {k} (run `./core/digest.py --item <id>` for full text)"
         elif isinstance(v, dict) and v:
             rows = v.get("rows")
             n = len(rows) if isinstance(rows, list) else len(v)
-            slim[k] = f"{n}-row {k} (full text in board.json under this item id)"
+            slim[k] = f"{n}-row {k} (run `./core/digest.py --item <id>` for full text)"
     return slim
 
 
@@ -1481,6 +1805,14 @@ def ask_item(item: dict, full: bool) -> dict:
         out["history"] = trim_history(item["history"])
     if not full and item.get("prepared"):
         out["prepared"] = slim_prepared(item["prepared"])
+    elif isinstance(item.get("prepared"), dict) and item["prepared"].get("earlier"):
+        # What a rewrite cut is the record, not the answer: on two cards it was
+        # 15KB of every ask about the job. Named, so a "what did it say before"
+        # still knows where to look.
+        earlier = item["prepared"]["earlier"]
+        out["prepared"] = dict(item["prepared"], earlier=(
+            f"{len(earlier)} earlier entries cut by past rewrites "
+            f"(full text in {settings.client_rel(BOARD)} under this item id)"))
     return out
 
 
@@ -1529,7 +1861,7 @@ def ask_context(ref: str, question: str, parent: str = "") -> str:
         lines += [
             "",
             "The owner is asking about the ticket as a whole. Its open items "
-            "(prepared findings summarised; read board.json by item id for the full text):",
+            "(prepared findings summarised; run `./core/digest.py --item <id>` for the full text):",
             "```json",
             json.dumps(live_items, ensure_ascii=False, indent=2),
             "```",
@@ -1648,10 +1980,20 @@ def run_ask(ask_id: str, ref: str, question: str, parent: str = "",
         # message, which keeps the CLI's own chatter off the card.
         payload = settings.prompt(prompt) + ask_context(ref, question, parent)
         waits = list(RECONNECT_WAITS)
+        refetches = KEY_REFETCHES
         while True:
             ran = run_stream(cmd, payload, ASK_TIMEOUT_SECS, key=ask_id, kind=kind)
             with cancel_lock:
                 called_off = ask_id in cancelled
+            # A refused key on a question that has not touched anything yet is
+            # asked again on a key fetched fresh. One that had made calls may
+            # already have moved its item, so it is reported rather than repeated.
+            if (not called_off and refetches and not ran.calls and key_refused(ran)
+                    and kind.wait_for_credential(say=lambda m: ask_job("signing_in", m),
+                                                 fresh=True)):
+                refetches -= 1
+                ask_job("running", f"Fetched the model key again. Asking {which} again")
+                continue
             if called_off or not waits or not connection_lost(ran):
                 break
             wait = waits.pop(0)
@@ -1692,6 +2034,12 @@ def run_ask(ask_id: str, ref: str, question: str, parent: str = "",
             row.update(state="failed", answer=CONNECTION_NOTE)
             save_ask(row)
             ask_job("failed", "could not reach the model; check Zscaler, then press Send")
+            return
+        if key_refused(ran):
+            msg = KEY_NOTE.format(why=refused_why(ran)) + " Then press Send again."
+            row.update(state="failed", answer=msg)
+            save_ask(row)
+            ask_job("needs_login", msg)
             return
         if ran.code != 0 or not answer:
             # The CLI's own last words, when it said any, are the reason: "exited
@@ -1741,6 +2089,8 @@ def run_agent(kind: str) -> None:
     # applied by mistake. It is unapplied work from a dead run, so it goes.
     for tmp_dir in (settings.TMP_DIR, ROOT / "tmp"):
         for stale in tmp_dir.glob("*.json"):
+            if kind == "delta" and stale.name == "delta.json":
+                continue
             stale.unlink(missing_ok=True)
     prompt = settings.resolve_prompt(prompt_name)
     if not prompt.exists():
@@ -1754,6 +2104,9 @@ def run_agent(kind: str) -> None:
         set_job("failed", "a refresh or prep is already running. Let it finish.")
         return
 
+    # A missed Touch ID prompt is not a lapsed login. Ask 1Password again for a
+    # few minutes before the preflight below calls it one and stops the run.
+    runner.wait_for_credential(say=lambda m: set_job("signing_in", m))
     left, message = blockers()
     if left and set(left) <= set(agent.NEEDED_MCPS) | {"tools"}:
         # A lapsed grant is the one blocker this can walk the owner through, so it
@@ -1765,6 +2118,20 @@ def run_agent(kind: str) -> None:
     if left:
         set_job("needs_login", message + login_hint(left))
         return
+
+    # The sweep finds a meeting's notes through the calendar, so a meeting that
+    # ended since the last read is read for first. A failed read is not a reason
+    # to stop: the sweep still runs on what the calendar said before.
+    if calendar_sync.stale_for_sweep():
+        set_job("running", "Reading the calendar for new meeting notes")
+        read_calendar()
+        # The hourly read may have been under way already, and read_calendar
+        # then returns at once. Wait for that one rather than racing it.
+        for _ in range(120):
+            with cal_lock:
+                if cal["state"] != "running":
+                    break
+            time.sleep(2)
 
     set_job("running", running_note)
     # Which button is running, so the progress line can say "Refresh" or
@@ -1781,21 +2148,75 @@ def run_agent(kind: str) -> None:
 
     timeout = PREP_TIMEOUT_SECS if kind == "prep" else TIMEOUT_SECS
     waits = list(RECONNECT_WAITS)
+    resumes = MID_STREAM_RESUMES
+    refetches = KEY_REFETCHES
+    carry_on = ""   # the session to resume after a reply was cut off
     try:
-        for attempt in (1, 2, 3):
+        for attempt in range(1, 4 + MID_STREAM_RESUMES + KEY_REFETCHES):
             with log.open("a", encoding="utf-8") as fh:
                 fh.write(
                     f"\n=== {datetime.now():%H:%M:%S} {kind} on "
-                    f"{runner.name}/{model}/{agent.effort_for(kind) or 'default'} ===\n"
+                    f"{runner.name}/{model}/{agent.effort_for(kind) or 'default'}"
+                    f"{', resuming ' + carry_on if carry_on else ''} ===\n"
                 )
                 fh.flush()
-                ran = run_stream(cmd, settings.prompt(prompt), timeout, fh,
-                                 kind=runner)
+                if carry_on:
+                    ran = run_stream(cmd + runner.resume(carry_on), RESUME_NOTE,
+                                     timeout, fh, kind=runner)
+                else:
+                    full_prompt = settings.prompt(prompt)
+                    if kind == "delta":
+                        full_prompt += DELTA_PROMPT_TAIL.format(
+                            delta_rel=settings.client_rel(scout.DELTA)
+                        )
+                    ran = run_stream(cmd, full_prompt, timeout, fh,
+                                     kind=runner)
                 fh.write(
                     f"\n{ran.text}\n"
                     f"=== {kind} ended after {ran.took}s, {ran.calls} tool calls, "
                     f"exit {ran.code}{', stalled' if ran.stalled else ''} ===\n"
                 )
+            # The gateway would not take the key. The one the server remembers
+            # can be days old, so ask 1Password for it again and carry the same
+            # session on: every call before the refusal ran and is in it. A run
+            # that had done nothing simply starts again.
+            if key_refused(ran):
+                fresh_start = not ran.calls and not carry_on
+                if refetches and (fresh_start or ran.session):
+                    refetches -= 1
+                    set_job("signing_in", "The model gateway turned the key down. "
+                                          "Fetching it again: 1Password may ask for Touch ID")
+                    if runner.wait_for_credential(say=lambda m: set_job("signing_in", m),
+                                                  fresh=True):
+                        if not fresh_start:
+                            carry_on = ran.session
+                        LOCK.touch()
+                        set_job("running", f"Fetched the key again after {ran.calls} "
+                                           "steps. Picking the same run up where it stopped"
+                                           if carry_on else running_note)
+                        time.sleep(RECONNECT_WAITS[0])
+                        continue
+                # A Log in button rather than a dead end: it fetches the key fresh.
+                done = (f" The {kind} stopped after {ran.calls} steps without "
+                        f"finishing; see {log.name}." if ran.calls else
+                        " Nothing was read or changed.")
+                set_job("needs_login", KEY_NOTE.format(why=refused_why(ran)) + done)
+                return
+            # The run died part-way, but not its work: every tool call before it
+            # finished and is in the session, so the same session carries on from
+            # there. Starting over would redo twenty minutes of reading, and a
+            # sweep that had already applied its patch would apply it twice.
+            if resumes and resumable(ran, resumed=bool(carry_on)):
+                resumes -= 1
+                carry_on = ran.session
+                # Its age is how a crashed holder is told apart from a live one,
+                # so a run that is carrying on is a run that has just started.
+                LOCK.touch()
+                set_job("running", f"the connection to the model dropped after "
+                                   f"{ran.calls} steps. Picking the same run up "
+                                   "where it stopped")
+                time.sleep(10)
+                continue
             if ran.code is None:
                 if ran.stalled and ran.calls:
                     # It was working and then stopped answering, which is a
@@ -1810,7 +2231,7 @@ def run_agent(kind: str) -> None:
                     set_job("failed",
                             f"the {kind} went quiet and was stopped, so the agent "
                             "session has most likely lapsed or a connection is down. "
-                            f"Check ./setup-mcp.sh --check, then try again. "
+                            f"Check ./core/scripts/setup-mcp.sh --check, then try again. "
                             f"See {log.name}")
                 else:
                     set_job("failed", f"the {kind} ran past {timeout // 60} minutes and was stopped")
@@ -1830,6 +2251,12 @@ def run_agent(kind: str) -> None:
                     set_job("failed", f"{ran.text.strip()} Reconnected: press "
                                       f"{'Refresh' if kind == 'refresh' else 'Write prep'} again.")
                 return
+            # No tool call means nothing was read and nothing written, whatever
+            # the closing line says. It is the run's own explanation, not a
+            # "Script written" over a board nobody touched.
+            if ran.code == 0 and ran.text and not ran.calls:
+                set_job("failed", f"{ran.text.strip()[:300]} Nothing on the board changed.")
+                return
             if ran.code == 0 and ran.text:
                 if not BOARD.exists():
                     set_job("failed", f"the {kind} finished without writing {settings.client_rel(BOARD)}. "
@@ -1839,7 +2266,9 @@ def run_agent(kind: str) -> None:
                 # chat reads, is redrawn here so a run never spends a turn on it.
                 subprocess.run([sys.executable, str(settings.CORE / "tick.py"), "--rebuild"],
                                cwd=ROOT, capture_output=True, timeout=60)
-                set_job("done", "Refreshed" if kind == "refresh" else "Script written")
+                notify.sync_reminders_bg()
+                done_msg = {"refresh": "Refreshed", "delta": "Updated", "prep": "Script written"}.get(kind, "Refreshed")
+                set_job("done", done_msg)
                 return
             # Worth running again only when it cannot have changed anything. No
             # tool call means no edit, so nothing can be applied twice; a sweep
@@ -1869,7 +2298,7 @@ def run_agent(kind: str) -> None:
 # How a run says it stopped on a dead connection, per "Stop rather than improvise".
 AUTH_STOP = re.compile(
     r"\b(asana|slack)\b.{0,80}\b(missing|disconnected|not connected|authenticat|authori[sz]|"
-    r"unavailable|no tools?)",
+    r"unavailable|no tools?|log ?in|sign ?in|re-?auth)",
     re.I | re.S,
 )
 
@@ -2067,7 +2496,7 @@ class Handler(BaseHTTPRequestHandler):
                 # page never offers Refresh over one it would refuse with a 409.
                 if state.get("state") not in ("running", "done", "failed"):
                     state["state"] = "running"
-            if state.get("state") == "idle" and (state.get("message") or "Last refreshed").startswith("Last refreshed"):
+            if state.get("state") == "idle" and (state.get("message") or "Last refreshed").startswith(("Last refreshed", "Up to date")):
                 state["message"] = last_refreshed() or state["message"]
             # Each question's own progress, so two cards thinking at once each
             # say what they are doing rather than sharing one line.
@@ -2078,6 +2507,11 @@ class Handler(BaseHTTPRequestHandler):
                     state["health"] = dict(health, rows=list(health["rows"]))
             with cal_lock:
                 state["calendar"] = dict(cal)
+            with scout_lock:
+                state["scout"] = dict(scout_state)
+            state["auto_mins"] = settings.auto_sweep_mins()
+            checked_dt = scout._parse_iso(scout.last_checked_at())
+            state["checked_epoch"] = int(checked_dt.timestamp()) if checked_dt else 0
             # What the board looks like now. The page holds the one it was drawn
             # from, so a `./tick.py <n>` in a terminal reloads the browser rather
             # than sitting there being quietly wrong.
@@ -2115,7 +2549,13 @@ class Handler(BaseHTTPRequestHandler):
                      ".txt": "text/plain; charset=utf-8",
                      ".csv": "text/csv; charset=utf-8",
                      ".json": "application/json; charset=utf-8",
-                     ".py": "text/plain; charset=utf-8"}
+                     ".py": "text/plain; charset=utf-8",
+                     # Evidence attached to a draft: shown in the box, dragged into the post.
+                     ".png": "image/png",
+                     ".jpg": "image/jpeg",
+                     ".jpeg": "image/jpeg",
+                     ".gif": "image/gif",
+                     ".webp": "image/webp"}
             ctype = kinds.get(doc.suffix.lower(), "application/octet-stream")
             self.send(200, doc.read_bytes(), ctype)
             return
@@ -2184,6 +2624,7 @@ class Handler(BaseHTTPRequestHandler):
             self.json_out(403, {"error": "bad key"})
             return
         if path in ("/api/refresh", "/api/prep"):
+            preempt_scout()
             with job_lock:
                 if job["state"] == "running" and job.get("kind") == "sweep":
                     self.json_out(409, dict(job))
@@ -2318,7 +2759,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             set_job("signing_in", "Starting the sign-in")
             threading.Thread(
-                target=guarded(start_login, "sign-in"), daemon=True
+                target=guarded(lambda: start_login(fresh_key=True), "sign-in"), daemon=True
             ).start()
             self.json_out(202, {"state": "signing_in", "message": "Starting the sign-in"})
             return
@@ -2350,6 +2791,27 @@ class Handler(BaseHTTPRequestHandler):
                 code, reply = setup_page.save_answers(body)
             self.json_out(code, reply)
             return
+        if path == "/api/asana-status":
+            # Set in Asana, pressed by the owner on one ticket. The only write to
+            # Asana the desk makes, and asana_status.py is shaped so it can make
+            # no other. Answered when Asana has, in twenty seconds or so; the
+            # board moves with it and the page reloads on its own.
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, OSError):
+                self.json_out(400, {"error": "unreadable"})
+                return
+            ref = str((body or {}).get("ticket", "")).strip() if isinstance(body, dict) else ""
+            if not ref:
+                self.json_out(400, {"error": "say which ticket"})
+                return
+            try:
+                got = asana_status.set_status(ref)
+            except Exception as exc:  # noqa: BLE001
+                got = {"error": str(exc)[:200]}
+            self.json_out(502 if got.get("error") else 200, got)
+            return
         if path == "/api/calendar":
             # Read the calendar now. Collected from /api/status like the check,
             # since a read is a headless run of about forty seconds. A read that
@@ -2360,6 +2822,18 @@ class Handler(BaseHTTPRequestHandler):
             if not busy:
                 threading.Thread(target=read_calendar, daemon=True).start()
             self.json_out(202, {"state": "running"})
+            return
+        if path == "/api/scout":
+            # Stage 1 delta check when the owner returns from copying a draft or
+            # opening an Asana/Slack link, or after an idle gap.
+            with scout_lock:
+                busy = scout_state["state"] == "running"
+            if not busy and settings.auto_sweep_mins() > 0:
+                threading.Thread(
+                    target=lambda: run_scout(force=False, interactive=True),
+                    daemon=True,
+                ).start()
+            self.json_out(202, {"state": "checking"})
             return
         self.json_out(404, {"error": "not here"})
 
@@ -2387,6 +2861,8 @@ def main() -> int:
     # port would spend a run an hour for a page nobody is looking at.
     if args.port == DESK_PORT or settings.env("CALENDAR_LOOP"):
         threading.Thread(target=calendar_loop, daemon=True).start()
+        threading.Thread(target=watch_grants, daemon=True).start()
+        threading.Thread(target=scout_loop, daemon=True).start()
 
     # Claim the port before announcing the key. `serve.json` is how the terminal
     # command and the browser find this server, so a second copy started by hand

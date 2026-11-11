@@ -21,6 +21,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import board as B
 import render_standup
 import render_brief
 import calendar_sync
@@ -152,6 +153,10 @@ def render_track(
         _, due_kind = when_tag(item, st, sess)
         if st["state"] == "waiting" and due_kind == "none":
             waiting_cold.append(row)
+        elif st["state"] == "todo" and item.get("due_by"):
+            # A deadline that has come is today's work; one still ahead is this
+            # week's, whatever urgency was written beside it.
+            (today_rows if due_kind == "now" else week_rows).append(row)
         elif st["state"] == "todo":
             # The owner's own work goes by the urgency they gave it, the same
             # reading the week strip makes; every job of theirs reads "Do now",
@@ -485,11 +490,52 @@ def asana_chips(t: dict) -> str:
         if not a.get(key):
             continue
         odd = key == "assignee" and bool(first) and first not in a[key]
+        if key == "status":
+            bits.append(status_chips(t))
+            continue
         bits.append(
             f'<span class="tk-chip{" warn" if odd else ""}">'
             f"<b>{label}</b>{esc(a[key])}</span>"
         )
     return "".join(bits)
+
+
+def status_chips(t: dict) -> str:
+    """Asana's Status in Asana's own colour, and what it should be when behind.
+
+    The colour is the one the client's board shows it in, so the chip on the
+    card and the column in Asana are recognisably the same thing. When the
+    timeline has moved past it, a second chip says where it should be, with the
+    event in its title, and a button sets it in Asana when the field is known.
+    """
+    a = t.get("asana") or {}
+    now = str(a.get("status") or "")
+    hue = settings.asana_status_color(now)
+    out = (f'<span class="tk-chip as-st{f" as-{hue}" if hue else ""}">'
+           f"<b>Status</b>{esc(now)}</span>")
+    should = B.status_behind(t)
+    if not should:
+        return out
+    why = str(a.get("status_why") or "")
+    hue2 = settings.asana_status_color(should)
+    field = settings.asana_status_field()
+    can_set = bool(field.get("gid") and (field.get("options", {}).get(should) or {}).get("gid")
+                   and t.get("id") and not t.get("no_ticket_yet"))
+    out += (
+        f'<span class="tk-behind" title="{esc(why)}">'
+        f'<span class="tk-arrow" aria-hidden="true">→</span>'
+        f'<span class="tk-chip as-st as-should{f" as-{hue2}" if hue2 else ""}">'
+        f"<b>Should be</b>{esc(should)}</span>"
+    )
+    if can_set:
+        out += (f'<button type="button" class="tk-setst" data-asana-status="{esc(t.get("id"))}" '
+                f'data-to="{esc(should)}">Set in Asana</button>')
+    else:
+        out += '<span class="tk-setst-hint">change it in Asana</span>'
+    out += "</span>"
+    if why:
+        out += f'<span class="tk-why">{esc(why)}</span>'
+    return out
 
 
 STAGES = (
@@ -937,24 +983,54 @@ def opening_view(board: dict, has_script: bool) -> str:
 
 
 def jump_bar(tickets: list[dict], refs: dict[str, str], has_news: bool) -> str:
-    """The sections and every ticket, one click away, wherever you are."""
-    chips = []
-    if has_news:
-        chips.append('<a href="#brief">This morning</a>')
-    chips.append('<a href="#todo">To do</a>')
-    chips.append('<a href="#tickets">Tickets</a>')
-    for t in tickets:
-        # A ticket with nothing open is a line in the finder, not a stop here.
-        if ticket_group(t) != "live":
+    """What is yours to do now, one press from each, wherever you are.
+
+    It used to be the page's sections and a chip per ticket, which is a table of
+    contents: the owner never used it, because they do not think in sections or
+    in tickets, they think in jobs. So the bar is the short list of jobs sitting
+    with them, in the order the To do list puts them, each landing on the job
+    itself rather than the top of its card. Everything else they are waiting on
+    is one count at the end, and Find reaches the rest.
+    """
+    index = index_items(tickets)
+    # The chip carries the job number already, so the bare ref, not the
+    # numbered tag ("59: REF") that would print it twice.
+    tags = {t.get("ref", ""): str(t.get("ref") or "") for t in tickets}
+    mine, waiting = [], 0
+    for ref, item, st in tracked(tickets):
+        if st["closed"]:
             continue
-        ref = t.get("ref", "")
-        mine = sum(1 for i in t.get("items", []) if state_of(i)["state"] == "todo")
-        count = f'<span class="c">{mine}</span>' if mine else ""
-        chips.append(f'<a class="tkt" href="#{esc(refs[ref])}">{esc(ticket_tag(t))}{count}</a>')
+        if st["state"] not in {"todo", "hold"}:
+            waiting += 1
+            continue
+        if blocked_on(item, index):
+            continue
+        mine.append((ref, item, st))
+    chips = []
+    for ref, item, st in mine:
+        n = esc(item.get("id", ""))
+        due, kind = when_tag(item, st)
+        hot = kind == "now" or "today" in (due or "").lower() or kind == "late"
+        chips.append(
+            f'<a class="jb{" hot" if hot else ""}{" held" if st["state"] == "hold" else ""}" '
+            f'href="#{esc(refs.get(ref, ""))}" data-job-link="{n}" '
+            f'title="{n}. {esc(item.get("title", ""))}">'
+            f'<b>{n}</b><span class="jb-t">{esc(tags.get(ref, ref))}</span>'
+            f'{f"<i>{esc(due)}</i>" if due else ""}</a>'
+        )
+    lead = (
+        f'<span class="lab">With you <b>{len(mine)}</b></span>'
+        if mine else '<span class="lab">Nothing with you</span>'
+    )
+    rest = (
+        f'<a class="jb-rest" href="#todo">{waiting} waiting on others</a>'
+        if waiting else ""
+    )
     return f"""
   <nav class="jump">
-    <span class="lab">Jump to</span>
+    {lead}
     <div class="jump-track">{"".join(chips)}</div>
+    {rest}
     <button class="find" data-find type="button">Find <kbd>/</kbd></button>
   </nav>"""
 

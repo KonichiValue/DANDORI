@@ -22,6 +22,7 @@ import board as B
 import calendar_sync
 import people
 import render_milestone
+import render_path
 import render_prioritize
 import render_standup
 import settings
@@ -31,6 +32,7 @@ from render import proposed
 from render import (
     apply_glossary,
     blocked_on,
+    draft_plain,
     due_words,
     index_items,
     item_order,
@@ -38,6 +40,7 @@ from render import (
     plain,
     sessions,
     tracked,
+    when_tag,
     when_words,
 )
 
@@ -117,7 +120,7 @@ def render_draft(d: dict, st: dict | None = None) -> list[str]:
     lang = client_language_name() if d.get("language") == "ja" else "English"
     gone = (st and st["state"] not in {"todo", "hold"}) or d.get("sent") or d.get("posted")
     head = (
-        f"**Sent {str(d.get('sent_at') or '')[11:16] or (st or {}).get('at', '')}** to {d.get('target', '')}"
+        f"**Sent {render_path.sent_when(d) or (st or {}).get('at', '')}** to {d.get('target', '')}"
         if gone
         else f"**Draft ({lang})** for {d.get('target', '')}"
     )
@@ -126,9 +129,9 @@ def render_draft(d: dict, st: dict | None = None) -> list[str]:
     # one as the main body, or an English draft prints an empty code block.
     is_ja = d.get("language") == "ja"
     if is_ja:
-        body, translation = plain(d.get("body_ruby", "")), d.get("body_en")
+        body, translation = draft_plain(d.get("body_ruby", "")), draft_plain(d.get("body_en") or "")
     else:
-        body, translation = plain(d.get("body_en") or d.get("body_ruby") or d.get("body", "")), None
+        body, translation = draft_plain(d.get("body_en") or d.get("body_ruby") or d.get("body", "")), None
     out = [
         head + (f" ({link('open thread', d['link'])})" if d.get("link") else ""),
         "",
@@ -140,6 +143,18 @@ def render_draft(d: dict, st: dict | None = None) -> list[str]:
     if translation:
         out += ["<details><summary>English</summary>", "", "```", translation, "```", "", "</details>", ""]
     return out
+
+
+def draft_files(item: dict, k: int) -> list[str]:
+    """What goes out with draft `k`: the files made, then the evidence still to get."""
+    out = []
+    for f in render_path.files_for(item, k):
+        where = f.get("path") or f.get("url")
+        if where:
+            out.append(f"- Attach: {link(f.get('label') or where, where)}")
+        elif f.get("how"):
+            out.append(f"- Still to get: **{f.get('label') or 'Evidence'}**. {f['how']}")
+    return out + [""] if out else []
 
 
 STAGES = ("refining", "queued", "building", "review", "released", "verified")
@@ -229,6 +244,10 @@ def render_ticket(t: dict, index: dict[str, dict] | None = None) -> list[str]:
             f"{(t.get('asana') or {}).get('section', 'no section')}, "
             f"priority {(t.get('asana') or {}).get('priority', 'unset')}",
         ]
+        should = B.status_behind(t)
+        if should:
+            why = (t.get("asana") or {}).get("status_why") or ""
+            out.append(f"- Asana Status is behind: should be {should}" + (f" ({why})" if why else ""))
 
     internal = t.get("internal_ticket") or {}
     if internal.get("name"):
@@ -282,6 +301,9 @@ def render_ticket(t: dict, index: dict[str, dict] | None = None) -> list[str]:
         behind = blocked_on(a, index) if st["state"] in {"todo", "hold"} else ""
         active = st["state"] in {"todo", "hold"} and not behind
         label = f"AFTER {behind}" if behind else st["label"].upper()
+        if st["state"] == "todo" and a.get("due_by") and not behind:
+            # The deadline, as the card's chip says it: "BY FRI (11/6)".
+            label = f"{label}, {when_tag(a, st)[0].upper()}"
         head = f"{a.get('id', '-')}. {a.get('title', '')} [{label}{mins}]"
         if st["closed"]:
             # Finished is finished: the number and how it ended, nothing more.
@@ -321,17 +343,34 @@ def render_ticket(t: dict, index: dict[str, dict] | None = None) -> list[str]:
             ]
         prep = a.get("prepared") or {}
         if prep:
+            # The answer and what is still open, in view; the reasoning under one
+            # fold, the way the card draws it.
             built = f" ({prep['built_at']})" if prep.get("built_at") else ""
-            actions += [f"**Prepared for you**{built}", ""]
-            if prep.get("what"):
-                actions += [prep["what"], ""]
+            actions += [f"**Worked out for you**{built}", ""]
             if prep.get("conclusion"):
                 actions += [f"> **Bottom line:** {prep['conclusion']}", ""]
+            elif prep.get("what"):
+                actions += [f"> **What is ready:** {prep['what']}", ""]
+            if prep.get("unanswered"):
+                actions.append("**Still open**")
+                actions.append("")
+                for q in prep["unanswered"]:
+                    actions.append(f"- {q}")
+                actions.append("")
+            meeting = prep.get("meeting_use") or {}
+            if meeting:
+                actions += [
+                    f"**Meeting version:** {meeting.get('summary', 'Use the What I say in the room section below.')}",
+                    "",
+                ]
+            notes = []
+            if prep.get("what") and prep.get("conclusion"):
+                notes += [prep["what"], ""]
             tbl = prep.get("table") or {}
             if tbl.get("rows"):
                 cols = tbl.get("columns", [])
-                actions.append("| " + " | ".join(cols) + " |")
-                actions.append("|" + "---|" * len(cols))
+                notes.append("| " + " | ".join(cols) + " |")
+                notes.append("|" + "---|" * len(cols))
                 for row in tbl["rows"]:
                     cells = [
                         str(c.get("text", "") if isinstance(c, dict) else c)
@@ -339,51 +378,42 @@ def render_ticket(t: dict, index: dict[str, dict] | None = None) -> list[str]:
                         .replace("\n", " ")
                         for c in row
                     ]
-                    actions.append("| " + " | ".join(cells) + " |")
-                actions.append("")
+                    notes.append("| " + " | ".join(cells) + " |")
+                notes.append("")
             for f in prep.get("findings", []):
-                actions.append(f"- {f}")
+                notes.append(f"- {f}")
             if prep.get("findings"):
-                actions.append("")
+                notes.append("")
             for note in prep.get("notes", []):
                 if note.get("heading") and note.get("body"):
-                    actions += [f"**{note['heading']}:** {note['body']}", ""]
-            if prep.get("unanswered"):
-                actions.append("**Still unanswered**")
-                actions.append("")
-                for q in prep["unanswered"]:
-                    actions.append(f"- {q}")
-                actions.append("")
-            earlier = [e for e in prep.get("earlier") or [] if isinstance(e, dict)]
-            if earlier:
-                actions += [f"_{len(earlier)} earlier details, taken out by later rewrites: "
-                            "under Earlier detail on the card._", ""]
+                    notes += [f"**{note['heading']}:** {note['body']}", ""]
             files = [f for f in prep.get("files", []) if f.get("path") or f.get("url")]
             if files:
-                actions += [
-                    "Files it made: "
+                notes += [
+                    "Files: "
                     + ", ".join(
                         link(
                             f.get("label") or f.get("path") or f["url"],
                             f.get("path") or f["url"],
                         )
+                        + (f" (goes with draft {f['draft']})" if f.get("draft") else "")
                         for f in files
                     ),
                     "",
                 ]
-            meeting = prep.get("meeting_use") or {}
-            if meeting:
-                actions += [
-                    f"**Meeting version:** {meeting.get('summary', 'Use the What I say in the room section below.')}",
-                    "",
-                ]
             srcs = [s for s in prep.get("sources", []) if s.get("url")]
             if srcs:
-                actions += [
-                    "Built from: "
+                notes += [
+                    "Read from: "
                     + ", ".join(link(s.get("label", "source"), s["url"]) for s in srcs),
                     "",
                 ]
+            earlier = [e for e in prep.get("earlier") or [] if isinstance(e, dict)]
+            if earlier:
+                notes += [f"_{len(earlier)} earlier details, taken out by later rewrites: "
+                          "under Earlier detail on the card._", ""]
+            if notes:
+                actions += ["<details><summary>Working notes</summary>", ""] + notes + ["</details>", ""]
         if a.get("where_it_stands") and not st["closed"]:
             actions += [f"**Where it stands:** {a['where_it_stands']}", ""]
         steps = a.get("steps", [])
@@ -417,8 +447,23 @@ def render_ticket(t: dict, index: dict[str, dict] | None = None) -> list[str]:
                 f"> {link('source', a.get('source_url', ''))}",
             ]
         actions.append("")
-        for d in [a.get("draft") or {}] + list(a.get("drafts") or []):
+        # Still to send first, then everything that went, oldest first, under one
+        # fold, the way the card draws it.
+        mail = B.drafts(a)
+        live = [d for d in mail if not render_path.draft_gone(d, st)]
+        went = sorted(
+            (d for d in mail if render_path.draft_gone(d, st)),
+            key=lambda d: str(d.get("sent_at") or ""),
+        )
+        for d in live:
             actions += render_draft(d, st)
+            actions += draft_files(a, mail.index(d) + 1)
+        if went:
+            actions += [f"<details><summary>{len(went)} message"
+                        f"{'' if len(went) == 1 else 's'} sent</summary>", ""]
+            for d in went:
+                actions += render_draft(d, st)
+            actions += ["</details>", ""]
         actions += render_asks(f"item:{a.get('id')}")
         if not active:
             actions += ["</details>", ""]
@@ -538,17 +583,45 @@ def render_xws(data: dict) -> list[str]:
 
 
 def render_huddle(data: dict) -> list[str]:
-    """The team huddle: a short internal update, on-my-plate plus real
-    blockers only. English, since it is a Kraken-side room, not the client's."""
+    """The team huddle: milestones with their one-line update, then real
+    blockers, then the plate if asked. English, since it is a Kraken-side room."""
     h = data.get("huddle") or {}
-    if not h.get("for_date") and not h.get("plate") and not h.get("blockers"):
+    mss = render_standup.huddle_milestones(data)
+    blockers = render_standup.huddle_blockers(h)
+    if not h.get("for_date") and not mss and not blockers:
         return []
     when = when_words(h.get("for_date", ""), h.get("at", ""))
-    rows: list[str] = ["**On my plate**"]
-    rows += [f"- {x}" for x in h.get("plate", [])]
-    rows += ["", "**Blockers**"]
-    blockers = h.get("blockers", [])
-    rows += [f"- {x}" for x in blockers] if blockers else ["No blockers."]
+    rows: list[str] = []
+    link = render_standup.room_link(("huddle",))
+    if link:
+        rows += [f"[Huddle page]({link})", ""]
+    if mss:
+        rows.append("**Milestones**")
+        for ms in mss:
+            st = ms.get("status", "")
+            bits = ", ".join(filter(None, [
+                render_standup.MS_WORDS.get(st, st),
+                f"target {ms['target']}" if ms.get("target") else "",
+                ms.get("confidence", ""),
+            ]))
+            rows.append(f"- {ms.get('name') or ms.get('id', '')} ({bits})"
+                        + (f": {ms['update']}" if ms.get("update") else ""))
+        rows.append("")
+    rows.append("**Blockers**")
+    if blockers:
+        for b in blockers:
+            st = b.get("status", "blocked")
+            meta = "; ".join(filter(None, [
+                render_standup.BLOCK_WORDS.get(st, st), b.get("milestone", ""),
+                f"waiting on {b['waiting_on']}" if b.get("waiting_on") else "",
+                f"next: {b['next_step']}" if b.get("next_step") else "",
+            ]))
+            rows.append(f"- {b.get('blocker', '')} ({meta})")
+    else:
+        rows.append("No blockers.")
+    plate = h.get("plate") or []
+    if plate:
+        rows += ["", "**On my plate, if asked**"] + [f"- {x}" for x in plate]
     title = render_standup.huddle_name() + (f", {when}" if when else "")
     return block(title, rows)
 
@@ -567,6 +640,9 @@ def render_meetings(data: dict) -> list[str]:
     ahead = today + timedelta(days=3 if today.weekday() == 4 else 1)
     out = ["## Meetings", "",
            f"From Google Calendar, read {calendar_sync.seen_at() or stored.get('fetched_at', '?')}.", ""]
+    # What each meeting that has ended moved on the board, as the strip shows it.
+    mins = calendar_sync.minutes(data)
+    now = settings.now()
     for day in (today, ahead):
         rows = [e for e in events if e.get("date") == day.isoformat()]
         out.append(f"**{'Today' if day == today else day.strftime('%a %-d %b')}**"
@@ -577,12 +653,23 @@ def render_meetings(data: dict) -> list[str]:
                 f"{settings.client_short()} in the room" if e.get("client") else "",
                 {"tentative": "maybe", "needsAction": "not answered"}.get(e.get("answer", ""), ""),
             ]))
+            m = mins.get(e.get("id", ""))
+            notes = [m["notes"]] if m and m.get("notes") else (e.get("notes") or [])[:1]
             links = " ".join(
                 ([link("Join", e["join"])] if e.get("join") else [])
-                + [link("Notes", n["url"]) for n in (e.get("notes") or [])[:1] if n.get("url")]
+                + [link("Notes", n["url"]) for n in notes if n.get("url")]
             )
+            moved = ""
+            try:
+                ended = datetime.fromisoformat(e["end"]) <= now
+            except (KeyError, ValueError):
+                ended = False
+            if m and ended:
+                moved = (" Notes not folded in yet." if m["state"] == "unread"
+                         else f" On your tickets: {', '.join(m['refs'])}." if m["refs"]
+                         else " Read; nothing on your tickets.")
             out.append(f"- {span} {'**' + e['title'] + '**' if e.get('work') else e['title']}"
-                       + (f" ({tags})" if tags else "") + (f" {links}" if links else ""))
+                       + (f" ({tags})" if tags else "") + (f" {links}" if links else "") + moved)
         out.append("")
     unread = calendar_sync.unread_notes(data)
     if unread:
@@ -712,6 +799,9 @@ def render(data: dict) -> str:
             else:
                 behind = blocked_on(a, index)
                 bits.append(f"queued behind {behind}" if behind else "with you")
+                if a.get("due_by") and not behind:
+                    tag = when_tag(a, st)[0]
+                    bits.append(tag[:1].lower() + tag[1:])
                 if a.get("est_minutes"):
                     bits.append(f"{a['est_minutes']} min")
             if st.get("note"):
