@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import re
 import shlex
@@ -370,11 +371,225 @@ print ''
 claude 'follow core/setup/INTERVIEW.md'"""
 
 
+DEFAULT_OP_REF = "op://Employee/LiteLLM API Key/credential"
+
+
+def default_op_ref() -> str:
+    """Current `op://...` reference in `~/.claude/settings.json`, or the standard default."""
+    try:
+        conf = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        helper = str(conf.get("apiKeyHelper") or "")
+        m = re.search(r"op://[^\s\"']+(?:\s+[^\s\"']+)*", helper)
+        if m:
+            return m.group(0).strip()
+    except (OSError, ValueError):
+        pass
+    return DEFAULT_OP_REF
+
+
+def connect_gateway(body: dict) -> tuple[int, dict]:
+    """Configure `~/.claude/settings.json` for Kraken's LiteLLM gateway directly
+    from the browser, fetch the key via 1Password Touch ID, and verify connectivity."""
+    op_ref = str(body.get("op_ref") or "").strip() or default_op_ref()
+    if not op_ref.startswith("op://"):
+        return 400, {"error": "Enter a 1Password reference starting with op:// (for example op://Employee/LiteLLM API Key/credential)."}
+    if any(ch in op_ref for ch in ('"', "`", "$", ";", "\n", "\r")):
+        return 400, {"error": "Invalid characters in the 1Password reference."}
+    if not shutil.which("op"):
+        return 400, {
+            "error": "1Password CLI (`op`) is not enabled yet. Open 1Password -> Settings -> Developer and turn on Integrate with 1Password CLI."
+        }
+    reg = str(body.get("region") or settings.region() or "eu").strip().lower()
+    if reg not in ("eu", "us", "apac"):
+        reg = settings.region()
+
+    def _run_gateway() -> None:
+        set_work("running", "gateway_direct", "Writing gateway settings and asking 1Password for your key…")
+        cdir = Path.home() / ".claude"
+        cfile = cdir / "settings.json"
+        cdir.mkdir(parents=True, exist_ok=True)
+        existing: dict = {}
+        if cfile.exists():
+            try:
+                existing = json.loads(cfile.read_text(encoding="utf-8"))
+                shutil.copy(cfile, cfile.with_suffix(".json.bak"))
+            except (OSError, ValueError):
+                existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
+        env_block = dict(existing.get("env") or {}) if isinstance(existing.get("env"), dict) else {}
+        reg_up = reg.upper()
+        env_block.update({
+            "ANTHROPIC_BASE_URL": "https://litellm.kraken.tech",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": f"claude-low-carbon-{reg}-haiku",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": f"Haiku ({reg_up})",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": f"claude-low-carbon-{reg}-sonnet",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": f"Sonnet ({reg_up})",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": f"claude-low-carbon-{reg}-opus",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": f"Opus ({reg_up})",
+            "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
+            "ENABLE_PROMPT_CACHING_1H": "1",
+            "ENABLE_TOOL_SEARCH": "true",
+        })
+        existing["apiKeyHelper"] = f'op read "{op_ref}"'
+        existing["env"] = env_block
+        tmp = cfile.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(existing, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(cfile)
+        note(f"Updated ~/.claude/settings.json ({reg_up} gateway, {op_ref})")
+
+        kind = agent.Claude()
+        agent.Claude._credential = ""
+        agent.forget_readiness()
+        key = kind.credential()
+        if not key:
+            set_work(
+                "failed",
+                "gateway_direct",
+                "1Password did not return a key. Check that 1Password is unlocked and the item path matches your vault.",
+            )
+            recheck()
+            return
+        note("1Password returned the API key. Verifying connection to litellm.kraken.tech…")
+        if shutil.which(kind.binary):
+            out = subprocess.run(
+                [kind.binary, "--print", "--model", f"claude-low-carbon-{reg}-haiku", "Reply with the single word: connected"],
+                cwd=ROOT,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=45,
+                check=False,
+                env=kind.env(),
+            )
+            reply_line = (out.stdout or out.stderr or "").strip().splitlines()
+            if reply_line:
+                note(reply_line[-1][:160])
+        set_work("done", "gateway_direct", "Connected to Kraken's model gateway.")
+        recheck()
+
+    threading.Thread(target=_run_gateway, daemon=True).start()
+    return 202, {"state": "running"}
+
+
+def get_profile() -> dict:
+    """Return the current `profile.md` text (creating it from the template if needed)."""
+    cfg = setup.load()
+    if not setup.PROFILE.exists():
+        with contextlib.redirect_stdout(io.StringIO()):
+            setup.profile(cfg)
+    try:
+        text = setup.PROFILE.read_text(encoding="utf-8")
+    except OSError:
+        text = setup.PROFILE_EXAMPLE.read_text(encoding="utf-8")
+    return {
+        "path": settings.client_rel(setup.PROFILE),
+        "text": text,
+        "written": _profile_written(),
+    }
+
+
+def save_profile(body: dict) -> tuple[int, dict]:
+    """Save `profile.md` directly from the setup page's inline editor."""
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return 400, {"error": "Profile cannot be empty."}
+    setup.PROFILE.parent.mkdir(parents=True, exist_ok=True)
+    if setup.PROFILE.exists():
+        shutil.copy(setup.PROFILE, setup.PROFILE.with_suffix(".md.bak"))
+    setup.PROFILE.write_text(text + "\n", encoding="utf-8")
+    return 200, {
+        "saved": True,
+        "written": _profile_written(),
+        "path": settings.client_rel(setup.PROFILE),
+    }
+
+
+def _discover_ids() -> None:
+    """Look up Asana user/workspace/status-field GIDs and Slack user ID without Terminal."""
+    set_work("running", "discover", "Looking up your Asana and Slack IDs in the background…")
+    kind = agent.Claude()
+    if not shutil.which(kind.binary) or not kind.credential():
+        set_work("failed", "discover", "Connect Claude Code and the model gateway first.")
+        return
+    cfg = setup.load()
+    owner_name = str((cfg.get("owner") or {}).get("name") or "").strip()
+    owner_email = str((cfg.get("owner") or {}).get("email") or "").strip()
+    proj_gids = [p.get("gid") for p in (cfg.get("asana") or {}).get("projects") or [] if isinstance(p, dict) and p.get("gid")]
+    prompt = (
+        "Using ONLY read-only Asana and Slack MCP tools (ToolSearch first), look up:\n"
+        f"1. Asana `get_me` -> user gid and workspace gid (owner: {owner_name} / {owner_email}).\n"
+        f"2. Slack `slack_search_users` for `{owner_email or owner_name}` -> Slack member id (starts with U).\n"
+        + (
+            f"3. In Asana project `{proj_gids[0]}`, call `search_tasks` (limit 1) and `get_task` with "
+            "`opt_fields=custom_fields.gid,custom_fields.name,custom_fields.enum_options.gid,"
+            "custom_fields.enum_options.name,custom_fields.enum_options.color,custom_fields.enum_options.enabled` "
+            "to extract the `Status` custom field gid and enabled options.\n"
+            if proj_gids else ""
+        )
+        + "Reply with ONLY a single JSON object (no markdown fences): "
+        '{"asana_user_gid": "...", "workspace_gid": "...", "slack_user_id": "...", '
+        '"status_field": {"gid": "...", "options": {"Name": {"gid": "...", "color": "..."}}}}'
+    )
+    cmd = [
+        kind.binary, "--print", "--model", settings.model_id("haiku"),
+        "--tools", "ToolSearch",
+        "--allowedTools", "mcp__asana__get_me",
+        "--allowedTools", "mcp__asana__search_tasks",
+        "--allowedTools", "mcp__asana__get_task",
+        "--allowedTools", "mcp__slack__slack_search_users",
+        "--setting-sources", "user",
+        "--settings", json.dumps({"apiKeyHelper": "printenv ANTHROPIC_API_KEY"}),
+    ]
+    try:
+        ran = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True,
+            cwd="/tmp", env=kind.env(), timeout=120, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        set_work("failed", "discover", "Lookup timed out after 2 minutes.")
+        return
+    raw = (ran.stdout or "").strip()
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        set_work("failed", "discover", "Could not read IDs from Asana/Slack. Check step 3 is connected.")
+        return
+    try:
+        found = json.loads(m.group(0))
+    except ValueError:
+        set_work("failed", "discover", "Received unreadable JSON from lookup.")
+        return
+    updated: list[str] = []
+    if str(found.get("asana_user_gid") or "").isdigit():
+        put(cfg, "owner.asana_user_gid", str(found["asana_user_gid"]))
+        updated.append("Asana user ID")
+    if str(found.get("workspace_gid") or "").isdigit():
+        put(cfg, "asana.workspace_gid", str(found["workspace_gid"]))
+        updated.append("Asana workspace ID")
+    if str(found.get("slack_user_id") or "").startswith("U"):
+        put(cfg, "owner.slack_user_id", str(found["slack_user_id"]))
+        updated.append("Slack member ID")
+    sf = found.get("status_field")
+    if isinstance(sf, dict) and str(sf.get("gid") or "").isdigit() and isinstance(sf.get("options"), dict) and sf["options"]:
+        existing_sf = get(cfg, "asana.status_field") or {}
+        by_stage = existing_sf.get("by_stage") if isinstance(existing_sf, dict) else {}
+        put(cfg, "asana.status_field", {"gid": str(sf["gid"]), "options": sf["options"], "by_stage": by_stage or {}})
+        updated.append(f"Status colours ({len(sf['options'])} options)")
+    if updated:
+        setup.save(cfg)
+        note("Saved to config.json: " + ", ".join(updated))
+        set_work("done", "discover", "Auto-filled: " + ", ".join(updated) + ".")
+    else:
+        set_work("done", "discover", "No new IDs needed filling.")
+    recheck()
+
+
 ACTIONS = {
     "recheck": "Check again",
     "install_claude": "Install Claude Code",
     "gateway": "Connect the model gateway",
     "connect": "Connect Asana, Slack, Google and Notion",
+    "discover": "Auto-fill Asana & Slack IDs",
     "interview": "The profile interview",
     "install_app": "Install the app",
     "restart": "Restart the page",
@@ -388,8 +603,8 @@ def run(action: str) -> tuple[int, dict]:
         recheck()
         return 202, {"state": "checking"}
     with work_lock:
-        if work["state"] == "running" and work["action"] in ("install_claude", "connect"):
-            return 409, {"error": f"{ACTIONS[work['action']]} is still running."}
+        if work["state"] == "running" and work["action"] in ("install_claude", "connect", "discover", "gateway_direct"):
+            return 409, {"error": "Another setup step is still running."}
     if action == "install_claude":
         target = lambda: _stream(  # noqa: E731
             action, ["/bin/bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
@@ -398,6 +613,8 @@ def run(action: str) -> tuple[int, dict]:
         target = lambda: _stream(  # noqa: E731
             action, ["/bin/zsh", str(settings.SCRIPTS / "setup-mcp.sh")],
             "Adding the connections.", "Connections done. Checking them now.")
+    elif action == "discover":
+        target = _discover_ids
     elif action == "gateway":
         target = lambda: _terminal(  # noqa: E731
             action, "Connecting Claude Code to Kraken's model gateway", GATEWAY,

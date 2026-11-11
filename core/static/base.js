@@ -114,6 +114,7 @@
   // A job number on the milestone lands on the job itself, not the top of its
   // ticket, and opens it if it was folded. Without script it is a ticket link.
   document.addEventListener('click',function(e){
+    if(e.target.closest&&e.target.closest('.brief-note')){e.stopPropagation();return}
     var a=e.target.closest('a[data-job-link]');
     if(!a)return;
     var job=document.querySelector('.tk [data-job="'+a.dataset.jobLink+'"]');

@@ -64,25 +64,24 @@ def help_dialog() -> str:
     <p class="lead">Two tabs off one file. <b>{short} my work</b> is what you do.
     <b>{short} what I say</b> is the words for the next meeting.</p>
 
-    <h3>The three buttons</h3>
+    <h3>Sync, prep, and Ask</h3>
     <ul class="say-list">
-      <li><span class="said">Refresh</span><span class="does">Re-reads Asana and
-      every thread behind your open work, then rewrites this tab: what moved,
-      what closed, which drafts the threads have overtaken. Two to three
-      minutes.</span></li>
+      <li><span class="said">Live sync pill</span><span class="does">Shows when
+      DANDORI last checked Asana and Slack. Click it to see recent background
+      updates, run a quick 20-second <b>Check now</b>, run a <b>Full refresh</b>,
+      or reconnect your database or Calendar.</span></li>
       <li><span class="said">Update prep</span><span class="does">On <b>what I
-      say</b>. Same sweep, then writes the script on top. Refresh plus the
-      words, never less.</span></li>
+      say</b>. Sweeps any recent changes, then writes your speaking script for
+      the next room.</span></li>
       <li><span class="said">Ask or change</span><span class="does">On every job,
       ticket and draft. Asks a question or makes a change to that one
       thing.</span></li>
     </ul>
-    <p>In the background on weekdays (and when you come back after copying a
-    draft), a lightweight Haiku check watches Asana and Slack every 15 minutes
-    and runs a fast delta refresh only when something moved. Outside the 90
-    minutes before a meeting, delta refreshes leave your speaking script alone;
-    inside that 90-minute window, once today's script is built, any ticket that
-    moves has its script line updated too.</p>
+    <p>In the background on weekdays (and when you return after copying a
+    draft), a fast Haiku scout checks Asana and Slack every 15 minutes and runs
+    a delta refresh only when something moved. Inside the 90 minutes before a
+    room, once today's script is built, any ticket that moves has its speaking
+    script updated automatically too.</p>
 
     <h3>Ask or change</h3>
     <p>Type, press <kbd>enter</kbd>, get an answer on the card in a minute or
@@ -110,8 +109,6 @@ def help_dialog() -> str:
     <p>Every answer says which model wrote it and how long it took. Pick the
     model next to the box: Opus writes the best client-language text, Sonnet is
     a third of the wait, Haiku is for a quick lookup. The choice sticks.</p>
-    <p>Same thing from a terminal: <code>{esc(cmd)} ask 8 "..."</code>, and the answer
-    lands on the same card.</p>
 
     <h3>Moving a job</h3>
     <p>After posting a draft, press <b>Posted it</b> under its words. It says
@@ -120,8 +117,7 @@ def help_dialog() -> str:
     for when that is wrong, someone else answering or nothing coming back.
     Copying a draft lights its button up so it is waiting when you come back.</p>
     <p>For anything else, press its status, the coloured label on the right of every job. It lists
-    the moves open from where the job stands, and each one is the same as
-    <code>./core/tick.py</code> in a terminal, with an Undo for six seconds.</p>
+    the moves open from where the job stands, with an Undo for six seconds.</p>
     <ul class="say-list">
       <li><span class="said">With you</span><span class="does">Sent, waiting
       on who (filled from the draft, so <kbd>x</kbd> then Enter), done,
@@ -143,8 +139,11 @@ def help_dialog() -> str:
     adds another, <kbd>Backspace</kbd> takes the last one off, and
     <span class="said">Use &ldquo;&hellip;&rdquo;</span> takes someone the board has not
     met yet. Their initials show on the job from then on.</p>
-    <p>The same from a terminal:</p>
-    <ul class="say-list">{said}</ul>
+    <details class="help-fold">
+      <summary>Optional Terminal shortcuts (for power users &amp; AI chats)</summary>
+      <ul class="say-list">{said}</ul>
+      <p style="margin-top:8px">Ask from a terminal: <code>{esc(cmd)} ask 8 "..."</code>, or open a Claude chat with <code>{esc(cmd)} chat</code>.</p>
+    </details>
 
     <h3>The week, and your meetings</h3>
     <p>The strip draws every meeting on your Google Calendar beside your jobs.
@@ -171,18 +170,16 @@ def help_dialog() -> str:
     The page remembers what you opened, per card.</p>
 
     <h3>A longer conversation</h3>
-    <p><code>{esc(cmd)} chat</code> opens a Claude Code chat on this folder: for work
-    across three jobs, something you want to argue about, anything where you are
-    reading code together. Same board, same rules, so &ldquo;do 3&rdquo; works
-    with nothing else said. <b>Copy for a chat</b> on any ask box hands the job
-    and your words over, and it is what <kbd>enter</kbd> does on a page opened
-    from disk with no server behind it.</p>
+    <p>Open <b>Claude Desktop</b> (Code tab) or Cursor on <code>~/Projects/DANDORI</code>
+    for work across several tickets or reading code together. Same board, same
+    rules, so &ldquo;do 3&rdquo; works with nothing else said. <b>Copy for a chat</b>
+    on any ask box hands the job and your words over.</p>
 
-    <h3>If a button says it cannot read anything</h3>
-    <p>The sweep needs Asana and Slack. <code>{esc(cmd)} mcp</code> says where those
-    connections stand, and <code>./core/scripts/setup-mcp.sh</code> fixes them: it adds
-    anything missing, then opens a browser tab per approval. <b>Log in</b> on the
-    page does the same for a grant that has merely lapsed.</p>
+    <h3>If a connection expires</h3>
+    <p>Press <b>Sign in</b> in the header (or click the sync pill and check
+    <b>Connections</b>). It adds any missing connection and opens a browser tab
+    for you to approve. If your database session expires, click the sync pill
+    and press <b>Log in</b> next to Database replica.</p>
 
     <h3>Where this page lives</h3>
     <p>This laptop only. A small server on <code>127.0.0.1</code>, which nothing
@@ -249,11 +246,10 @@ def settings_dialog() -> str:
     else:
         who = f"Nobody has set this {esc(settings.desk_name())} {ver} up yet."
     who += (
-        " The owner, the client, the rooms and the terminal command live in"
-        f" <code>{esc(settings.client_rel(settings.CONFIG))}</code>, and the house style in"
+        " Your settings live in"
+        f" <code>{esc(settings.client_rel(settings.CONFIG))}</code>, and your house style in"
         f" <code>{esc(settings.client_rel(settings.PROFILE))}</code>."
-        ' <a href="/setup">Open the setup page</a> to change any of them, or run'
-        " <code>./core/setup.py</code> in the folder."
+        ' <a href="/setup">Open the setup page</a> to change any of them.'
     )
     return f"""
 <dialog class="help set" id="settings">
@@ -334,20 +330,19 @@ def settings_dialog() -> str:
     </div>
 
     <h3>Connections</h3>
-    <p>A sweep needs a model credential and it needs Asana and Slack. These are
-    three separate things: every server can report connected while a prep dies
-    six minutes in, because the credential has lapsed and nothing checked it.
-    This checks all three, the way a sweep would.</p>
+    <p>Checks your 1Password model key, your Asana and Slack grants, and your
+    read-only database session (when configured).</p>
     <div class="chk-bar">
       <button type="button" class="btn chk-go" data-check>Test connections</button>
+      {('<button type="button" class="btn" data-db-login>Log in to database</button>'
+        if settings.database_mcp() else '')}
       <span class="chk-when"></span>
     </div>
     <ul class="chk-rows"></ul>
     <p class="chk-note"></p>
-    <p>Only you can approve a grant in a browser, so a lapsed one needs
-    <b>Log in</b> in the header, or <code>./core/scripts/setup-mcp.sh</code> in a terminal.
-    A credential that will not answer is usually a locked 1Password:
-    <code>op signin</code>.</p>
+    <p>If Asana or Slack needs approving, press <b>Sign in</b> in the header.
+    If the model key cannot be read, unlock the <b>1Password</b> app and press
+    <b>Sign in</b>.</p>
 
     <h3>This page</h3>
     <p>Reloads itself when the board moves, and holds the reload back only when

@@ -24,6 +24,7 @@ import pty
 import queue
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -39,6 +40,7 @@ import agent
 import asana_status
 import board
 import calendar_sync
+import doctor
 import keep
 import notify
 import render
@@ -799,8 +801,8 @@ def run_check() -> None:
     add(
         "Model credential",
         cred,
-        "Reachable." if cred else "apiKeyHelper gave nothing back.",
-        "" if cred else "Unlock 1Password, or run `op signin`, then try again.",
+        "Reachable." if cred else "1Password did not return a key.",
+        "" if cred else "Unlock the 1Password app, then press Sign in.",
     )
 
     try:
@@ -810,7 +812,7 @@ def run_check() -> None:
         add("MCP servers", None, f"Could not ask: {exc}")
     for name in ("asana", "slack", "google", "notion") + ((agent.DB,) if agent.DB else ()):
         if name not in states:
-            add(name, None, "Not configured.", "Run ./core/scripts/setup-mcp.sh")
+            add(name, None, "Not configured.", "Press Sign in to add and connect it.")
             continue
         state = states[name]
         add(
@@ -819,7 +821,16 @@ def run_check() -> None:
             {"connected": "Connected.", "needs-auth": "Needs authorising."}.get(
                 state, state.title() + "."
             ),
-            "" if state == "connected" else "Press Log in, or run ./core/scripts/setup-mcp.sh",
+            "" if state == "connected" else "Press Sign in in the header.",
+        )
+
+    if settings.database_mcp():
+        dbc = refresh_db_state()
+        add(
+            "Database session",
+            dbc["state"] == "ok",
+            dbc["said"],
+            "" if dbc["state"] == "ok" else "Press Log in to database below.",
         )
 
     if not cred:
@@ -832,7 +843,7 @@ def run_check() -> None:
         "Tools in a real run",
         ready,
         "Asana and Slack arrive with their tools." if ready else why,
-        "" if ready else "Run ./core/scripts/setup-mcp.sh, then test again.",
+        "" if ready else "Press Sign in in the header, then test again.",
     )
     bad = [r for r in rows if r["ok"] is False]
     with health_lock:
@@ -997,23 +1008,208 @@ def scout_loop() -> None:
 
 
 GRANTS_EVERY_SECS = 600
+HUB_MCP_BASE = "https://hub.ai.ktl.net/mcp"
+
+db_state: dict = {"configured": False, "state": "idle", "said": "", "at": ""}
+db_lock = threading.Lock()
+
+
+def refresh_db_state() -> dict:
+    """Check the read-only database replica session quietly in the background."""
+    has_db = bool(settings.database_mcp() or settings.section("database").get("conn"))
+    if not has_db:
+        with db_lock:
+            db_state.update(configured=False, state="none", said="No replica configured", at="")
+            return dict(db_state)
+    chk = doctor.check_database()
+    now_hm = datetime.now().strftime("%H:%M")
+    ok = chk.get("status") == "ok"
+    with db_lock:
+        if db_state.get("state") == "running" and not ok:
+            return dict(db_state)
+        db_state.update(
+            configured=True,
+            state="ok" if ok else "expired",
+            said="Connected" if ok else "Session expired",
+            at=now_hm,
+        )
+        return dict(db_state)
+
+
+def start_db_login() -> None:
+    """Launch `kraken cloudfarer login` in the user's browser without opening Terminal."""
+    kraken = shutil.which("kraken")
+    now_hm = datetime.now().strftime("%H:%M")
+    if not kraken:
+        with db_lock:
+            db_state.update(
+                configured=True,
+                state="expired",
+                said="kraken CLI is not installed on this Mac",
+                at=now_hm,
+            )
+        return
+    with db_lock:
+        if db_state.get("state") == "running":
+            return
+        db_state.update(
+            configured=True,
+            state="running",
+            said="Approve Okta login in your browser…",
+            at=now_hm,
+        )
+    env = agent.Claude()._base_env()
+    proc: subprocess.Popen[str] | None = None
+    try:
+        proc = subprocess.Popen(
+            [kraken, "cloudfarer", "login"],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            time.sleep(3)
+            chk = doctor.check_database()
+            if chk.get("status") == "ok":
+                if settings.section("database").get("conn"):
+                    subprocess.run(
+                        [kraken, "cloudfarer", "generate-aws-config"],
+                        cwd=ROOT,
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        timeout=15,
+                        check=False,
+                        env=env,
+                    )
+                with db_lock:
+                    db_state.update(
+                        configured=True,
+                        state="ok",
+                        said="Connected",
+                        at=datetime.now().strftime("%H:%M"),
+                    )
+                return
+            if proc.poll() is not None:
+                break
+        refresh_db_state()
+    except OSError as exc:
+        with db_lock:
+            db_state.update(
+                configured=True,
+                state="expired",
+                said=f"Could not start login: {exc}",
+                at=datetime.now().strftime("%H:%M"),
+            )
+    finally:
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+
+
+_activity_cache: dict = {"sig": None, "runs": []}
+ACTIVITY_START_RE = re.compile(r"^=== (\d\d:\d\d):\d\d (refresh|delta|prep) on ")
+ACTIVITY_END_RE = re.compile(r"^=== (refresh|delta|prep) ended after (\d+)s, (\d+) tool calls, exit (\d+)")
+
+
+def recent_activity(limit: int = 5) -> list[dict]:
+    """Extract the last `limit` completed runs from recent log files, cached by mtime."""
+    logs_dir = settings.LOGS_DIR
+    if not logs_dir.exists():
+        return []
+    files = sorted(
+        (
+            p for p in logs_dir.glob("*.log")
+            if p.name.startswith(("delta-20", "refresh-20", "prep-20"))
+        ),
+        key=lambda p: p.name[-14:],
+        reverse=True,
+    )[:6]
+    sig = []
+    for p in files:
+        try:
+            st = p.stat()
+            sig.append((p.name, st.st_mtime_ns, st.st_size))
+        except OSError:
+            continue
+    sig_t = tuple(sig)
+    if _activity_cache["sig"] == sig_t:
+        return list(_activity_cache["runs"][:limit])
+
+    runs: list[dict] = []
+    today_iso = settings.now().date().isoformat()
+    for p in files:
+        day_m = re.search(r"(\d{4}-\d{2}-\d{2})", p.name)
+        day_str = day_m.group(1) if day_m else ""
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        cur: dict | None = None
+        body_lines: list[str] = []
+        for raw_ln in text.splitlines():
+            m_start = ACTIVITY_START_RE.match(raw_ln)
+            if m_start:
+                cur = {"hm": m_start.group(1), "kind": m_start.group(2), "day": day_str}
+                body_lines = []
+                continue
+            if cur is None:
+                continue
+            m_end = ACTIVITY_END_RE.match(raw_ln)
+            if m_end:
+                if m_end.group(4) == "0":
+                    bullets = []
+                    lead = ""
+                    for bl in body_lines:
+                        s = bl.strip()
+                        if not s or s.startswith(("[claude-code:", "`./core/check.py`", "check.py ")):
+                            continue
+                        if "check.py" in s and ("nothing broken" in s.lower() or "passes" in s.lower()):
+                            continue
+                        clean_s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+                        clean_s = re.sub(r"`([^`]+)`", r"\1", clean_s)
+                        if clean_s.startswith(("- ", "* ")):
+                            bullets.append(clean_s[2:].strip()[:160])
+                        elif not lead and not clean_s.endswith(":"):
+                            lead = clean_s[:160]
+                    label_map = {"delta": "Delta", "refresh": "Refresh", "prep": "Prep"}
+                    when_lbl = cur["hm"] if day_str == today_iso else f"{day_str[5:]} {cur['hm']}"
+                    runs.append({
+                        "sort_key": f"{day_str} {cur['hm']}",
+                        "when": when_lbl,
+                        "kind": label_map.get(cur["kind"], cur["kind"].title()),
+                        "took": int(m_end.group(2)),
+                        "calls": int(m_end.group(3)),
+                        "lead": lead,
+                        "bullets": bullets[:3],
+                    })
+                cur = None
+                body_lines = []
+                continue
+            if not raw_ln.startswith("  ["):
+                body_lines.append(raw_ln)
+
+    runs.sort(key=lambda r: r["sort_key"], reverse=True)
+    for r in runs:
+        r.pop("sort_key", None)
+    _activity_cache.update(sig=sig_t, runs=runs[:10])
+    return list(runs[:limit])
 
 
 def watch_grants() -> None:
-    """Put Log in on the page as soon as Asana or Slack lapses, not on a press.
-
-    Before this the page only learned a grant had gone when a Refresh or Prep
-    was pressed and refused, so the owner saw no way to log in at all until a
-    run had failed. `claude mcp list` costs no model time, so it is asked every
-    ten minutes while nothing else is going on.
-
-    Only once the credential is in hand: fetching it runs apiKeyHelper, and a
-    1Password prompt out of nowhere every ten minutes would be worse than a
-    late button.
-    """
-    time.sleep(30)
+    """Put Sign in on the page as soon as Asana or Slack lapses, and keep the
+    database session badge current."""
+    time.sleep(8)
+    try:
+        refresh_db_state()
+    except Exception:  # noqa: BLE001
+        pass
+    time.sleep(22)
     while True:
         try:
+            refresh_db_state()
             kind = agent.pick()
             if kind is not None and getattr(kind, "_credential", ""):
                 with job_lock:
@@ -1029,7 +1225,7 @@ def watch_grants() -> None:
                                    at=datetime.now().strftime("%H:%M"),
                                    message=f"{agent.human(lapsed)} "
                                            f"{'needs' if len(lapsed) == 1 else 'need'} "
-                                           "logging in again." + login_hint(lapsed))
+                                           "signing in again." + login_hint(lapsed))
                     elif (job["state"] == "needs_login" and states
                           and all(states.get(n) == "connected" for n in agent.NEEDED_MCPS)):
                         job.update(state="idle", message=last_refreshed(), url="")
@@ -1097,14 +1293,14 @@ def connect_one(kind: agent.Kind, args: list[str], label: str, done) -> bool:
         if not url and proc.poll() is not None and not done():
             last = [ln.strip() for ln in ANSI.sub("", "".join(said)).splitlines() if ln.strip()]
             login_say("needs_login",
-                      f"{label} stopped: {(last[-1] if last else 'no output')[:200]} "
-                      f"In a Terminal run: {kind.binary} {' '.join(args)}")
+                      f"{label} stopped: {(last[-1] if last else 'no output')[:200]}. "
+                      "Check Zscaler is connected, then press Sign in again.")
             return False
 
         login_say(
             "signing_in",
             f"Approve {label} in your browser, then come back here." if url else
-            f"{label} printed no link. In a Terminal run: {kind.binary} {' '.join(args)}",
+            f"Check your browser to approve {label}, then come back here.",
             url,
         )
 
@@ -1202,6 +1398,38 @@ def start_login(fresh_key: bool = False) -> None:
         login_lock.release()
 
 
+def _ensure_mcp_servers_added(kind: agent.Kind, missing_names: list[str]) -> None:
+    """Automatically register missing AI Hub or replica MCP servers so the Sign in
+    button never requires opening Terminal to run `setup-mcp.sh`."""
+    env = kind._base_env()
+    for name in missing_names:
+        if name in ("asana", "slack", "google", "notion"):
+            subprocess.run(
+                [kind.binary, "mcp", "add", "--transport", "http", "--scope", "user", name, f"{HUB_MCP_BASE}/{name}"],
+                cwd=ROOT,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                env=env,
+            )
+    db_name = settings.database_mcp()
+    if db_name and db_name in missing_names:
+        db_cmd = str(settings.section("database").get("command") or "~/.local/bin/ktdb-mcp")
+        cmd_path = Path(db_cmd).expanduser()
+        if cmd_path.exists():
+            db_conn = str(settings.section("database").get("conn") or "")
+            args = [kind.binary, "mcp", "add", "--scope", "user"]
+            if db_conn:
+                args += ["-e", f"KTDB_CONN={db_conn}"]
+            args += [db_name, "--", str(cmd_path)]
+            subprocess.run(
+                args, cwd=ROOT, stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, timeout=20, check=False, env=env,
+            )
+
+
 def _walk_logins(fresh_key: bool = False) -> None:
     kind = agent.pick()
     if kind is None:
@@ -1220,14 +1448,22 @@ def _walk_logins(fresh_key: bool = False) -> None:
     except (OSError, subprocess.SubprocessError) as exc:
         login_say("needs_login", f"could not read the connections: {exc}")
         return
-    absent = [n for n in agent.NEEDED_MCPS if n not in states]
-    if absent:
-        names = " and ".join(n.title() for n in absent)
-        login_say("needs_login",
-                f"{names} {'is' if len(absent) == 1 else 'are'} not set up on this "
-                f"machine yet. In a Terminal run: ./core/scripts/setup-mcp.sh")
-        return
     wanted = agent._mcp_allow()
+    absent = [n for n in wanted if n not in states]
+    if absent:
+        login_say("signing_in", f"Adding {', '.join(n.title() for n in absent)}…")
+        _ensure_mcp_servers_added(kind, absent)
+        try:
+            states = kind.mcp_states()
+        except (OSError, subprocess.SubprocessError):
+            states = {}
+    still_absent = [n for n in agent.NEEDED_MCPS if n not in states]
+    if still_absent:
+        names = " and ".join(n.title() for n in still_absent)
+        login_say("needs_login",
+                  f"{names} {'is' if len(still_absent) == 1 else 'are'} not enabled on your AI Hub yet. "
+                  "Turn them on at hub.ai.ktl.net, then press Sign in.")
+        return
     for name, state in states.items():
         if state != "needs-auth" or name not in wanted:
             continue
@@ -1246,7 +1482,7 @@ def _walk_logins(fresh_key: bool = False) -> None:
     if left:
         login_say("needs_login", message)
     else:
-        login_say("idle", "Signed in and connected. Nothing has run yet: press Refresh or prep.")
+        login_say("idle", last_refreshed() or "Signed in and connected.")
 
 
 LOCK = settings.STATE_DIR / "refresh.lock"
@@ -2229,10 +2465,9 @@ def run_agent(kind: str) -> None:
                             f"board, so read {log.name} before pressing it again.")
                 elif ran.stalled:
                     set_job("failed",
-                            f"the {kind} went quiet and was stopped, so the agent "
-                            "session has most likely lapsed or a connection is down. "
-                            f"Check ./core/scripts/setup-mcp.sh --check, then try again. "
-                            f"See {log.name}")
+                            f"the {kind} went quiet and was stopped, so a connection "
+                            "has most likely lapsed. Open Settings -> Connections "
+                            "and press Test connections, then try again.")
                 else:
                     set_job("failed", f"the {kind} ran past {timeout // 60} minutes and was stopped")
                 return
@@ -2509,6 +2744,8 @@ class Handler(BaseHTTPRequestHandler):
                 state["calendar"] = dict(cal)
             with scout_lock:
                 state["scout"] = dict(scout_state)
+            with db_lock:
+                state["db"] = dict(db_state)
             state["auto_mins"] = settings.auto_sweep_mins()
             checked_dt = scout._parse_iso(scout.last_checked_at())
             state["checked_epoch"] = int(checked_dt.timestamp()) if checked_dt else 0
@@ -2520,6 +2757,20 @@ class Handler(BaseHTTPRequestHandler):
             state["boot"] = BOOT
             state["version"] = settings.version_label()
             self.json_out(200, state)
+            return
+        if path == "/api/activity":
+            seen_cal = calendar_sync.seen_at()
+            with db_lock:
+                dbc = dict(db_state)
+            self.json_out(
+                200,
+                {
+                    "runs": recent_activity(5),
+                    "db": dbc,
+                    "cal_ago": calendar_sync.ago(seen_cal) if seen_cal else "not read yet",
+                    "auto_mins": settings.auto_sweep_mins(),
+                },
+            )
             return
         if path == "/manifest.webmanifest":
             self.send(200, json.dumps(manifest()).encode(), "application/manifest+json")
@@ -2587,6 +2838,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_out(403, {"error": "bad key"})
                 return
             self.json_out(200, setup_page.state())
+            return
+        if path == "/api/setup/profile":
+            if not self.local() or not self.keyed():
+                self.json_out(403, {"error": "bad key"})
+                return
+            self.json_out(200, setup_page.get_profile())
             return
         if path in ("/", "/index.html"):
             if not BOARD.exists() or not setup_page.setup.CONFIG.exists():
@@ -2772,7 +3029,7 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=guarded(run_check, "check"), daemon=True).start()
             self.json_out(202, {"state": "checking"})
             return
-        if path in ("/api/setup/run", "/api/setup/save"):
+        if path in ("/api/setup/run", "/api/setup/save", "/api/setup/gateway", "/api/setup/profile"):
             if not self.local():
                 self.json_out(403, {"error": "setup is only open on this Mac"})
                 return
@@ -2787,9 +3044,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.endswith("/run"):
                 code, reply = setup_page.run(str(body.get("action", "")))
+            elif path.endswith("/gateway"):
+                code, reply = setup_page.connect_gateway(body)
+            elif path.endswith("/profile"):
+                code, reply = setup_page.save_profile(body)
             else:
                 code, reply = setup_page.save_answers(body)
             self.json_out(code, reply)
+            return
+        if path == "/api/db-login":
+            threading.Thread(
+                target=guarded(start_db_login, "database sign-in"), daemon=True
+            ).start()
+            self.json_out(202, {"state": "running"})
             return
         if path == "/api/asana-status":
             # Set in Asana, pressed by the owner on one ticket. The only write to
@@ -2825,12 +3092,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/scout":
             # Stage 1 delta check when the owner returns from copying a draft or
-            # opening an Asana/Slack link, or after an idle gap.
+            # opening an Asana/Slack link, after an idle gap, or from Check now.
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            force = "force=1" in query.split("&")
             with scout_lock:
                 busy = scout_state["state"] == "running"
-            if not busy and settings.auto_sweep_mins() > 0:
+            if not busy and (force or settings.auto_sweep_mins() > 0):
                 threading.Thread(
-                    target=lambda: run_scout(force=False, interactive=True),
+                    target=lambda f=force: run_scout(force=f, interactive=True),
                     daemon=True,
                 ).start()
             self.json_out(202, {"state": "checking"})

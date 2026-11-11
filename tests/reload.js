@@ -50,7 +50,7 @@ function element(extra) {
 function makePage(options) {
   const opts = Object.assign(
     { stamp: "AAA", typed: "", composerOpen: false, palOpen: false, helpOpen: false,
-      running: "" },
+      syncOpen: false, running: "" },
     options
   );
 
@@ -58,6 +58,11 @@ function makePage(options) {
     login: element(),
     "login-link": element(),
     "refresh-note": element(),
+    "sync-btn": element({ hidden: true }),
+    "sync-dot": element(),
+    "sync-pop": element({ hidden: !opts.syncOpen }),
+    "scout-now": element(),
+    "sp-runs": element(),
     changed: element({ hidden: true }),
     pal: element({ hidden: !opts.palOpen }),
     help: element({ open: opts.helpOpen }),
@@ -395,6 +400,21 @@ async function run() {
       `reloaded ${page.reloads.count} times`);
     check("a background delta refresh offers the reload button", page.ids.changed.hidden === false,
       "changed button stayed hidden");
+  }
+
+  // 16. Opening the Sync & Activity popover holds auto-reload back until closed,
+  //     and pressing Check now triggers /api/scout?force=1.
+  {
+    const page = makePage({ stamp: "AAA", syncOpen: true });
+    page.sandbox.reply = { state: "idle", message: "Updated", asks: {}, stamp: "FFF", board: "B5" };
+    await settle();
+    check("an open sync popover is not reloaded away", page.reloads.count === 0,
+      `reloaded ${page.reloads.count} times while reading recent updates`);
+    page.ids["scout-now"].listeners.click();
+    await settle();
+    check("Check now posts /api/scout?force=1",
+      page.sandbox.fetched.some((u) => u.indexOf("/api/scout?force=1") === 0),
+      "fetched: " + page.sandbox.fetched.join(", "));
   }
 
   const bad = results.filter((r) => !r.pass);

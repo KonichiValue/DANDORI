@@ -1139,42 +1139,110 @@ border-radius:10px;padding:12px 15px;margin-bottom:10px}
 .dec ul{margin:7px 0 0;padding-left:18px;font-size:13.5px;color:var(--mut)}
 .dec-owner{margin:8px 0 0;font-size:12.5px;color:var(--amber);font-weight:600}
 
-/* Header actions. The one that matters in this view is the bright one. */
+/* Header actions and the unified Live Sync pill + popover. */
 .refresh{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);
-color:#dce6f5;font:650 12px/1 var(--font);padding:0 12px;border-radius:7px;
-cursor:pointer}
+color:#dce6f5;font:650 12px/1 var(--font);padding:0 11px;border-radius:7px;
+cursor:pointer;white-space:nowrap}
 .refresh:hover{background:rgba(255,255,255,.16);color:#fff}
-body[data-view="desk"] #refresh,body[data-view="standup"] #prep{
-background:#2f6fe4;border-color:#5b93f0;color:#fff}
-body[data-view="desk"] #refresh:hover,body[data-view="standup"] #prep:hover{
-background:#4881ec}
-body[data-view="standup"] #prep{background:#b32a9c;border-color:#cf56b9}
-body[data-view="standup"] #prep:hover{background:#c33bab}
+body[data-view="standup"] #prep.primary{background:#b32a9c;border-color:#cf56b9;color:#fff}
+body[data-view="standup"] #prep.primary:hover{background:#c33bab}
+.refresh.warn-btn{background:#9b3528;border-color:#e27264;color:#fff}
+.refresh.warn-btn:hover{background:#b33f31}
 .refresh:disabled{opacity:.5;cursor:default}
 a.refresh{text-decoration:none}
 /* The page normally reloads itself when the board moves under it. This is the
    one case where it will not: the owner is part-way through typing a question,
-   and taking the words out from under them would be worse than the staleness.
-   So it waits, visibly, and they decide when. Amber rather than blue: nothing is
-   wrong, but the page is no longer what the board says. */
+   and taking the words out from under them would be worse than the staleness. */
 .refresh.moved{background:#8a5a12;border-color:#d99b2b;color:#fff;
 animation:moved-in .25s ease-out}
 .refresh.moved:hover{background:#a76d18}
 @keyframes moved-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.refresh.moved{animation:none}}
-.refresh-note{font-size:11.5px;color:#93a4bd;max-width:280px}
-.refresh-note.run{display:inline-flex;align-items:center;gap:8px;max-width:420px;
-padding:5px 11px 5px 9px;border-radius:99px;font-size:12px;color:var(--ink);
-background:var(--accent-bg);border:1px solid var(--accent-line);white-space:nowrap}
-.rn-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);
-animation:rn-pulse 1.4s ease-in-out infinite}
+
+.sync-wrap{position:relative;display:inline-flex;align-items:center}
+.sync-btn{gap:7px;padding:0 10px 0 9px;border-radius:999px;cursor:pointer;
+border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);
+color:#d4e0f2;font:600 12px/1 var(--font);max-width:340px;
+transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.sync-btn:hover,.sync-btn[aria-expanded="true"]{background:rgba(255,255,255,.14);
+border-color:rgba(255,255,255,.28);color:#fff}
+.sync-btn.busy{background:rgba(56,130,246,.18);border-color:rgba(99,163,255,.45);color:#eef4ff}
+.sync-btn.bad{background:rgba(224,72,59,.18);border-color:rgba(248,130,120,.45);color:#ffe4e1}
+.sync-dot{flex:none;width:7px;height:7px;border-radius:50%;background:#4fd195;
+box-shadow:0 0 0 2px rgba(79,209,149,.18)}
+.sync-dot.run{background:#66a8ff;box-shadow:0 0 0 2px rgba(102,168,255,.25);
+animation:rn-pulse 1.3s ease-in-out infinite}
+.sync-dot.warn{background:#f4b956;box-shadow:0 0 0 2px rgba(244,185,86,.22)}
+.sync-dot.bad{background:#f27267;box-shadow:0 0 0 2px rgba(242,114,103,.24)}
+.sync-chev{flex:none;width:5px;height:5px;margin-top:-2px;margin-left:1px;
+border:solid rgba(212,224,242,.68);border-width:0 1.5px 1.5px 0;transform:rotate(45deg);
+transition:transform var(--t-fast) var(--ease)}
+.sync-btn[aria-expanded="true"] .sync-chev{transform:rotate(-135deg);margin-top:2px}
+.refresh-note{font-size:11.5px;color:inherit;max-width:270px;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}
+.refresh-note.run{display:inline-flex;align-items:center;gap:6px;max-width:290px;
+font-size:11.5px;color:inherit;white-space:nowrap}
+.refresh-note.run .rn-dot{display:none}
 @keyframes rn-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
-@media (prefers-reduced-motion:reduce){.rn-dot{animation:none}}
-.rn-job{font-weight:750;color:var(--accent-ink)}
-.rn-time{font-variant-numeric:tabular-nums;font-weight:650;color:var(--ink)}
-.rn-doing{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--soft)}
-.rn-n{flex:none;font-size:11px;color:var(--mut);padding-left:8px;border-left:1px solid var(--accent-line)}
-.refresh-note.bad{color:#f6b0ac}
+@media (prefers-reduced-motion:reduce){.sync-dot.run{animation:none}}
+.rn-job{font-weight:750;color:#fff}
+.rn-time{font-variant-numeric:tabular-nums;font-weight:650;color:#dbeafe}
+.rn-doing{min-width:0;overflow:hidden;text-overflow:ellipsis;color:#bdd1f0}
+.rn-n{flex:none;font-size:11px;color:#9eb5da;padding-left:6px;border-left:1px solid rgba(255,255,255,.2)}
+.refresh-note.bad{color:#ffd0cc}
+
+/* Sync & recent activity popover. */
+.sync-pop{position:absolute;top:calc(100% + 8px);right:0;width:372px;max-width:calc(100vw - 24px);
+background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;
+box-shadow:0 16px 44px rgba(9,14,26,.28),var(--edge);z-index:80;overflow:hidden;
+animation:fold-in var(--t-fast) var(--ease) both}
+.sp-head{padding:13px 15px;background:var(--hair);border-bottom:1px solid var(--line);
+display:flex;flex-direction:column;gap:10px}
+.sp-stat{display:flex;flex-direction:column;gap:2px}
+.sp-stat b{font:700 13px/1.3 var(--font);color:var(--ink)}
+.sp-stat span{font:500 11.5px/1.35 var(--font);color:var(--soft)}
+.sp-acts{display:flex;gap:7px}
+.sp-btn{flex:1;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--card);
+color:var(--ink);font:600 12px/1 var(--font);cursor:pointer;padding:0 10px;
+display:inline-flex;align-items:center;justify-content:center;
+transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.sp-btn:hover{border-color:var(--accent-line);background:var(--accent-bg);color:var(--accent-ink)}
+.sp-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.sp-btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
+.sp-btn:disabled{opacity:.5;cursor:default}
+.sp-sec{padding:11px 15px;border-bottom:1px solid var(--hair)}
+.sp-sec:last-child{border-bottom:0}
+.sp-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;
+font:700 10.5px/1 var(--font);text-transform:uppercase;letter-spacing:.07em;color:var(--soft)}
+.sp-meta{text-transform:none;letter-spacing:0;font-weight:500}
+.sp-link{border:0;background:none;padding:0;font:600 11.5px/1 var(--font);color:var(--accent);
+cursor:pointer;text-transform:none;letter-spacing:0}
+.sp-link:hover{text-decoration:underline}
+.sp-runs{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto;
+display:flex;flex-direction:column;gap:8px}
+.sp-run{padding:8px 10px;border-radius:9px;background:var(--hair);border:1px solid var(--line)}
+.sp-rmeta{display:flex;align-items:center;gap:6px;margin-bottom:3px;font-size:11px;color:var(--soft)}
+.sp-rkind{font-weight:700;padding:1px 6px;border-radius:4px;background:var(--accent-bg);
+color:var(--accent-ink);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.sp-rwhen{font-variant-numeric:tabular-nums;font-weight:650;color:var(--mut)}
+.sp-rtook{margin-left:auto;font-variant-numeric:tabular-nums}
+.sp-rtxt{margin:0;font-size:12px;line-height:1.45;color:var(--ink)}
+.sp-rbul{margin:4px 0 0;padding-left:15px;font-size:11.5px;line-height:1.4;color:var(--mut)}
+.sp-rbul li+li{margin-top:2px}
+.sp-empty{font-size:12px;color:var(--soft);font-style:italic;padding:4px 0}
+.sp-crows{display:flex;flex-direction:column;gap:6px}
+.sp-crow{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.sp-cdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--soft)}
+.sp-cdot.ok{background:var(--green)}
+.sp-cdot.warn{background:var(--amber)}
+.sp-cdot.bad{background:var(--red)}
+.sp-cname{font-weight:600;color:var(--ink)}
+.sp-csaid{margin-left:auto;font-size:11.5px;color:var(--soft)}
+.sp-mini{flex:none;font:600 11px/1 var(--font);padding:4px 8px;border-radius:6px;
+border:1px solid var(--line);background:var(--card);color:var(--accent);cursor:pointer}
+.sp-mini:hover{border-color:var(--accent-line);background:var(--accent-bg)}
+.sp-mini:disabled{opacity:.55;cursor:default}
+
 /* Buttons that only mean something on one view stay on that view. The work
    view is refreshed, not prepped: the words belong to the other tab. */
 body[data-view="desk"] #scriptonly,body[data-view="desk"] #prep{display:none}
@@ -1216,9 +1284,8 @@ box-shadow:0 2px 6px rgba(9,14,26,.22),0 14px 34px rgba(9,14,26,.18),
 inset 0 1px 0 rgba(255,255,255,.09)}
 /* Shut, it still carries its leading line: folding it is for getting it out of
    the way once read, not for hiding it. */
-.brief>summary{cursor:pointer;list-style:none;display:grid;
-grid-template-columns:auto auto auto 1fr;gap:7px 11px;align-items:baseline;
-padding:13px 18px}
+.brief>summary{cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;
+gap:7px 10px;align-items:center;padding:13px 18px}
 .brief>summary::-webkit-details-marker{display:none}
 .brief[open]>summary{border-bottom:1px solid rgba(255,255,255,.10);
 padding-bottom:12px}
@@ -1230,12 +1297,16 @@ border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:2px 9px;
 white-space:nowrap}
 .brief-age{font-size:11px;font-weight:600;color:#93a5c3;white-space:nowrap}
 .brief.old .brief-age{color:#f4c27a}
-.brief-sum{grid-column:1/-1;font-size:14px;line-height:1.5;color:#c6d3ea}
+.brief-note{font:600 11px/1 var(--font);color:#c9d8f0;text-decoration:none;
+padding:4px 9px;border-radius:999px;border:1px solid rgba(255,255,255,.18);
+background:rgba(255,255,255,.07);white-space:nowrap}
+.brief-note:hover{color:#fff;background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.32)}
+.brief-sum{flex-basis:100%;font-size:14px;line-height:1.5;color:#c6d3ea}
 .brief-sum b{color:#fff;font-weight:750;margin-right:8px;font-size:9.5px;
 text-transform:uppercase;letter-spacing:.07em;vertical-align:1px}
 .brief-sum i{font-style:normal;color:#8ba0c0;margin-left:6px;font-size:12.5px}
 .brief[open] .brief-sum{display:none}
-.brief>summary .fold-hint{grid-column:4;justify-self:end;
+.brief>summary .fold-hint{margin-left:auto;
 border-color:rgba(255,255,255,.18);color:#b9c8e2;background:rgba(255,255,255,.07)}
 .brief>summary:hover .fold-hint{color:#fff;border-color:rgba(255,255,255,.34)}
 .br{list-style:none;margin:0;padding:5px 0 8px}

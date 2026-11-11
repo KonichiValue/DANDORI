@@ -53,7 +53,7 @@
 
   function paintWork(w){
     if(!w.action){return}
-    var li=document.querySelector('[data-run="'+w.action+'"]');
+    var li=w.action==='gateway_direct'?document.getElementById('step-gateway'):document.querySelector('[data-run="'+w.action+'"]');
     li=li&&li.closest('.step');
     if(!li)return;
     var box=$('.st-run',li);
@@ -129,7 +129,58 @@
       }).catch(function(){run.disabled=false;poll()});
       return;
     }
-    if(e.target.closest('[data-open-form]')){e.preventDefault();openForm()}
+    if(e.target.closest('[data-open-form]')){e.preventDefault();openForm();return}
+    var gw=e.target.closest('[data-gateway-direct]');
+    if(gw){
+      e.preventDefault();
+      gw.disabled=true;
+      var opEl=document.getElementById('gw-op-ref');
+      var regEl=document.querySelector('select[name="models.region"]');
+      post('/api/setup/gateway',{op_ref:opEl?opEl.value:'',region:regEl?regEl.value:''}).then(function(j){
+        gw.disabled=false;
+        if(j._code>=400){alert(j.error||'Could not configure the gateway.');return}
+        poll();
+      }).catch(function(){gw.disabled=false;poll()});
+      return;
+    }
+    if(e.target.closest('[data-open-profile]')){
+      e.preventDefault();
+      var pw=document.getElementById('profile-wrap'),pt=document.getElementById('profile-text');
+      if(!pw||!pt)return;
+      $('#step-profile').classList.add('open');
+      pw.hidden=false;
+      fetch(q('/api/setup/profile')).then(function(r){return r.json()}).then(function(j){
+        if(j.text)pt.value=j.text;
+        pt.focus();
+      }).catch(function(){});
+      return;
+    }
+    if(e.target.closest('#close-profile')){
+      e.preventDefault();
+      var pw2=document.getElementById('profile-wrap');
+      if(pw2)pw2.hidden=true;
+      return;
+    }
+    var sp=e.target.closest('#save-profile');
+    if(sp){
+      e.preventDefault();
+      var pt2=document.getElementById('profile-text'),ps=document.getElementById('profile-said');
+      sp.disabled=true;
+      if(ps){ps.className='save-said';ps.textContent='Saving…'}
+      post('/api/setup/profile',{text:pt2?pt2.value:''}).then(function(j){
+        sp.disabled=false;
+        if(j._code>=400){
+          if(ps){ps.className='save-said bad';ps.textContent=j.error||'Could not save.'}
+          return;
+        }
+        if(ps){ps.className='save-said ok';ps.textContent='Saved to '+j.path+'.'}
+        poll();
+      }).catch(function(){
+        sp.disabled=false;
+        if(ps){ps.className='save-said bad';ps.textContent='Server did not answer.'}
+      });
+      return;
+    }
     var rf=e.target.closest('[data-refresh]');
     if(rf){
       e.preventDefault();

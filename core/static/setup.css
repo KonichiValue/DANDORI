@@ -139,6 +139,18 @@ padding:12px 0;background:linear-gradient(to top,var(--card) 70%,transparent)}
 .save-said.ok{color:var(--green);font-weight:600}
 .save-said.bad{color:var(--red);font-weight:600}
 
+.gw-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;width:100%}
+.gw-in{flex:1 1 280px;min-width:220px;font:13px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
+color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.gw-in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.prof-wrap{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.prof-lead{margin:0 0 8px;font-size:13.5px;color:var(--mut)}
+#profile-text{width:100%;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+color:var(--ink);background:var(--hair);border:1px solid var(--line);border-radius:10px;
+padding:12px;resize:vertical;min-height:240px}
+#profile-text:focus{outline:none;border-color:var(--accent);background:var(--card);
+box-shadow:0 0 0 3px var(--accent-bg)}
+
 @media (max-width:700px){
   #answers fieldset,.lang-more,.more{grid-template-columns:1fr}
   .row,.row.room{grid-template-columns:1fr 30px}

@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 import settings
-from render import day_words, esc, link_btn, script_meta, sessions, short_when
+from render import day_words, esc, esc_url, link_btn, script_meta, sessions, short_when
 
 # The order they read in, whatever order the sweep wrote them. A room today comes
 # before anything else because it is the only line with a time on it the owner
@@ -247,6 +247,12 @@ def render(board: dict, refs: dict[str, str]) -> str:
 
     lead = lines[0]
     rest = len(lines) - 1
+    note_url = str((board.get("meeting_note") or {}).get("url") or "").strip()
+    note_chip = (
+        f'<a class="brief-note" href="{esc_url(note_url)}" target="_blank" rel="noopener">Last meeting note</a>'
+        if note_url.startswith(("http://", "https://"))
+        else ""
+    )
     return f"""
     <details class="brief{" old" if state == "old" else ""}" id="brief"
              data-remember="brief" open>
@@ -254,6 +260,7 @@ def render(board: dict, refs: dict[str, str]) -> str:
         <span class="brief-k">This morning</span>
         <span class="brief-n">{len(lines)} to know</span>
         {f'<span class="brief-age">{esc(age)}</span>' if age else ""}
+        {note_chip}
         <span class="fold-hint"></span>
         <span class="brief-sum">
           <b>{esc(WORD.get(lead.get("kind", ""), ""))}</b> {esc(gist(lead))}

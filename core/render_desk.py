@@ -866,16 +866,62 @@ def prefs_json() -> str:
 
 # The buttons only appear when serve.py is behind the page, because a file://
 # page has nothing to send the click to. serve.py swaps the key in as it serves.
-def controls(prep_label: str) -> str:
+def controls(prep_label: str, needs_prep: bool = False, initial_sync: str = "") -> str:
+    prep_cls = "refresh primary" if needs_prep else "refresh"
     return f"""
-  <button id="refresh" class="refresh" hidden data-run="/api/refresh"
-          data-busy="Refreshing">Refresh</button>
-  <button id="prep" class="refresh" hidden data-run="/api/prep"
+  <button id="prep" class="{prep_cls}" hidden data-run="/api/prep"
           data-busy="Writing">{prep_label}</button>
   <button id="changed" class="refresh moved" hidden>Board changed &middot; Reload</button>
-  <button id="login" class="refresh" hidden>Log in</button>
+  <button id="login" class="refresh warn-btn" hidden>Sign in</button>
   <a id="login-link" class="refresh" hidden target="_blank" rel="noopener">Open sign-in page</a>
-  <span id="refresh-note" class="refresh-note"></span>
+  <div class="sync-wrap">
+    <button id="sync-btn" class="sync-btn" type="button" hidden aria-expanded="false"
+            aria-controls="sync-pop" title="Sync status and recent updates">
+      <span id="sync-dot" class="sync-dot ok" aria-hidden="true"></span>
+      <span id="refresh-note" class="refresh-note">{esc(initial_sync)}</span>
+      <span class="sync-chev" aria-hidden="true"></span>
+    </button>
+    <div id="sync-pop" class="sync-pop" hidden role="dialog" aria-label="Sync and recent updates">
+      <div class="sp-head">
+        <div class="sp-stat">
+          <b id="sp-title">Auto-sync active</b>
+          <span id="sp-sub">Checks Asana &amp; Slack every 15m on weekdays</span>
+        </div>
+        <div class="sp-acts">
+          <button type="button" id="scout-now" class="sp-btn primary">Check now</button>
+          <button type="button" id="refresh" class="sp-btn" hidden data-run="/api/refresh"
+                  data-busy="Refreshing">Full refresh</button>
+        </div>
+      </div>
+      <div class="sp-sec">
+        <div class="sp-h"><span>Recent updates</span><span id="sp-last" class="sp-meta"></span></div>
+        <ul id="sp-runs" class="sp-runs"><li class="sp-empty">No recent runs logged yet.</li></ul>
+      </div>
+      <div class="sp-sec sp-conn">
+        <div class="sp-h"><span>Connections</span><button type="button" class="sp-link" data-open-conn>Settings</button></div>
+        <div class="sp-crows">
+          <div class="sp-crow">
+            <span class="sp-cdot ok" id="sp-mcp-dot"></span>
+            <span class="sp-cname">Asana &amp; Slack</span>
+            <span class="sp-csaid" id="sp-mcp-said">Connected</span>
+            <button type="button" class="sp-mini" id="sp-mcp-btn" hidden>Sign in</button>
+          </div>
+          <div class="sp-crow" id="sp-db-row" hidden>
+            <span class="sp-cdot" id="sp-db-dot"></span>
+            <span class="sp-cname">Database replica</span>
+            <span class="sp-csaid" id="sp-db-said">Checking…</span>
+            <button type="button" class="sp-mini" id="sp-db-btn" hidden>Log in</button>
+          </div>
+          <div class="sp-crow">
+            <span class="sp-cdot ok" id="sp-cal-dot"></span>
+            <span class="sp-cname">Google Calendar</span>
+            <span class="sp-csaid" id="sp-cal-said">Synced</span>
+            <button type="button" class="sp-mini" id="sp-cal-btn">Sync</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <a id="meet-now" class="meet-now" hidden target="_blank" rel="noopener"></a>
 <script type="application/json" id="meets">{meets_today()}</script>
 <script>
@@ -918,13 +964,67 @@ def checked_line(stamp: str) -> str:
     return f"checked {then:%-d %b}"
 
 
-def is_stale(stamp: str) -> bool:
-    """Four hours is long enough for a reply to have landed unseen."""
+def _hhmm_mins(text: str) -> int | None:
     try:
-        then = datetime.fromisoformat(stamp)
-    except (TypeError, ValueError):
-        return True
-    return (datetime.now().astimezone() - then).total_seconds() > 4 * 3600
+        h, m = (int(x) for x in str(text or "").strip().split(":")[:2])
+        return h * 60 + m
+    except ValueError:
+        return None
+
+
+def script_state(data: dict, tickets: list[dict], soon: dict) -> tuple[bool, bool]:
+    """Return `(stale, needs_prep)` for the speaking view and the header Prep button.
+
+    A script written for a room that has already ended today is finished work,
+    not a stale warning. A script for an upcoming room is stale only when a
+    ticket moved after its `prep.built_at` (or when `script.for_date` still
+    points at an earlier session than `soon`).
+    """
+    today_iso = date.today().isoformat()
+    now_dt = settings.now()
+    now_mins = now_dt.hour * 60 + now_dt.minute
+    has_script = any((t.get("prep") or {}).get("script") for t in tickets)
+    soon_date = str(soon.get("date") or "")
+    soon_at = str(soon.get("at") or "")
+    soon_mins = _hhmm_mins(soon_at)
+    soon_today_ahead = soon_date == today_iso and (soon_mins is None or now_mins <= soon_mins + 30)
+
+    if not has_script:
+        return False, soon_today_ahead
+
+    meta = script_meta(data)
+    built = str(meta.get("built_at") or "")
+    for_date = str(meta.get("for_date") or "")
+    for_at = str(meta.get("at") or settings.meeting().get("time_local") or "")
+    for_mins = _hhmm_mins(for_at)
+    dur = int(settings.meeting().get("minutes") or 30) + 15
+
+    # Today's afternoon room needs its own script once the morning room has passed.
+    if soon_today_ahead and (for_date != today_iso or (soon_at >= "12:30" and for_at and for_at < soon_at)):
+        return True, True
+
+    # If the session this script was written for has already ended, stay quiet.
+    if for_date and for_date < today_iso:
+        return False, False
+    if for_date == today_iso and for_mins is not None and now_mins > for_mins + dur:
+        return False, False
+
+    # Room is still ahead: check whether any ticket has an event newer than its `prep.built_at`.
+    if not built:
+        return False, False
+    for t in tickets:
+        if (t.get("asana") or {}).get("completed"):
+            continue
+        t_built = str((t.get("prep") or {}).get("built_at") or built)[:16].replace(" ", "T")
+        if not t_built:
+            continue
+        for ev in t.get("events") or []:
+            ev_on = str(ev.get("on") or "")
+            ev_at = str(ev.get("at") or "00:00")[:5]
+            if len(ev_on) == 10 and re.fullmatch(r"\d\d:\d\d", ev_at):
+                if f"{ev_on}T{ev_at}" > t_built:
+                    return True, True
+    return False, False
 
 
 def view_tabs(mine: int, has_script: bool, sess: dict) -> str:
@@ -1197,8 +1297,7 @@ def render(data: dict) -> str:
     meta = script_meta(data)
     built = meta.get("built_at", "")
     has_script = any((t.get("prep") or {}).get("script") for t in tickets)
-    # A script written before the last sweep may not know the newest replies.
-    stale = bool(has_script and built and built < (data.get("checked_at") or ""))
+    stale, needs_prep = script_state(data, tickets, soon)
     prep_label = "Update prep" if has_script else "Write prep"
 
     # The countdown only makes sense on the day of a session, and an empty value
@@ -1209,6 +1308,7 @@ def render(data: dict) -> str:
         f'{today_iso}T{soon.get("at")}:00{settings.offset(date.today())}' if on_today else ""
     )
     meeting_label = soon.get("name", "standup").lower() if on_today else ""
+    initial_sync = checked_line(data.get("checked_at", ""))
 
     body = f"""
 <header class="top"><div class="top-in">
@@ -1217,18 +1317,16 @@ def render(data: dict) -> str:
   <h1>{esc(settings.desk_name())}</h1></span>
   {view_tabs(mine, has_script, script_session(data))}
   <span class="acts">
-    <span class="date {"old" if is_stale(data.get("checked_at", "")) else ""}">
-      {esc(pretty)} &middot; {esc(checked_line(data.get("checked_at", "")))}</span>
+    <span class="date">{esc(pretty)}</span>
     <span id="countdown"></span>
-    {link_btn((data.get("meeting_note") or {}).get("url", ""), "Meeting note")}
     <button class="toggle" id="scriptonly">{esc(render_standup.script_only_words().capitalize())}</button>
-    {controls(prep_label)}
+    {controls(prep_label, needs_prep=needs_prep, initial_sync=initial_sync)}
     <button class="toggle chat-go" data-chat-toggle type="button" aria-controls="chat" hidden
             title="Ask in the side panel (a)">{SPARK}Ask</button>
-    <button class="toggle" data-settings type="button" aria-label="Settings"
-            title="Settings">&#9881;</button>
-    <button class="toggle" data-help type="button" aria-label="How to use this"
-            title="How to use this">?</button>
+    <button class="toggle icon-btn" data-settings type="button" aria-label="Settings"
+            title="Settings (,)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="2.3"/><path d="M13.4 9.6a1.2 1.2 0 0 0 .24 1.32l.04.04a1.45 1.45 0 1 1-2.05 2.05l-.04-.04a1.2 1.2 0 0 0-1.32-.24 1.2 1.2 0 0 0-.73 1.1v.12a1.45 1.45 0 1 1-2.9 0v-.06a1.2 1.2 0 0 0-.78-1.1 1.2 1.2 0 0 0-1.32.24l-.04.04a1.45 1.45 0 1 1-2.05-2.05l.04-.04a1.2 1.2 0 0 0 .24-1.32 1.2 1.2 0 0 0-1.1-.73h-.12a1.45 1.45 0 1 1 0-2.9h.06a1.2 1.2 0 0 0 1.1-.78 1.2 1.2 0 0 0-.24-1.32l-.04-.04a1.45 1.45 0 1 1 2.05-2.05l.04.04a1.2 1.2 0 0 0 1.32.24h.06a1.2 1.2 0 0 0 .73-1.1v-.12a1.45 1.45 0 1 1 2.9 0v.06a1.2 1.2 0 0 0 .73 1.1 1.2 1.2 0 0 0 1.32-.24l.04-.04a1.45 1.45 0 1 1 2.05 2.05l-.04.04a1.2 1.2 0 0 0-.24 1.32v.06a1.2 1.2 0 0 0 1.1.73h.12a1.45 1.45 0 1 1 0 2.9h-.06a1.2 1.2 0 0 0-1.1.73z"/></svg></button>
+    <button class="toggle icon-btn" data-help type="button" aria-label="How to use this"
+            title="How to use this (?)">?</button>
   </span>
 </div></header>
 <div class="wrap" id="top">

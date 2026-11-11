@@ -5,11 +5,24 @@
   var login = document.getElementById("login");
   var link = document.getElementById("login-link");
   var note = document.getElementById("refresh-note");
+  var syncBtn = document.getElementById("sync-btn");
+  var syncDot = document.getElementById("sync-dot");
+  var syncPop = document.getElementById("sync-pop");
+  var scoutNowBtn = document.getElementById("scout-now");
   runners.forEach(function (b) { b.hidden = false; });
+  if (syncBtn) syncBtn.hidden = false;
+
+  function setSyncTone(tone) {
+    if (syncDot) syncDot.className = "sync-dot " + (tone || "ok");
+    if (syncBtn) {
+      syncBtn.className = "sync-btn" + (tone === "run" ? " busy" : tone === "bad" ? " bad" : "");
+    }
+  }
 
   function say(text, tone) {
     note.textContent = text || "";
     note.className = "refresh-note" + (tone ? " " + tone : "");
+    setSyncTone(tone === "bad" ? "bad" : (typeof autoMins === "number" && autoMins <= 0 ? "warn" : "ok"));
   }
 
   // A run in progress, as a chip rather than a sentence: which button, how
@@ -35,6 +48,7 @@
   // Built from nodes and textContent rather than an HTML string: what it shows
   // is the server's and the CLI's words, which are never markup.
   function chip(title, hover, parts) {
+    setSyncTone("run");
     note.className = "refresh-note run";
     note.title = hover;
     note.textContent = "";
@@ -184,7 +198,8 @@
     var open = document.querySelector(".ask-box:not([hidden])");
     var pal = document.getElementById("pal");
     var help = document.getElementById("help");
-    var over = (pal && !pal.hidden) || (help && help.open);
+    var syncOpen = syncPop && !syncPop.hidden;
+    var over = (pal && !pal.hidden) || (help && help.open) || syncOpen;
     return !half && !open && !over && !ticking();
   }
 
@@ -282,7 +297,7 @@
         return;
       }
       login.disabled = false;
-      login.textContent = "Log in";
+      login.textContent = "Sign in";
       // Signed out is not a failure, it is one click. Offer the click, and the
       // link the CLI printed once it has one. Keep polling so the moment the
       // browser approval lands the buttons come back on their own.
@@ -291,12 +306,14 @@
         login.hidden = false;
         if (safeUrl(s.url)) { link.href = safeUrl(s.url); link.hidden = false; }
         say(s.message, "bad");
+        syncPopoverConnections(s);
         later(3000);
         return;
       }
       if (s.state === "failed") {
         started = false;
         ready(); say(s.message, "bad");
+        syncPopoverConnections(s);
         later(2500);
         return;
       }
@@ -305,17 +322,18 @@
       ready();
       if (typeof s.auto_mins === "number") autoMins = s.auto_mins;
       if (s.checked_epoch) lastCheckedEpoch = s.checked_epoch;
+      syncPopoverConnections(s);
       // Idle, which is where the page spends nearly all of its life and where it
       // used to stop looking. Keep a slow heartbeat so a change made anywhere
       // else arrives on its own.
       if (boardMoved(s)) return;
       if (s.scout && s.scout.state === "running") {
-        chip("Check", s.scout.said || "Checking Asana and Slack\u2026",
-          [["rn-doing", s.scout.said || "Checking Asana and Slack\u2026"]]);
+        chip("Checking", s.scout.said || "Checking Asana and Slack\u2026",
+          [["rn-doing", "Asana & Slack\u2026"]]);
         later(1800);
         return;
       }
-      say(s.message);
+      say(s.message || "Up to date");
       later(2500);
     }).catch(function () {
       // One dropped poll is not a finished job. This used to have no catch at
@@ -329,6 +347,7 @@
   runners.forEach(function (b) {
     b.dataset.label = b.textContent;
     b.addEventListener("click", function () {
+      closeSyncPop();
       runners.forEach(function (o) { o.disabled = true; });
       b.textContent = b.dataset.busy;
       started = true;
@@ -350,6 +369,7 @@
   });
 
   login.addEventListener("click", function () {
+    closeSyncPop();
     login.disabled = true;
     login.textContent = "Signing in\u2026";
     runners.forEach(function (o) { o.disabled = true; });
@@ -358,10 +378,154 @@
       .then(function () { later(300); })
       .catch(function () {
         login.disabled = false;
-        login.textContent = "Log in";
+        login.textContent = "Sign in";
         ready();
         say("could not reach the desk server", "bad");
       });
+  });
+
+  // Unified Sync & Activity Popover (#sync-pop) and one-click connection buttons.
+  function closeSyncPop() {
+    if (!syncPop || syncPop.hidden) return;
+    syncPop.hidden = true;
+    if (syncBtn) syncBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function syncPopoverConnections(s) {
+    if (!syncPop) return;
+    var spTitle = document.getElementById("sp-title");
+    var spSub = document.getElementById("sp-sub");
+    if (spTitle && spSub) {
+      if (autoMins > 0) {
+        spTitle.textContent = "Auto-sync active";
+        spSub.textContent = "Checks Asana & Slack every " + autoMins + "m on weekdays, and after posting";
+      } else {
+        spTitle.textContent = "Manual sync mode";
+        spSub.textContent = "Auto-sync is off in Settings; use Check now or Full refresh";
+      }
+    }
+    var mcpDot = document.getElementById("sp-mcp-dot");
+    var mcpSaid = document.getElementById("sp-mcp-said");
+    var mcpBtn = document.getElementById("sp-mcp-btn");
+    if (mcpDot && mcpSaid && mcpBtn) {
+      var needMcp = s.state === "needs_login";
+      mcpDot.className = "sp-cdot " + (needMcp ? "bad" : "ok");
+      mcpSaid.textContent = needMcp ? "Needs sign-in" : "Connected";
+      mcpBtn.hidden = !needMcp;
+    }
+    var db = s.db || {};
+    var dbRow = document.getElementById("sp-db-row");
+    var dbDot = document.getElementById("sp-db-dot");
+    var dbSaid = document.getElementById("sp-db-said");
+    var dbBtn = document.getElementById("sp-db-btn");
+    if (dbRow && dbDot && dbSaid && dbBtn) {
+      dbRow.hidden = !db.configured;
+      if (db.configured) {
+        var dbOk = db.state === "ok";
+        var dbRun = db.state === "running";
+        dbDot.className = "sp-cdot " + (dbOk ? "ok" : "warn");
+        dbSaid.textContent = db.said || (dbOk ? "Connected" : "Expired");
+        dbBtn.hidden = dbOk;
+        dbBtn.disabled = dbRun;
+        dbBtn.textContent = dbRun ? "Browser open\u2026" : "Log in";
+      }
+    }
+    if (s.calendar && s.calendar.said) {
+      var calSaid = document.getElementById("sp-cal-said");
+      if (calSaid && s.calendar.state === "running") calSaid.textContent = "Syncing\u2026";
+    }
+  }
+
+  function loadActivity() {
+    var listEl = document.getElementById("sp-runs");
+    if (!listEl) return;
+    fetch("/api/activity").then(function (r) { return r.json(); }).then(function (j) {
+      if (j.cal_ago) {
+        var calSaid = document.getElementById("sp-cal-said");
+        if (calSaid) calSaid.textContent = j.cal_ago;
+      }
+      if (j.db) syncPopoverConnections({ state: login && !login.hidden ? "needs_login" : "idle", db: j.db });
+      var runs = j.runs || [];
+      if (!runs.length) {
+        listEl.innerHTML = '<li class="sp-empty">No recent runs logged today.</li>';
+        return;
+      }
+      listEl.innerHTML = runs.map(function (r) {
+        var took = r.took >= 60 ? Math.floor(r.took / 60) + "m " + (r.took % 60) + "s" : r.took + "s";
+        var bul = (r.bullets || []).map(function (b) { return "<li>" + esc(b) + "</li>"; }).join("");
+        return '<li class="sp-run">'
+          + '<div class="sp-rmeta"><span class="sp-rkind">' + esc(r.kind) + '</span>'
+          + '<span class="sp-rwhen">' + esc(r.when) + '</span>'
+          + '<span class="sp-rtook">' + esc(took) + " \u00b7 " + esc(r.calls) + " calls</span></div>"
+          + (r.lead ? '<p class="sp-rtxt">' + esc(r.lead) + "</p>" : "")
+          + (bul ? '<ul class="sp-rbul">' + bul + "</ul>" : "")
+          + "</li>";
+      }).join("");
+    }).catch(function () {});
+  }
+
+  if (syncBtn && syncPop) {
+    syncBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var opening = syncPop.hidden;
+      syncPop.hidden = !opening;
+      syncBtn.setAttribute("aria-expanded", String(opening));
+      if (opening) loadActivity();
+    });
+  }
+  if (scoutNowBtn) {
+    scoutNowBtn.addEventListener("click", function () {
+      closeSyncPop();
+      chip("Checking", "Checking Asana and Slack\u2026", [["rn-doing", "Asana & Slack\u2026"]]);
+      fetch("/api/scout?force=1&k=" + encodeURIComponent(key), { method: "POST" })
+        .then(function () { later(400); })
+        .catch(function () { say("could not reach the desk server", "bad"); });
+    });
+  }
+  document.addEventListener("click", function (e) {
+    if (e.target.closest && e.target.closest("#sp-mcp-btn")) {
+      login.click();
+      return;
+    }
+    var dbLoginBtn = e.target.closest && e.target.closest("#sp-db-btn,[data-db-login]");
+    if (dbLoginBtn) {
+      dbLoginBtn.disabled = true;
+      dbLoginBtn.textContent = "Opening browser\u2026";
+      var dbSaid = document.getElementById("sp-db-said");
+      if (dbSaid) dbSaid.textContent = "Approve Okta in browser\u2026";
+      var chkWhen = document.querySelector(".chk-when");
+      if (chkWhen && dbLoginBtn.hasAttribute("data-db-login")) {
+        chkWhen.textContent = "Approve Okta login in your browser\u2026";
+      }
+      fetch("/api/db-login?k=" + encodeURIComponent(key), { method: "POST" })
+        .then(function () { later(1000); setTimeout(function () { dbLoginBtn.disabled = false; }, 6000); })
+        .catch(function () { dbLoginBtn.disabled = false; dbLoginBtn.textContent = "Log in"; });
+      return;
+    }
+    var calBtn = e.target.closest && e.target.closest("#sp-cal-btn");
+    if (calBtn) {
+      calBtn.disabled = true;
+      var calSaid = document.getElementById("sp-cal-said");
+      if (calSaid) calSaid.textContent = "Syncing\u2026";
+      fetch("/api/calendar?k=" + encodeURIComponent(key), { method: "POST" })
+        .then(function () { setTimeout(function () { calBtn.disabled = false; loadActivity(); }, 4000); })
+        .catch(function () { calBtn.disabled = false; });
+      return;
+    }
+    if (e.target.closest && e.target.closest("[data-open-conn]")) {
+      closeSyncPop();
+      var setDlg = document.getElementById("settings");
+      if (setDlg && !setDlg.open) setDlg.showModal();
+      return;
+    }
+    if (syncPop && !syncPop.hidden && !(e.target.closest && e.target.closest(".sync-wrap"))) {
+      closeSyncPop();
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && syncPop && !syncPop.hidden) {
+      closeSyncPop();
+    }
   });
 
   // Test connections, in Settings. It lives here rather than in base.js because

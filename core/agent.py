@@ -798,10 +798,8 @@ def blockers(kind: Kind | None) -> tuple[list[str], str]:
     if not kind.signed_in():
         if kind.name == "claude":
             return ["account"], (
-                "Claude Code could not fetch its model credential. apiKeyHelper "
-                "in ~/.claude/settings.json ran and gave nothing back, which is "
-                "usually a locked 1Password vault: unlock it, or run "
-                "`op signin`, then try again."
+                "Claude Code could not fetch its model key from 1Password. "
+                "Unlock the 1Password app, then press Sign in."
             )
         return ["account"], f"{kind.name} is signed out."
     fresh = _ready_cache.get(kind.name, 0)
@@ -829,9 +827,7 @@ def blockers(kind: Kind | None) -> tuple[list[str], str]:
         if absent:
             return missing, (
                 f"{names} {verb} connecting before a refresh can read anything. "
-                f"{' and '.join(n.title() for n in absent)} "
-                f"{'is' if len(absent) == 1 else 'are'} not configured yet: run "
-                f"./core/scripts/setup-mcp.sh"
+                "Press Sign in to add and approve them."
             )
         return missing, f"{names} {verb} authorising before a refresh can read anything."
     return ["tools"], why

@@ -229,13 +229,14 @@ var(--accent) 82%,transparent);opacity:.75}
 /* Wider than the page it sits over: this row is navigation, not prose, and it
    has to hold the tabs and the buttons without wrapping. One line tall, since
    every pixel here is taken off the top of what they are actually reading. */
-.top-in{max-width:1180px;margin:0 auto;padding:4px 20px;display:flex;
-align-items:center;gap:10px;flex-wrap:wrap}
+.top-in{max-width:1180px;margin:0 auto;padding:5px 20px;display:flex;
+align-items:center;gap:8px;flex-wrap:nowrap}
+@media (max-width:860px){.top-in{flex-wrap:wrap}}
 /* One height for everything in this row, so no single control can push the bar
    taller than the tabs need. */
-.top .btn,.toggle,.refresh,#countdown,.views button{height:26px;box-sizing:border-box;
+.top .btn,.toggle,.refresh,.sync-btn,#countdown,.views button{height:26px;box-sizing:border-box;
 display:inline-flex;align-items:center;line-height:1}
-.brand{display:flex;align-items:center;gap:8px}
+.brand{display:flex;align-items:center;gap:8px;flex:none}
 .brand img{width:20px;height:20px;border-radius:6px;display:block}
 /* The name of the page, kept for the tab strip and for a screen reader but not
    drawn: the icon says which desk this is, the tabs say which half of it, and
@@ -243,23 +244,23 @@ display:inline-flex;align-items:center;line-height:1}
    and one that grows a second. */
 .top h1{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
 clip-path:inset(50%);white-space:nowrap;border:0}
-.top .date{color:#8a9bb8;font-size:12px;white-space:nowrap}
-/* Hours old means a reply may have landed unseen, which is worth a colour. */
-.top .date.old{color:#f4c27a}
+.top .date{color:#91a2bf;font-size:12px;font-weight:550;white-space:nowrap;padding-right:2px}
 .top .btn{color:#c9d6ea;border-color:rgba(255,255,255,.16);
 background:rgba(255,255,255,.07);font-size:12px;padding:0 10px}
 .top .btn:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.28);
 color:#fff}
-.acts{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-justify-content:flex-end}
+.acts{margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;
+justify-content:flex-end;min-width:0}
+@media (max-width:860px){.acts{flex-wrap:wrap}}
 #countdown{font-variant-numeric:tabular-nums;font-weight:650;font-size:12.5px;
 padding:0 10px;border-radius:7px;color:#dae4f5;background:rgba(255,255,255,.09);
-border:1px solid rgba(255,255,255,.14)}
+border:1px solid rgba(255,255,255,.14);white-space:nowrap}
 #countdown:empty{display:none}
 #countdown.soon{background:#fee4e2;border-color:#fda29b;color:#912018}
 .toggle{font:600 12px/1 var(--font);padding:0 10px;border-radius:7px;
 border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);
-cursor:pointer;color:#c9d6ea}
+cursor:pointer;color:#c9d6ea;white-space:nowrap}
+.toggle.icon-btn{width:26px;padding:0;justify-content:center;font-weight:700}
 .toggle:hover{background:rgba(255,255,255,.14);color:#fff}
 /* Stripping the page back to the Japanese is only a thing you want while
    speaking, so the button lives in that view. */
@@ -597,6 +598,9 @@ color:var(--accent-ink)}
 .say-list{list-style:none;margin:0;padding:0;display:grid;gap:1px;
 background:var(--line);border:1px solid var(--line);border-radius:10px;
 overflow:hidden}
+.help-fold{margin:10px 0 4px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:var(--hair)}
+.help-fold>summary{padding:9px 0;font:600 12.5px/1.3 var(--font);color:var(--mut);cursor:pointer}
+.help-fold[open]{padding-bottom:10px}
 .say-list li{background:var(--card);padding:8px 12px;display:flex;gap:12px;
 align-items:baseline;font-size:13.5px}
 .say-list .said{flex:none;min-width:186px;font-weight:650;color:var(--accent-ink);

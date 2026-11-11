@@ -242,17 +242,21 @@ STEPS = (
      '<button type="button" class="btn primary" data-run="install_claude">Install Claude Code</button>'),
     ("gateway", "Connect it to Kraken's model gateway",
      """<ol class="how">
-<li>Install the <b>1Password</b> app and sign in. In <b>1Password, Settings, Developer</b>,
-turn on <b>Integrate with 1Password CLI</b>.</li>
+<li>Open the <b>1Password</b> app, go to <b>Settings &rarr; Developer</b>, and turn on
+<b>Integrate with 1Password CLI</b>.</li>
 <li>With Zscaler on, open <a href="https://litellm.kraken.tech" target="_blank">litellm.kraken.tech</a>,
 sign in and create an API key.</li>
-<li>In your <b>Employee</b> vault, save it as an item called exactly
-<code>LiteLLM API Key</code>, with the key in its <b>credential</b> field.</li>
-<li>Press the button. A Terminal window installs the Kraken AI harness and points
-Claude Code at the gateway. Answer what it asks, allow 1Password if it asks.</li>
+<li>In your <b>Employee</b> vault, save an item called <code>LiteLLM API Key</code>
+with the key in its <b>credential</b> field (or adjust the 1Password path below).</li>
+<li>Press <b>Connect gateway</b> and approve Touch ID when 1Password asks.</li>
 </ol>
 <p class="aside">Stuck? <b>#litellm</b> is the channel for keys and the gateway.</p>""",
-     '<button type="button" class="btn primary" data-run="gateway">Open the gateway setup</button>'),
+     '<div class="gw-bar">'
+     '<input type="text" id="gw-op-ref" class="gw-in" value="__OP_REF__" '
+     'aria-label="1Password secret reference" spellcheck="false">'
+     '<button type="button" class="btn primary" data-gateway-direct>Connect gateway</button>'
+     '<button type="button" class="btn" data-run="gateway">Terminal setup (optional)</button>'
+     '</div>'),
     ("connect", "Connect Asana, Slack, Google and Notion",
      """<ol class="how">
 <li>Open <a href="https://hub.ai.ktl.net" target="_blank">hub.ai.ktl.net</a>,
@@ -267,31 +271,48 @@ one that needs approving.</li>
      "Saved on this Mac only, never uploaded.",
      '<button type="button" class="btn primary" data-open-form>Answer them</button>'),
     ("profile", "Teach it your house style",
-     "The one that makes your drafts sound like you and not like a robot. "
-     "Claude interviews you for ten minutes: how you write to the client, who your people "
-     "are, what must never reach them. It looks up your ids and meetings itself. "
-     "You can also edit <code>clients/&lt;client&gt;/profile.md</code> by hand.",
-     '<button type="button" class="btn" data-run="interview">Start the interview</button>'),
+     "Makes your drafts sound like you: how you write to the client, who your people "
+     "are, and what must never reach them. Edit it right here, auto-fill your Asana "
+     "and Slack IDs in one click, or run the interactive interview.",
+     '<button type="button" class="btn primary" data-open-profile>Write or edit here</button>'
+     '<button type="button" class="btn" data-run="discover">Auto-fill Asana &amp; Slack IDs</button>'
+     '<button type="button" class="btn" data-run="interview">Interview in Terminal</button>'),
     ("app", "Install the app",
-     "Puts DANDORI in your Applications folder (drag it to the Dock), adds the "
-     "<code>DANDORI</code> command, and keeps the page running from login.",
+     "Puts DANDORI in your Applications folder (drag it to the Dock) and keeps "
+     "the background sync server running from login.",
      '<button type="button" class="btn primary" data-run="install_app">Install the app</button>'),
     ("refresh", "Build your board",
      "The first refresh reads everything assigned to you in Asana and its Slack threads. "
-     "Five to ten minutes, so go get a coffee ☕ After that a refresh takes a few.",
+     "Five to ten minutes, so go get a coffee ☕ After that DANDORI stays current automatically.",
      '<button type="button" class="btn primary" data-refresh>Run the first refresh</button>'
      '<a class="btn primary" href="/" data-desk hidden>Open DANDORI</a>'),
 )
 
 
+def profile_editor() -> str:
+    return """
+<div class="prof-wrap" id="profile-wrap" hidden>
+  <p class="prof-lead">Fill in the sections that matter for your client (tone, people, confidentiality rules, domain terms). Saved locally to <code>clients/&lt;client&gt;/profile.md</code>.</p>
+  <textarea id="profile-text" rows="16" spellcheck="true" aria-label="House style profile"></textarea>
+  <div class="save-bar">
+    <button type="button" class="btn primary" id="save-profile">Save house style</button>
+    <button type="button" class="btn" id="close-profile">Close</button>
+    <span class="save-said" id="profile-said" aria-live="polite"></span>
+  </div>
+</div>"""
+
+
 def render(cfg: dict | None = None, states: list[dict] | None = None) -> str:
+    op_ref = setup_page.DEFAULT_OP_REF if cfg == {} else setup_page.default_op_ref()
     cfg = setup.load() if cfg is None else cfg
     states = {s["id"]: s for s in (states or [])}
     name = settings.desk_name()
     steps = []
     for n, (ident, title, how, buttons) in enumerate(STEPS, 1):
         st = states.get(ident, {"state": "checking", "said": ""})
+        btn_html = buttons.replace("__OP_REF__", esc(op_ref))
         body = form(cfg) if ident == "answers" else ""
+        prof = profile_editor() if ident == "profile" else ""
         steps.append(f"""
 <li class="step" id="step-{ident}" data-step="{ident}" data-state="{esc(st['state'])}">
   <div class="st-n"><span>{n}</span></div>
@@ -302,9 +323,10 @@ def render(cfg: dict | None = None, states: list[dict] | None = None) -> str:
     </div>
     <div class="st-how">{how if how.startswith('<') else f'<p>{how}</p>'}</div>
     {'<div class="chips"></div>' if ident == 'connect' else ''}
-    <div class="st-go">{buttons}</div>
+    <div class="st-go">{btn_html}</div>
     <div class="st-run" hidden><p class="run-said"></p><a class="run-url btn" target="_blank" hidden>Open the approval page</a><pre class="run-log"></pre></div>
     {f'<div class="form-wrap" hidden>{body}</div>' if body else ''}
+    {prof}
   </div>
 </li>""")
     return f"""<!doctype html>
