@@ -705,6 +705,8 @@ padding:1px 6px;border-radius:4px;background:var(--hair);border:1px solid var(--
 border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;white-space:nowrap}
 .ctx-copy:hover{color:var(--accent-ink);border-color:var(--accent-line);background:var(--accent-bg)}
 .ctx-copy.bar-ctx{margin-left:6px;padding:5px 9px;border-radius:7px}
+.tk-cursor{color:var(--accent-ink);border-color:var(--accent-line);background:var(--accent-bg);font-weight:650}
+.tk-cursor:hover{background:var(--accent);border-color:var(--accent);color:#fff}
 /* The files that go out with a message, inside that message's box. */
 .draft-attach{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;
 padding:8px 12px;border-top:1px solid var(--line);background:var(--card)}

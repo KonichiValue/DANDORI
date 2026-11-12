@@ -2236,19 +2236,41 @@ def ask_context(ref: str, question: str, parent: str = "") -> str:
     return "\n".join(lines)
 
 
-def _find_cursor_desktop() -> tuple[str, str]:
-    """Locate the Cursor Desktop CLI binary and .app bundle on macOS."""
+def _cursor_is_running() -> bool:
+    """Check whether Cursor.app is already running without spawning `bin/cursor`
+    (which runs `open -n` and creates a duplicate Dock icon / process on macOS)."""
+    lock_file = Path.home() / "Library/Application Support/Cursor/code.lock"
+    if lock_file.exists():
+        try:
+            pid = int(lock_file.read_text(encoding="utf-8").strip())
+            os.kill(pid, 0)
+            return True
+        except (OSError, ValueError):
+            pass
+    try:
+        res = subprocess.run(
+            ["pgrep", "-f", "Cursor.app/Contents/MacOS/Cursor"],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=2, check=False,
+        )
+        return res.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _find_cursor_app() -> str:
+    """Locate Cursor.app on macOS."""
     for app in (Path("/Applications/Cursor.app"), Path.home() / "Applications/Cursor.app"):
         if app.exists():
-            cli = app / "Contents/Resources/app/bin/cursor"
-            return (str(cli) if cli.exists() else ""), str(app)
-    return "", ""
+            return str(app)
+    return ""
 
 
 def open_in_cursor(body: dict) -> tuple[int, dict]:
-    """Write a complete context bundle to `tmp/`, focus Cursor on the DANDORI
-    workspace (`ROOT`), and pre-fill a new Agent chat via Cursor's deeplink."""
+    """Write a complete context bundle to `tmp/`, reuse the running Cursor
+    instance via native `cursor://` AppleEvent (zero duplicate windows), and
+    pre-fill an actionable Agent prompt."""
     ref = str(body.get("ref") or "board").strip() or "board"
+    mode = str(body.get("mode") or "default").strip()
     try:
         draft_num = int(body.get("draft") or 0)
     except (TypeError, ValueError):
@@ -2274,13 +2296,24 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
     ctx_file = settings.TMP_DIR / f"cursor-{slug}.md"
     ctx_file.parent.mkdir(parents=True, exist_ok=True)
     ctx_file.write_text(md + "\n", encoding="utf-8")
+    abs_ctx = str(ctx_file.resolve())
     try:
         rel_ctx = str(ctx_file.relative_to(ROOT))
     except ValueError:
-        rel_ctx = str(ctx_file)
+        rel_ctx = abs_ctx
 
     ticket, item = find_subject(ref)
     t_ref = str(ticket.get("ref") or ticket.get("id") or "")
+    t_gid = str(ticket.get("id") or "")
+    internal_url = str((ticket.get("internal_ticket") or {}).get("url") or "")
+    internal_gid_m = re.search(r"/task/(\d{10,})", internal_url)
+    internal_gid = internal_gid_m.group(1) if internal_gid_m else ""
+    thread_urls = [
+        str(th.get("url") or "")
+        for th in (ticket.get("threads") or [])
+        if str(th.get("url") or "").startswith("https://") and "slack.com" in str(th.get("url") or "")
+    ][:3]
+
     if item and draft_num:
         head = f"Working on DANDORI Job {item.get('id')} ({t_ref}) - Draft {draft_num}."
     elif item:
@@ -2292,16 +2325,35 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
 
     prompt_lines = [
         head,
-        f"Read `{rel_ctx}` first: it already has the full ticket, numbered drafts, recent Slack/Asana timeline, and live DB Account X-Ray preloaded.",
-        "When updating the board or draft, write via `./core/apply.py` and `./core/tick.py --rebuild`. Never send external messages without my approval.",
+        f"Read `{abs_ctx}` first (repo `{ROOT}`): it already has the full ticket, numbered drafts, recent timeline, and live DB Account X-Ray preloaded so you do NOT need to search `desk.md` or `board.json`.",
+        f"When updating the board or draft, write via `python3 {ROOT / 'core/apply.py'}` and `python3 {ROOT / 'core/tick.py'} --rebuild`. Never send external messages without my approval.",
     ]
     if saved_imgs:
-        prompt_lines.append("Also inspect attached screenshot(s): " + ", ".join(f"`{p}`" for p in saved_imgs))
+        prompt_lines.append("Also inspect attached screenshot(s): " + ", ".join(f"`{ROOT / p}`" for p in saved_imgs))
+
+    if mode == "catchup" and ticket:
+        fetch_bits = []
+        if re.fullmatch(r"\d+", t_gid):
+            fetch_bits.append(f"Asana task `{t_gid}` (plus `get_attachments` if any new image/file was attached)")
+        if internal_gid:
+            fetch_bits.append(f"internal Asana build `{internal_gid}`")
+        if thread_urls:
+            fetch_bits.append("linked Slack thread(s): " + ", ".join(thread_urls))
+        sources_txt = "; ".join(fetch_bits) if fetch_bits else "the linked Asana task and Slack threads in the context file"
+        default_task = (
+            f"Check ONLY the newest comments/replies since `{rel_ctx}`'s last recorded timestamp on {sources_txt}. "
+            "Tell me concisely what changed and what I should do next, and update this ticket's open item steps/drafts on the board if needed."
+        )
+    elif item and draft_num:
+        default_task = f"Review Draft {draft_num} against `{rel_ctx}`. My instruction: "
+    else:
+        default_task = ""
+
     prompt_lines.append("")
-    prompt_lines.append(question if question else "")
+    prompt_lines.append(question if question else default_task)
     prompt_text = "\n".join(prompt_lines)
 
-    cursor_cli, cursor_app = _find_cursor_desktop()
+    cursor_app = _find_cursor_app()
     if not cursor_app:
         return 200, {
             "opened": False,
@@ -2310,44 +2362,13 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
             "message": "Cursor.app not found; copied context to clipboard",
         }
 
-    clean_env = agent.Claude()._base_env()
-    running = False
-    glass_open = False
-    if cursor_cli:
-        try:
-            st = subprocess.run(
-                [cursor_cli, "-s"],
-                cwd=str(ROOT), stdin=subprocess.DEVNULL,
-                capture_output=True, text=True, timeout=2.5, check=False, env=clean_env,
-            )
-            st_out = (st.stdout or "") + (st.stderr or "")
-            running = "cursor main" in st_out
-            glass_open = "(Cursor Agents)" in st_out
-        except (OSError, subprocess.SubprocessError):
-            pass
-
     try:
-        if not running:
+        if not _cursor_is_running():
             subprocess.run(["open", "-a", cursor_app, str(ROOT)], timeout=5, check=False)
             time.sleep(1.8)
-        elif cursor_cli:
-            if glass_open:
-                # Focus Cursor Agents first so `cursor <ROOT>` opens a New Agent
-                # draft scoped to DANDORI inside Cursor Agents rather than an editor window.
-                subprocess.run(["open", "cursor://anysphere.cursor-deeplink/glass"], timeout=5, check=False)
-                time.sleep(0.25)
-            subprocess.run(
-                [cursor_cli, str(ROOT)],
-                cwd=str(ROOT), stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=8, check=False, env=clean_env,
-            )
-            time.sleep(0.45)
-        else:
-            subprocess.run(["open", "-a", cursor_app, str(ROOT)], timeout=5, check=False)
-            time.sleep(0.6)
-
-        deeplink = "cursor://anysphere.cursor-deeplink/prompt?text=" + quote(prompt_text[:6000], safe="")
+        # Send native `cursor://` AppleEvent directly to the running Cursor.app
+        # without ever calling `bin/cursor` (which spawns `open -n`).
+        deeplink = "cursor://anysphere.cursor-deeplink/prompt?text=" + quote(prompt_text[:7000], safe="")
         subprocess.run(["open", deeplink], timeout=5, check=False)
     except (OSError, subprocess.SubprocessError) as exc:
         return 500, {"error": f"could not launch Cursor: {exc}"}

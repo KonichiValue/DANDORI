@@ -1023,6 +1023,7 @@
     var askBox = inChat ? (typeof chatBody === "function" ? chatBody() : null) : (b.closest && b.closest(".ask"));
     var panel = inChat || (b.closest && (b.closest(".fu") || b.closest(".ask-box"))) || (askBox && askBox.querySelector(".ask-box"));
     var ref = b.dataset.ctxRef || (askBox && askBox.dataset && askBox.dataset.ask) || "board";
+    var mode = b.dataset.ctxMode || "default";
     var draftNum = b.dataset.ctxDraft ? parseInt(b.dataset.ctxDraft, 10) : 0;
     var field = panel && panel.querySelector && panel.querySelector("textarea");
     var question = field && field.value ? field.value.trim() : "";
@@ -1063,6 +1064,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ref: ref,
+        mode: mode,
         draft: draftNum || 0,
         question: question,
         follow_up: followUp,

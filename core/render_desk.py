@@ -785,6 +785,8 @@ def render_ticket(
           {link_btn(t.get("asana_url", ""), "Open in Asana")}
           {say_link}
           {internal_btn(internal)}
+          <button type="button" class="btn tk-cursor" data-ctx-ref="ticket:{esc(t.get("ref"))}" data-ctx-mode="catchup"
+                  title="Open your existing Cursor window with this full ticket preloaded and check the newest Asana/Slack replies to update steps &amp; drafts (Option-click copies context)">Check replies in Cursor &#8599;</button>
           {keep_in}
         </div>
       </header>
