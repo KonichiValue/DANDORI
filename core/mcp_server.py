@@ -32,6 +32,7 @@ CORE = Path(__file__).resolve().parent
 sys.path.insert(0, str(CORE))
 
 import apply as A  # noqa: E402
+import asana_status  # noqa: E402
 import board as B  # noqa: E402
 import plugins  # noqa: E402
 import settings  # noqa: E402
@@ -195,6 +196,16 @@ TOOLS = [
             "required": ["patch"],
         },
     },
+    {
+        "name": "dandori_sync_asana_status",
+        "description": "Sync the Asana Status custom field on tickets assigned to the owner whose Status is behind (`status_should` or `by_stage`).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "Optional single ticket ref or GID; omit to sync all behind tickets owned by the owner"},
+            },
+        },
+    },
 ]
 
 
@@ -258,6 +269,20 @@ def _call_tool(name: str, args: dict) -> tuple[str, bool]:
             return "Applied & rebuilt: " + "; ".join(said), False
         except Exception as exc:  # noqa: BLE001
             return f"Patch failed: {exc}", True
+
+    if name == "dandori_sync_asana_status":
+        ref = str(args.get("ref") or "").strip()
+        if ref:
+            got = asana_status.set_status(ref)
+            if got.get("error"):
+                return got["error"], True
+            T.rebuild()
+            return f"{got['ref']}: Status {got['was']} -> {got['now']} in Asana", False
+        moved = asana_status.sync_owned_statuses()
+        if moved:
+            T.rebuild()
+            return "; ".join(f"{m['ref']}: {m['was']} -> {m['now']}" for m in moved), False
+        return "All owned tickets already match Asana Status.", False
 
     return f"Unknown tool: {name}", True
 

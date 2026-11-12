@@ -95,7 +95,15 @@ def working_days_on(n: int) -> str:
     return day.isoformat()
 
 
-def posted(item: dict, k: int, who: str, note: str, chase: str, close: bool = False) -> str:
+def posted(
+    item: dict,
+    k: int,
+    who: str,
+    note: str,
+    chase: str,
+    close: bool = False,
+    ticket: dict | None = None,
+) -> str:
     """Draft `k` went. Mark it, and move the job if it was the last one.
 
     Returns what is wrong, or "" when it landed. A job with two messages is not
@@ -117,6 +125,14 @@ def posted(item: dict, k: int, who: str, note: str, chase: str, close: bool = Fa
         step(item, sends)
     d["sent"] = True
     d["sent_at"] = B.now()
+    if ticket is not None and d.get("asana_status"):
+        asana = ticket.setdefault("asana", {})
+        assignee = str(asana.get("assignee") or "").strip().lower()
+        if not asana.get("completed") and assignee in settings.owner_aliases():
+            want_st = str(d["asana_status"]).strip()
+            if want_st and want_st != str(asana.get("status") or "").strip():
+                asana["status_should"] = want_st
+                asana["status_why"] = f"posted {target[:60]}"
     said = note or f"posted: {target}"
     if label.endswith("more to send"):
         item.setdefault("history", []).append(
@@ -245,7 +261,7 @@ def main() -> int:
 
     people.load(data)
     for ident in args.ids:
-        _, item = B.by_id(data, ident)
+        ticket, item = B.by_id(data, ident)
         if args.step is not None:
             problem = step(item, args.step, args.undo)
             if problem:
@@ -254,7 +270,7 @@ def main() -> int:
             continue
         if args.draft is not None:
             problem = posted(
-                item, args.draft, args.waiting or "", args.note, args.chase, args.sent
+                item, args.draft, args.waiting or "", args.note, args.chase, args.sent, ticket=ticket
             )
             if problem:
                 print(f"{ident}: {problem}", file=sys.stderr)

@@ -45,7 +45,7 @@ STATIC = CORE / "static"
 SETUP_DIR = CORE / "setup"
 SCRIPTS = CORE / "scripts"
 
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 VERSION_NAME = "Shigure"
 
 _cache: dict = {"stamp": None, "data": {}}
@@ -441,6 +441,27 @@ def asana_status_color(name: str) -> str:
     """Asana's colour name for one Status option, or "" when it is not known."""
     opt = asana_status_field().get("options", {}).get(str(name or "")) or {}
     return re.sub(r"[^a-z-]", "", str(opt.get("color") or "").lower())
+
+
+def auto_asana_status() -> bool:
+    """Whether DANDORI automatically updates the Asana Status custom field on
+    incomplete tickets assigned to the owner when `status_should` or `by_stage`
+    advances. Defaults to True when `asana.status_field` is configured."""
+    if not asana_status_field().get("gid"):
+        return False
+    raw = env("AUTO_ASANA_STATUS")
+    if not raw:
+        try:
+            prefs = json.loads((STATE_DIR / "prefs.json").read_text(encoding="utf-8"))
+            raw = str(prefs.get("desk-auto-status") or "").strip()
+        except (OSError, ValueError):
+            raw = ""
+    if not raw:
+        val = section("asana").get("auto_status")
+        if val is not None:
+            return bool(val)
+        return True
+    return raw.lower() not in ("0", "off", "false", "no", "manual")
 
 
 REGIONS = ("eu", "us", "apac")

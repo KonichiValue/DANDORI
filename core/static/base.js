@@ -208,74 +208,116 @@
   var board=document.body.dataset.board||'';
   [].forEach.call(document.querySelectorAll('details[data-remember]'),function(d){
     var key='fold-'+d.dataset.remember;
+    var skey='sfold-'+d.dataset.remember;
     var shut=!d.open;
     var was=getPref(key);
-    if(was==='0')d.open=false;
-    else if(shut&&board&&was==='1@'+board)d.open=true;
+    var swas=null;
+    try{swas=sessionStorage.getItem(skey)}catch(e){}
+    if(was==='0'||swas==='0')d.open=false;
+    else if(shut&&(swas==='1'||(board&&was==='1@'+board)))d.open=true;
     d.addEventListener('toggle',function(){
       setPref(key,!d.open?'0':shut?'1@'+board:'1');
+      try{sessionStorage.setItem(skey,d.open?'1':'0')}catch(e){}
     });
   });
 
   // The rest of the card's folds are not worth remembering forever, but they must
-  // survive the reload an answer triggers: a section the owner opened to ask a question
-  // should still be open when the answer lands, not snap back to its default. So
-  // remember them for this tab only (sessionStorage clears on close, so a fresh
-  // session still opens at the intended defaults), keyed by the card and the fold's
-  // position within it so every card keeps its own state.
-  var FOLDS='details.sub:not([data-remember]),details.qa-earlier';
+  // survive the reload an answer or background sweep triggers: a section the owner
+  // opened should still be open when the update lands, not snap back to its default.
+  var FOLDS='details.sub:not([data-remember]),details.qa-earlier,details.act-draft,details.act-prep,details.job';
   [].forEach.call(document.querySelectorAll(FOLDS),function(d){
     var card=d.closest('[id]');
     if(!card)return;
-    var key='open-'+card.id+'-'+[].indexOf.call(card.querySelectorAll(FOLDS),d);
+    var key='open-'+card.id+'-'+(d.id||[].indexOf.call(card.querySelectorAll(FOLDS),d));
     try{var was=sessionStorage.getItem(key);if(was!==null)d.open=was==='1';}catch(e){}
     d.addEventListener('toggle',function(){
       try{sessionStorage.setItem(key,d.open?'1':'0')}catch(e){}
     });
   });
 
-  // Keep the owner's place across that same reload, so the card they were reading
-  // does not jump when the answer lands. By the card rather than by the pixel:
-  // the job they were reading is found again and put back at the same height on screen,
-  // because an answer, a fold or a new draft above it moves every pixel below.
-  // Skipped when the URL points at an anchor, so a link to a ticket still wins.
+  // Keep the owner's exact reading line across every reload and live update, with
+  // zero visible glide. Browser auto scrollRestoration is disabled so it cannot
+  // jump a second time after fonts/folds settle, and stale URL hashes are ignored
+  // on programmatic reloads so an old jump-chip hash never pulls the screen away.
+  if(typeof history!=='undefined'&&'scrollRestoration' in history){
+    try{history.scrollRestoration='manual'}catch(e){}
+  }
+  var READ_Y=96;
   function placeKey(el){
-    if(el.matches('article[id]'))return '#'+el.id;
-    var a=el.querySelector('.ask[data-ask]');
+    if(!el)return '';
+    if(el.id)return '#'+el.id;
+    var a=el.querySelector&&el.querySelector('.ask[data-ask]');
     return a?'@'+a.dataset.ask:'';
   }
   function takePlace(){
+    var y=window.scrollY||window.pageYOffset||0;
+    if(y<8)return {key:'TOP',top:0,y:0};
     var best=null,first=null;
-    [].forEach.call(document.querySelectorAll('article.tk[id],.act'),function(el){
+    var sel='details.act-draft[id],.act,details.job[id],article.tk[id],#brief,#week,#todo';
+    [].forEach.call(document.querySelectorAll(sel),function(el){
       if(!el.offsetParent)return;
       var r=el.getBoundingClientRect();
-      // The innermost thing crossing the top of the screen, so an item beats
-      // the ticket it is in. Otherwise the first thing below the top.
-      if(r.top<=1&&r.bottom>1){if(!best||best.contains(el))best=el}
-      else if(r.top>1&&!first)first=el;
+      if(r.top<=READ_Y&&r.bottom>READ_Y){if(!best||best.contains(el))best=el}
+      else if(r.top>READ_Y&&!first)first=el;
     });
     var el=best||first;
     var key=el&&placeKey(el);
-    return key?{key:key,top:el.getBoundingClientRect().top,y:window.scrollY||0}:null;
+    return key?{key:key,top:Math.round(el.getBoundingClientRect().top),y:Math.round(y)}:{key:'',top:0,y:Math.round(y)};
+  }
+  function instantScrollTo(y){
+    var root=document.documentElement;
+    var prev=root?root.style.scrollBehavior:'';
+    if(root)root.style.scrollBehavior='auto';
+    window.scrollTo(0,Math.max(0,Math.round(y)));
+    if(root)root.style.scrollBehavior=prev;
   }
   function putPlace(p){
     if(!p)return;
+    if(p.key==='TOP'){instantScrollTo(0);return}
     var el=null;
-    if(p.key.charAt(0)==='#')el=document.getElementById(p.key.slice(1));
-    else{
+    if(p.key&&p.key.charAt(0)==='#')el=document.getElementById(p.key.slice(1));
+    else if(p.key&&p.key.charAt(0)==='@'){
       var a=document.querySelector('.ask[data-ask="'+p.key.slice(1).replace(/"/g,'')+'"]');
       el=a&&a.closest('.act');
     }
-    if(el&&el.offsetParent)window.scrollBy(0,el.getBoundingClientRect().top-p.top);
-    else if(p.y)window.scrollTo(0,p.y);
+    if(el&&el.offsetParent){
+      var curY=window.scrollY||window.pageYOffset||0;
+      var delta=el.getBoundingClientRect().top-p.top;
+      if(Math.abs(delta)>0.5)instantScrollTo(curY+delta);
+    }else if(typeof p.y==='number'){
+      instantScrollTo(p.y);
+    }
   }
-  // desk.js swaps one card's conversation in place, and the same promise holds
-  // there: whatever the owner is reading stays where it is on screen.
-  window.deskPlace={take:takePlace,put:putPlace};
+  function saveBeforeReload(){
+    try{
+      sessionStorage.setItem('desk-place',JSON.stringify(takePlace()));
+      sessionStorage.setItem('desk-auto-reload','1');
+      if(location.hash&&history.replaceState){
+        history.replaceState(null,'',location.pathname+location.search);
+      }
+    }catch(e){}
+  }
+  window.deskPlace={take:takePlace,put:putPlace,saveBeforeReload:saveBeforeReload};
   try{
+    var wasAutoReload=sessionStorage.getItem('desk-auto-reload')==='1';
+    sessionStorage.removeItem('desk-auto-reload');
     var sp=sessionStorage.getItem('desk-place');
-    if(!location.hash&&sp)putPlace(JSON.parse(sp));
+    if((wasAutoReload||!location.hash)&&sp){
+      var parsedPlace=JSON.parse(sp);
+      putPlace(parsedPlace);
+      if(typeof requestAnimationFrame==='function'){
+        requestAnimationFrame(function(){putPlace(parsedPlace)});
+      }
+    }
   }catch(e){}
+  var scrollRaf=0;
+  window.addEventListener('scroll',function(){
+    if(scrollRaf)return;
+    scrollRaf=(typeof requestAnimationFrame==='function'?requestAnimationFrame:function(fn){return setTimeout(fn,60)})(function(){
+      scrollRaf=0;
+      try{sessionStorage.setItem('desk-place',JSON.stringify(takePlace()))}catch(e){}
+    });
+  },{passive:true});
   window.addEventListener('beforeunload',function(){
     try{sessionStorage.setItem('desk-place',JSON.stringify(takePlace()))}catch(e){}
   });
@@ -414,12 +456,14 @@
     var motionBtns=[].slice.call(settings.querySelectorAll('[data-motion-set]'));
     var openBtns=[].slice.call(settings.querySelectorAll('[data-open-set]'));
     var autoBtns=[].slice.call(settings.querySelectorAll('[data-auto-set]'));
+    var astatusBtns=[].slice.call(settings.querySelectorAll('[data-astatus-set]'));
     function stored(key,fallback){return getPref(key)||fallback}
     function mark(){
       var now=document.body.dataset.theme||'plain';
       var moving=document.body.dataset.motion!=='off';
       var opening=stored('desk-open','auto');
       var autoMode=stored('desk-auto','15');
+      var astatusMode=stored('desk-auto-status','on');
       themeBtns.forEach(function(b){
         b.setAttribute('aria-pressed',b.dataset.themeSet===now);
       });
@@ -432,6 +476,9 @@
       autoBtns.forEach(function(b){
         b.setAttribute('aria-pressed',b.dataset.autoSet===autoMode);
       });
+      astatusBtns.forEach(function(b){
+        b.setAttribute('aria-pressed',b.dataset.astatusSet===astatusMode);
+      });
     }
     openBtns.forEach(function(b){
       b.addEventListener('click',function(){
@@ -442,6 +489,12 @@
     autoBtns.forEach(function(b){
       b.addEventListener('click',function(){
         setPref('desk-auto',b.dataset.autoSet);
+        mark();
+      });
+    });
+    astatusBtns.forEach(function(b){
+      b.addEventListener('click',function(){
+        setPref('desk-auto-status',b.dataset.astatusSet);
         mark();
       });
     });
@@ -631,38 +684,51 @@
       try{sessionStorage.setItem(KEY,now.join(','))}catch(e){}
       if(on)play([id]);
     };
+    window.deskWave.sent=function(id,who){
+      var txt='Job '+id+' posted'+(who?' \u00b7 with '+who:'');
+      play([String(id)],{seal:'\u9001',said:txt,sent:true});
+    };
     // Nothing to compare against on a first visit, so nothing is "new".
     if(!before.length)return;
     play(now.filter(function(id){return before.indexOf(id)<0}));
   })();
-  function play(fresh){
+  function play(fresh,opts){
     if(!fresh.length)return;
     if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
     if(document.body.dataset.motion==='off')return;
     var old=document.querySelector('.nami');
     if(old)old.remove();
+    opts=opts||{};
+    var sealChar=opts.seal||'\u6e08';
+    var caption=opts.said||(fresh.length>1
+      ? fresh.length+' jobs complete'
+      : 'Job '+fresh[0]+' complete');
 
     var wrap=document.createElement('div');
-    wrap.className='nami';
+    wrap.className='nami'+(opts.sent?' is-sent':'');
     wrap.setAttribute('aria-hidden','true');
-    // One crest, drawn once, in the indigo the rest of the page uses. The foam
-    // circles are the 波の花 the prints break a wave into.
     wrap.innerHTML=
-      '<svg viewBox="0 0 240 150" class="nami-w">'
-      +'<path class="nami-b" d="M4 122c34 0 52-16 74-38C104 58 128 24 170 24c30 0 50 14 66 30"/>'
-      +'<path class="nami-c" d="M170 24c-26 4-40 20-52 38 16-6 32-10 48-6-8 6-14 14-16 24 14-10 30-16 46-12-6-12-16-34-26-44z"/>'
+      '<div class="nami-stage">'
+      +'<span class="nami-ring"></span>'
+      +'<svg viewBox="0 0 320 200" class="nami-w">'
+      +'<path class="nami-s" d="M14 166c46 0 74-20 104-52 28-30 58-72 110-72 34 0 58 16 78 38"/>'
+      +'<path class="nami-b" d="M10 158c44 0 70-22 98-52 30-32 62-72 114-72 36 0 62 18 82 40"/>'
+      +'<path class="nami-c" d="M222 34c-34 6-54 26-70 50 22-8 42-13 64-8-10 8-18 19-21 32 18-13 40-21 62-16-8-16-21-44-35-58z"/>'
+      +'<path class="nami-hi" d="M52 146c34-10 60-34 86-64 22-26 48-48 84-48"/>'
       +'<g class="nami-f">'
-      +'<circle cx="150" cy="44" r="6"/><circle cx="176" cy="34" r="4.5"/>'
-      +'<circle cx="126" cy="62" r="4"/><circle cx="200" cy="46" r="3.5"/>'
-      +'<circle cx="108" cy="80" r="3"/>'
+      +'<circle cx="196" cy="54" r="7.5"/><circle cx="232" cy="42" r="5.5"/>'
+      +'<circle cx="164" cy="78" r="5"/><circle cx="264" cy="58" r="4.5"/>'
+      +'<circle cx="140" cy="102" r="4"/><circle cx="282" cy="78" r="3.5"/>'
+      +'<circle class="gold" cx="116" cy="54" r="4.5"/><circle class="gold" cx="246" cy="26" r="4"/>'
+      +'<circle class="gold" cx="92" cy="86" r="3.5"/><circle class="gold" cx="276" cy="40" r="3.5"/>'
       +'</g></svg>'
-      +'<span class="nami-seal">済</span>'
-      +'<span class="nami-said">'+(fresh.length>1
-        ? fresh.length+' jobs closed'
-        : 'Job '+fresh[0]+' closed')+'</span>';
+      +'<span class="nami-seal">'+sealChar+'</span>'
+      +'<span class="nami-said"></span>'
+      +'</div>';
+    wrap.querySelector('.nami-said').textContent=caption;
     document.body.appendChild(wrap);
     // Taken off the page rather than left hidden, so nothing it drew can ever
     // sit in front of a click.
-    setTimeout(function(){wrap.remove()},2600);
+    setTimeout(function(){wrap.remove()},2500);
   }
 })();

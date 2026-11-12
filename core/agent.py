@@ -291,7 +291,10 @@ class Claude(Kind):
         shrinks every Asana, Slack and Notion answer before the model reads it.
         An ask reads one card's threads and keeps them whole.
         """
-        conf: dict = {"apiKeyHelper": "printenv ANTHROPIC_API_KEY"}
+        conf: dict = {
+            "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
+            "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},
+        }
         conf["hooks"] = {"PreToolUse": [{
             "matcher": "Bash",
             "hooks": [{"type": "command",
@@ -401,6 +404,7 @@ class Claude(Kind):
     mcp_env = {
         "MCP_CONNECTION_NONBLOCKING": "0",
         "MCP_CONNECT_TIMEOUT_MS": "20000",
+        "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0",
     }
 
     def signed_in(self) -> bool:
@@ -813,6 +817,16 @@ def blockers(kind: Kind | None) -> tuple[list[str], str]:
     if ready:
         _ready_cache[kind.name] = time.time()
         return [], ""
+    try:
+        import doctor  # noqa: PLC0415
+        net = doctor.check_network()
+        if net.get("status") != "ok":
+            return ["network"], (
+                f"Network / Zscaler connection dropped ({net.get('detail', 'HTTPS unreachable')}). "
+                "Wait a moment for Zscaler to reconnect, then try again."
+            )
+    except Exception:  # noqa: BLE001
+        pass
     missing = missing_mcps(kind) or ["tools"]
     if missing:
         try:

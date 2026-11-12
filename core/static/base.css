@@ -80,6 +80,7 @@
 body[data-view="standup"]{--accent:#9c1b85;--accent-bg:#fdf1fa;--accent-line:#f1c3e6;
 --accent-ink:#78116a;--page:#faf6f9}
 *{box-sizing:border-box}
+html{overflow-anchor:auto}
 [hidden]{display:none!important}
 /* `outline` with an offset rather than a box-shadow ring: it follows whatever
    border-radius the element already has and never affects layout. Only ever on
@@ -491,7 +492,7 @@ color:var(--mut);font-weight:550}
 .draft-body pre code,.draft-en pre code{background:0 0;border:0;padding:0;font-weight:400}
 .draft-body a,.draft-en a{color:var(--accent);text-decoration:underline;word-break:break-all}
 .draft-en{margin:0;padding:0 13px 13px;font-size:13px;color:var(--soft)}
-.warn{background:var(--amber-bg);border:1px solid var(--amber-line);
+.warn:not(.sp-cdot):not(.sync-dot):not(.sync-btn){background:var(--amber-bg);border:1px solid var(--amber-line);
 border-radius:10px;padding:12px 15px;margin-top:15px}
 .warn h3{color:var(--amber)}
 .warn ul{margin:6px 0 0;padding-left:18px;font-size:14px;color:var(--amber-ink)}
@@ -715,47 +716,70 @@ body[data-theme="yoru"] ::-webkit-scrollbar-thumb:hover{--sb:rgba(255,255,255,.2
 
    `pointer-events:none` throughout regardless, because a celebration that eats
    a click on the card behind it is not a celebration. */
-.nami{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);z-index:70;
-pointer-events:none;display:grid;place-items:center;
-animation:nami-go 2.6s var(--ease) both}
-.nami-w{width:250px;height:156px;overflow:visible;
-filter:drop-shadow(0 6px 18px rgba(18,83,158,.28))}
-.nami-b,.nami-c{fill:none;stroke:var(--accent);stroke-width:5;
-stroke-linecap:round;stroke-linejoin:round}
-.nami-c{fill:rgba(18,83,158,.1);stroke-width:4}
-/* The crest is one path, so drawing it is one dash offset. 620 is comfortably
-   longer than the path, which is all that matters. */
-.nami-b,.nami-c{stroke-dasharray:620;stroke-dashoffset:620;
-animation:nami-draw .72s var(--ease) both}
-.nami-c{animation-delay:.16s}
-.nami-f circle{fill:#fff;stroke:var(--accent);stroke-width:2.5;
-opacity:0;transform-origin:center;animation:nami-foam .5s var(--spring) both}
-.nami-f circle:nth-child(1){animation-delay:.52s}
-.nami-f circle:nth-child(2){animation-delay:.60s}
-.nami-f circle:nth-child(3){animation-delay:.68s}
-.nami-f circle:nth-child(4){animation-delay:.76s}
-.nami-f circle:nth-child(5){animation-delay:.84s}
-/* 判子. A round vermilion seal, pressed, with the slight over-rotation of a
-   stamp put down by hand. */
-.nami-seal{position:absolute;width:62px;height:62px;border-radius:50%;
-display:grid;place-items:center;background:#c0362b;color:#fff;
-font:800 30px/1 "Hiragino Sans","Noto Sans JP",serif;
-box-shadow:0 4px 14px rgba(192,54,43,.45);
-animation:nami-seal .5s var(--spring) .82s both}
-.nami-said{position:absolute;bottom:-6px;white-space:nowrap;
-font:700 12.5px/1 var(--font);color:var(--accent-ink);background:var(--card);
-border:1px solid var(--accent-line);border-radius:20px;padding:5px 13px;
-box-shadow:var(--shadow);animation:nami-said .4s var(--ease) 1s both}
-@keyframes nami-draw{from{stroke-dashoffset:620}to{stroke-dashoffset:0}}
-@keyframes nami-foam{from{opacity:0;transform:scale(.4)}
-to{opacity:1;transform:scale(1)}}
-@keyframes nami-seal{from{opacity:0;transform:scale(2.1) rotate(-22deg)}
-70%{opacity:1;transform:scale(.94) rotate(-7deg)}
-to{opacity:1;transform:scale(1) rotate(-9deg)}}
-@keyframes nami-said{from{opacity:0;transform:translateY(6px)}
+.nami{position:fixed;inset:0;z-index:9999;pointer-events:none;
+display:grid;place-items:center;
+background:radial-gradient(circle 280px at 50% 48%,rgba(13,22,38,.14),transparent 72%);
+animation:nami-go 2.45s var(--ease) both}
+.nami-stage{position:relative;width:360px;height:270px;display:grid;place-items:center}
+.nami-ring{position:absolute;width:150px;height:150px;border-radius:50%;
+border:2.5px solid rgba(192,54,43,.45);
+box-shadow:0 0 36px rgba(240,180,41,.32),inset 0 0 24px rgba(18,83,158,.2);
+animation:nami-ring .85s cubic-bezier(.16,1,.3,1) .36s both}
+.nami.is-sent .nami-ring{border-color:rgba(18,83,158,.5)}
+.nami-w{width:340px;height:212px;overflow:visible;
+filter:drop-shadow(0 14px 32px rgba(13,29,62,.32))}
+.nami-s{fill:none;stroke:#0d3d78;stroke-width:8;stroke-linecap:round;opacity:.38;
+stroke-dasharray:720;stroke-dashoffset:720;animation:nami-draw .68s var(--ease) .04s both}
+.nami-b,.nami-c,.nami-hi{fill:none;stroke:var(--accent);stroke-width:5.5;
+stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:720;stroke-dashoffset:720;
+animation:nami-draw .66s var(--ease) both}
+.nami-c{fill:rgba(18,83,158,.16);stroke:#1a66c2;stroke-width:4.2;animation-delay:.12s}
+.nami-hi{stroke:#fff;stroke-width:2.6;opacity:.92;animation-delay:.18s}
+.nami-f circle{fill:#fff;stroke:var(--accent);stroke-width:2.4;
+opacity:0;transform-box:fill-box;transform-origin:center;
+animation:nami-foam .55s var(--spring) both}
+.nami-f circle.gold{fill:#f5be41;stroke:#b7791f;stroke-width:1.8}
+.nami-f circle:nth-child(1){animation-delay:.38s}
+.nami-f circle:nth-child(2){animation-delay:.42s}
+.nami-f circle:nth-child(3){animation-delay:.46s}
+.nami-f circle:nth-child(4){animation-delay:.50s}
+.nami-f circle:nth-child(5){animation-delay:.54s}
+.nami-f circle:nth-child(6){animation-delay:.44s}
+.nami-f circle:nth-child(7){animation-delay:.48s}
+.nami-f circle:nth-child(8){animation-delay:.52s}
+.nami-f circle:nth-child(9){animation-delay:.56s}
+.nami-f circle:nth-child(10){animation-delay:.60s}
+/* 判子. A carved vermilion seal pressed dead-centre with crisp double border. */
+.nami-seal{position:absolute;width:86px;height:86px;border-radius:50%;
+display:grid;place-items:center;background:radial-gradient(circle at 35% 30%,#df3e32,#b5281e);
+color:#fff;border:3px solid rgba(255,245,238,.92);
+outline:3px solid #c0362b;
+font:900 40px/1 "Hiragino Mincho ProN","YuMincho","Hiragino Sans","Noto Serif JP",serif;
+letter-spacing:-.02em;
+box-shadow:0 12px 32px rgba(181,40,30,.52),0 2px 6px rgba(0,0,0,.22);
+animation:nami-seal .54s cubic-bezier(.18,1.35,.36,1) .38s both}
+.nami.is-sent .nami-seal{background:radial-gradient(circle at 35% 30%,#1e6fd9,#0d4796);
+outline-color:#12539e;box-shadow:0 12px 32px rgba(18,83,158,.5),0 2px 6px rgba(0,0,0,.22)}
+.nami-said{position:absolute;bottom:4px;white-space:nowrap;
+font:700 13.5px/1.2 var(--font);color:var(--ink);background:var(--card);
+border:1.5px solid var(--accent-line);border-radius:999px;padding:8px 18px;
+box-shadow:0 10px 28px rgba(13,22,38,.22);
+animation:nami-said .42s var(--ease) .56s both}
+@keyframes nami-draw{from{stroke-dashoffset:720}to{stroke-dashoffset:0}}
+@keyframes nami-ring{0%{opacity:0;transform:scale(.32)}35%{opacity:.95}
+100%{opacity:0;transform:scale(1.65)}}
+@keyframes nami-foam{0%{opacity:0;transform:scale(.2) translateY(8px)}
+65%{opacity:1;transform:scale(1.12) translateY(-3px)}
+100%{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes nami-seal{0%{opacity:0;transform:scale(2.35) rotate(-24deg)}
+62%{opacity:1;transform:scale(.92) rotate(-6deg)}
+82%{transform:scale(1.03) rotate(-9.5deg)}
+100%{opacity:1;transform:scale(1) rotate(-8.5deg)}}
+@keyframes nami-said{from{opacity:0;transform:translateY(10px) scale(.95)}
 to{opacity:1;transform:none}}
-/* The whole group fades at the end rather than each part unwinding. */
-@keyframes nami-go{0%,82%{opacity:1}100%{opacity:0;transform:translateX(-50%) scale(.96)}}
+/* The whole group fades cleanly at the end rather than each part unwinding. */
+@keyframes nami-go{0%{opacity:0}8%,80%{opacity:1;transform:scale(1)}
+100%{opacity:0;transform:scale(.96)}}
 
 /* Someone who has asked the operating system for less movement gets none of
    it. Not reduced, none: the whole page still works without a single

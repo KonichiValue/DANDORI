@@ -251,6 +251,26 @@ def settings_dialog() -> str:
         f" <code>{esc(settings.client_rel(settings.PROFILE))}</code>."
         ' <a href="/setup">Open the setup page</a> to change any of them.'
     )
+    asana_status_block = (
+        """<h3>Asana ticket Status</h3>
+    <p>When a ticket in Asana is assigned to you and your work or its CE build
+    moves to a later stage, DANDORI can update that ticket's Status dropdown in
+    Asana automatically (never touching tickets assigned to anyone else).</p>
+    <div class="thms">
+      <button type="button" class="thm wide" data-astatus-set="on"
+              aria-pressed="false">
+        <span class="thm-t"><b>Auto-update my tickets</b>Keep Asana Status in step on tickets assigned to me.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+      <button type="button" class="thm wide" data-astatus-set="off"
+              aria-pressed="false">
+        <span class="thm-t"><b>Button on card only</b>Show Set in Asana on the card and wait for me.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+    </div>"""
+        if settings.asana_status_field().get("gid")
+        else ""
+    )
     return f"""
 <dialog class="help set" id="settings">
   <div class="help-in">
@@ -328,6 +348,8 @@ def settings_dialog() -> str:
         <span class="thm-on">Using this</span>
       </button>
     </div>
+
+    {asana_status_block}
 
     <h3>Connections</h3>
     <p>Checks your 1Password model key, your Asana and Slack grants, and your

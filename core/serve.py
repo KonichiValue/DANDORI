@@ -1067,7 +1067,10 @@ def refresh_db_state() -> dict:
 
 def start_db_login() -> None:
     """Launch `kraken cloudfarer login` in the user's browser without opening Terminal."""
-    kraken = shutil.which("kraken")
+    env = dict(os.environ)
+    extra_path = f"{Path.home() / '.local/bin'}:/opt/homebrew/bin:/usr/local/bin"
+    env["PATH"] = f"{extra_path}:{env.get('PATH', '')}"
+    kraken = shutil.which("kraken", path=env["PATH"])
     now_hm = datetime.now().strftime("%H:%M")
     if not kraken:
         with db_lock:
@@ -1078,16 +1081,21 @@ def start_db_login() -> None:
                 at=now_hm,
             )
         return
+    # Re-verify first: if Cloudfarer is already valid, report Connected at once
+    # rather than holding the popover on "Approve Okta login" for 3 minutes.
+    if doctor.check_database().get("status") == "ok":
+        with db_lock:
+            db_state.update(configured=True, state="ok", said="Connected", at=now_hm)
+        return
     with db_lock:
         if db_state.get("state") == "running":
             return
         db_state.update(
             configured=True,
             state="running",
-            said="Approve Okta login in your browser…",
+            said="Approve Okta login in browser…",
             at=now_hm,
         )
-    env = agent.Claude()._base_env()
     proc: subprocess.Popen[str] | None = None
     try:
         proc = subprocess.Popen(
@@ -1124,6 +1132,8 @@ def start_db_login() -> None:
                 return
             if proc.poll() is not None:
                 break
+        with db_lock:
+            db_state["state"] = "expired"
         refresh_db_state()
     except OSError as exc:
         with db_lock:
@@ -1239,6 +1249,9 @@ def watch_grants() -> None:
     while True:
         try:
             refresh_db_state()
+            if doctor.check_network().get("status") != "ok":
+                time.sleep(GRANTS_EVERY_SECS)
+                continue
             kind = agent.pick()
             if kind is not None and getattr(kind, "_credential", ""):
                 with job_lock:
@@ -1309,17 +1322,21 @@ def connect_one(kind: agent.Kind, args: list[str], label: str, done) -> bool:
     threading.Thread(target=read, daemon=True).start()
 
     try:
-        url, deadline = "", time.time() + 25
-        while time.time() < deadline and not url and not done() and proc.poll() is None:
+        url, deadline = "", time.time() + 18
+        while time.time() < deadline and not url and proc.poll() is None:
             # The link arrives as an OSC 8 hyperlink, so escapes are stripped
-            # from the whole output rather than line by line.
+            # from the whole output rather than line by line. Never call `done()`
+            # inside this tight loop: spawning `claude mcp list` every 0.5s
+            # wedges on a 90s timeout while `claude mcp login` is starting.
             found = URL_IN.search(ANSI.sub("", "".join(said)))
             if found:
                 url = found.group(0).rstrip('.,")')
             else:
                 time.sleep(0.5)
 
-        if not url and proc.poll() is not None and not done():
+        if not url and proc.poll() is not None:
+            if done():
+                return True
             last = [ln.strip() for ln in ANSI.sub("", "".join(said)).splitlines() if ln.strip()]
             login_say("needs_login",
                       f"{label} stopped: {(last[-1] if last else 'no output')[:200]}. "
@@ -1335,12 +1352,12 @@ def connect_one(kind: agent.Kind, args: list[str], label: str, done) -> bool:
 
         end = time.time() + 240
         while time.time() < end:
+            if proc.poll() is not None:
+                time.sleep(1.5)
+                return done()
+            time.sleep(6)
             if done():
                 return True
-            if proc.poll() is not None:
-                time.sleep(2)
-                return done()
-            time.sleep(3)
         return False
     finally:
         # A login left waiting holds its callback port, and the next attempt
@@ -1780,7 +1797,24 @@ def tick_from_page(body: dict) -> tuple[int, dict]:
         # The step that said to post it ticks with it. The page paints it, since
         # it does not reload to show its own move.
         reply["steps"] = ticked_steps(n, before.get("steps_done"))
+        if settings.auto_asana_status():
+            threading.Thread(target=sync_owned_asana_bg, daemon=True).start()
     return 200, reply
+
+
+def sync_owned_asana_bg() -> None:
+    """Sync Asana Status on any owned ticket whose Status fell behind."""
+    if not settings.auto_asana_status():
+        return
+    try:
+        moved = asana_status.sync_owned_statuses()
+        if moved:
+            subprocess.run(
+                [sys.executable, str(settings.CORE / "tick.py"), "--rebuild"],
+                cwd=ROOT, capture_output=True, timeout=60,
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def ticked_steps(n: str, had) -> list[int]:
@@ -2589,6 +2623,11 @@ def run_agent(kind: str) -> None:
                 # chat reads, is redrawn here so a run never spends a turn on it.
                 if kind == "refresh":
                     scout.record_full_refresh()
+                if settings.auto_asana_status():
+                    try:
+                        asana_status.sync_owned_statuses()
+                    except Exception:  # noqa: BLE001
+                        pass
                 subprocess.run([sys.executable, str(settings.CORE / "tick.py"), "--rebuild"],
                                cwd=ROOT, capture_output=True, timeout=60)
                 notify.sync_reminders_bg()
@@ -2877,7 +2916,12 @@ class Handler(BaseHTTPRequestHandler):
                 now_dt = settings.now()
                 full_lbl = full_dt.strftime("today %H:%M") if full_dt.date() == now_dt.date() else full_dt.strftime("%-d %b %H:%M")
             with db_lock:
-                dbc = dict(db_state)
+                cur_db_state = db_state.get("state")
+            if cur_db_state not in ("ok", "running", "none"):
+                dbc = refresh_db_state()
+            else:
+                with db_lock:
+                    dbc = dict(db_state)
             self.json_out(
                 200,
                 {

@@ -88,7 +88,10 @@ def check_database() -> dict:
     conn = str(settings.section("database").get("conn") or "")
     if not db_mcp and not conn:
         return {"name": "Database session", "status": "ok", "detail": "no replica configured"}
-    kraken = shutil.which("kraken")
+    env = dict(__import__("os").environ)
+    extra_path = f"{Path.home() / '.local/bin'}:/opt/homebrew/bin:/usr/local/bin"
+    env["PATH"] = f"{extra_path}:{env.get('PATH', '')}"
+    kraken = shutil.which("kraken", path=env["PATH"])
     if not kraken:
         return {
             "name": "Database session",
@@ -100,8 +103,9 @@ def check_database() -> dict:
             [kraken, "cf", "check-token"],
             capture_output=True,
             text=True,
-            timeout=2.5,
+            timeout=8.0,
             check=False,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         return {

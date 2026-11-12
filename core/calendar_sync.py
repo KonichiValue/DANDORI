@@ -201,7 +201,10 @@ def fetch(timeout: int = 240) -> dict:
             kind.binary, "--print", "--model", model(),
             "--tools", "ToolSearch", "--allowedTools", TOOL,
             "--setting-sources", "user",
-            "--settings", json.dumps({"apiKeyHelper": "printenv ANTHROPIC_API_KEY"}),
+            "--settings", json.dumps({
+                "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
+                "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},
+            }),
             "--output-format", "stream-json", "--verbose",
         ]
         # Everything but the one search is taken away, so the run cannot write

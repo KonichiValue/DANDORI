@@ -902,9 +902,10 @@ def controls(prep_label: str, needs_prep: bool = False, initial_sync: str = "", 
         <div class="sp-h"><span>Connections</span><button type="button" class="sp-link" data-open-conn>Settings</button></div>
         <div class="sp-crows">
           <div class="sp-crow">
-            <span class="sp-cdot ok" id="sp-mcp-dot"></span>
+            <span class="sp-cdot is-ok" id="sp-mcp-dot"></span>
             <span class="sp-cname">Asana &amp; Slack</span>
             <span class="sp-csaid" id="sp-mcp-said">Connected</span>
+            <a class="sp-mini" id="sp-mcp-url" hidden target="_blank" rel="noopener">Open login</a>
             <button type="button" class="sp-mini" id="sp-mcp-btn" hidden>Sign in</button>
           </div>
           <div class="sp-crow" id="sp-db-row" hidden>
@@ -914,7 +915,7 @@ def controls(prep_label: str, needs_prep: bool = False, initial_sync: str = "", 
             <button type="button" class="sp-mini" id="sp-db-btn" hidden>Log in</button>
           </div>
           <div class="sp-crow">
-            <span class="sp-cdot ok" id="sp-cal-dot"></span>
+            <span class="sp-cdot is-ok" id="sp-cal-dot"></span>
             <span class="sp-cname">Google Calendar</span>
             <span class="sp-csaid" id="sp-cal-said">Synced</span>
             <button type="button" class="sp-mini" id="sp-cal-btn">Sync</button>

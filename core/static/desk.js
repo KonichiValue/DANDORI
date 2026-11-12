@@ -185,7 +185,13 @@
   // buttons would all be refused; reloading is how it gets the new one.
   var boot = "__DESK_BOOT__";
   var changed = document.getElementById("changed");
-  if (changed) changed.addEventListener("click", function () { location.reload(); });
+  function reloadKeepingPlace() {
+    if (window.deskPlace && window.deskPlace.saveBeforeReload) {
+      window.deskPlace.saveBeforeReload();
+    }
+    location.reload();
+  }
+  if (changed) changed.addEventListener("click", function () { reloadKeepingPlace(); });
 
   function safeToReload() {
     // Everything else survives a reload: the open tab is in sessionStorage, the
@@ -237,7 +243,7 @@
     if (!restarted && ticking()) return false;
     if (safeToReload()) {
       say(restarted ? "The desk server restarted, reloading" : "The board changed, reloading");
-      location.reload();
+      reloadKeepingPlace();
       return true;
     }
     // Mid-sentence. Offer the reload rather than taking it.
@@ -282,7 +288,7 @@
         if (!started) { ready(); if (!boardMoved(s)) { say(s.message); later(2500); } return; }
         started = false;
         say("Done, reloading");
-        location.reload();
+        reloadKeepingPlace();
         return;
       }
       // A sign-in walk in progress: fetching the credential, waiting on a
@@ -293,10 +299,11 @@
         runners.forEach(function (o) { o.disabled = true; });
         login.hidden = false;
         login.disabled = true;
-        login.textContent = "Signing in…";
+        login.textContent = "Signing in\u2026";
         if (safeUrl(s.url)) { link.href = safeUrl(s.url); link.hidden = false; }
         else link.hidden = true;
         signingChip(s.message || "Signing in");
+        syncPopoverConnections(s);
         later(1500);
         return;
       }
@@ -391,12 +398,18 @@
     });
   });
 
-  login.addEventListener("click", function () {
-    closeSyncPop();
+  var lastStatusSnap = null;
+  function startMcpSignIn(keepPopoverOpen) {
+    if (!keepPopoverOpen) closeSyncPop();
     login.disabled = true;
     login.textContent = "Signing in\u2026";
     runners.forEach(function (o) { o.disabled = true; });
     signingChip("Starting the sign-in");
+    syncPopoverConnections({
+      state: "signing_in",
+      message: "Checking connections\u2026",
+      db: lastStatusSnap && lastStatusSnap.db ? lastStatusSnap.db : undefined
+    });
     fetch("/api/login?k=" + encodeURIComponent(key), { method: "POST" })
       .then(function () { later(300); })
       .catch(function () {
@@ -405,6 +418,10 @@
         ready();
         say("could not reach the desk server", "bad");
       });
+  }
+
+  login.addEventListener("click", function () {
+    startMcpSignIn(false);
   });
 
   // Unified Sync & Activity Popover (#sync-pop) and one-click connection buttons.
@@ -415,6 +432,7 @@
   }
 
   function syncPopoverConnections(s) {
+    lastStatusSnap = s || lastStatusSnap;
     if (!syncPop) return;
     var spTitle = document.getElementById("sp-title");
     var spSub = document.getElementById("sp-sub");
@@ -430,11 +448,22 @@
     var mcpDot = document.getElementById("sp-mcp-dot");
     var mcpSaid = document.getElementById("sp-mcp-said");
     var mcpBtn = document.getElementById("sp-mcp-btn");
+    var mcpUrl = document.getElementById("sp-mcp-url");
     if (mcpDot && mcpSaid && mcpBtn) {
+      var isSigning = s.state === "signing_in";
       var needMcp = s.state === "needs_login";
-      mcpDot.className = "sp-cdot " + (needMcp ? "bad" : "ok");
-      mcpSaid.textContent = needMcp ? "Needs sign-in" : "Connected";
-      mcpBtn.hidden = !needMcp;
+      mcpDot.className = "sp-cdot " + (isSigning ? "is-run" : needMcp ? "is-bad" : "is-ok");
+      var mcpText = isSigning ? (s.message || "Signing in\u2026") : (needMcp ? "Needs sign-in" : "Connected");
+      mcpSaid.textContent = mcpText;
+      mcpSaid.title = mcpText;
+      mcpBtn.hidden = !(needMcp || isSigning);
+      mcpBtn.disabled = isSigning;
+      mcpBtn.textContent = isSigning ? "Signing in\u2026" : "Sign in";
+      if (mcpUrl) {
+        var u = isSigning ? safeUrl(s.url) : "";
+        if (u) { mcpUrl.href = u; mcpUrl.hidden = false; }
+        else mcpUrl.hidden = true;
+      }
     }
     var db = s.db || {};
     var dbRow = document.getElementById("sp-db-row");
@@ -446,11 +475,13 @@
       if (db.configured) {
         var dbOk = db.state === "ok";
         var dbRun = db.state === "running";
-        dbDot.className = "sp-cdot " + (dbOk ? "ok" : "warn");
-        dbSaid.textContent = db.said || (dbOk ? "Connected" : "Expired");
+        dbDot.className = "sp-cdot " + (dbOk ? "is-ok" : dbRun ? "is-run" : "is-warn");
+        var dbText = db.said || (dbOk ? "Connected" : "Session expired");
+        dbSaid.textContent = dbText;
+        dbSaid.title = dbText;
         dbBtn.hidden = dbOk;
         dbBtn.disabled = dbRun;
-        dbBtn.textContent = dbRun ? "Browser open\u2026" : "Log in";
+        dbBtn.textContent = dbRun ? "Checking\u2026" : "Log in";
       }
     }
     if (s.calendar && s.calendar.said) {
@@ -469,7 +500,10 @@
         var calSaid = document.getElementById("sp-cal-said");
         if (calSaid) calSaid.textContent = j.cal_ago;
       }
-      if (j.db) syncPopoverConnections({ state: login && !login.hidden ? "needs_login" : "idle", db: j.db });
+      if (j.db) {
+        var cur = lastStatusSnap || { state: login && !login.hidden ? "needs_login" : "idle" };
+        syncPopoverConnections({ state: cur.state, message: cur.message, url: cur.url, db: j.db });
+      }
       var runs = j.runs || [];
       if (!runs.length) {
         listEl.innerHTML = '<li class="sp-empty">No recent runs logged today.</li>';
@@ -509,7 +543,7 @@
   }
   document.addEventListener("click", function (e) {
     if (e.target.closest && e.target.closest("#sp-mcp-btn")) {
-      login.click();
+      startMcpSignIn(true);
       return;
     }
     var dbLoginBtn = e.target.closest && e.target.closest("#sp-db-btn,[data-db-login]");
@@ -777,7 +811,7 @@
     }).catch(function () {
       // No thread to swap in, so fall back to what this used to do: reload,
       // unless the owner is mid-sentence, in which case offer it.
-      if (safeToReload()) location.reload();
+      if (safeToReload()) reloadKeepingPlace();
       else if (changed) changed.hidden = false;
     });
   }
@@ -1812,7 +1846,11 @@
     busy(n, true);
     tick(n, verb, who).then(function (j) {
       busy(n, false);
-      if (closing) closed(n, true);
+      if (verb === "done" || verb === "sent") closed(n, true);
+      else if (closing) { if (window.deskWave) window.deskWave(n, false); }
+      else if (verb === "waiting" && window.deskWave && window.deskWave.sent) {
+        window.deskWave.sent(n, shown || who || "");
+      }
       last = { n: n, before: j.before, closing: closing, look: look };
       toast(j.said || n + " moved", undoLast);
     }).catch(function (err) {
@@ -2145,6 +2183,9 @@
       busy(n, false);
       if (d) { d.classList.remove("posting"); d.classList.add("posted"); }
       if (closing) closed(n, true);
+      else if (look && look[1] === "blue" && window.deskWave && window.deskWave.sent) {
+        window.deskWave.sent(n, shown || who || b.dataset.who || "");
+      }
       stepsPosted(n, j.steps, true);
       last = { n: n, before: j.before, closing: closing, look: look, draft: d, btn: b, steps: j.steps };
       toast(j.said || "Posted", undoLast);

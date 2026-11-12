@@ -717,6 +717,9 @@ color:var(--soft);font-size:11.5px;line-height:1.35}
 .ev-shot img{width:100%;max-height:150px;object-fit:cover;object-position:top left;
 border:1px solid var(--line);border-radius:6px;background:var(--bg)}
 .ev-shot:hover img{border-color:var(--plum-ink)}
+.ev-where{display:inline-block;font-size:11px;font-weight:700;color:var(--plum-ink);
+background:var(--plum-bg);border:1px solid var(--plum-line);border-radius:5px;
+padding:2px 6px;align-self:flex-start}
 /* Evidence the message needs that nobody has made yet, and how to make it. */
 .draft-toget{padding:8px 12px;border-top:1px dashed var(--line);background:var(--card)}
 .draft-toget>span{font-size:10.5px;font-weight:750;text-transform:uppercase;
@@ -1258,15 +1261,18 @@ color:var(--accent-ink);font-size:10px;text-transform:uppercase;letter-spacing:.
 .sp-rbul{margin:4px 0 0;padding-left:15px;font-size:11.5px;line-height:1.4;color:var(--mut)}
 .sp-rbul li+li{margin-top:2px}
 .sp-empty{font-size:12px;color:var(--soft);font-style:italic;padding:4px 0}
-.sp-crows{display:flex;flex-direction:column;gap:6px}
-.sp-crow{display:flex;align-items:center;gap:8px;font-size:12.5px}
-.sp-cdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--soft)}
-.sp-cdot.ok{background:var(--green)}
-.sp-cdot.warn{background:var(--amber)}
-.sp-cdot.bad{background:var(--red)}
-.sp-cname{font-weight:600;color:var(--ink)}
-.sp-csaid{margin-left:auto;font-size:11.5px;color:var(--soft)}
-.sp-mini{flex:none;font:600 11px/1 var(--font);padding:4px 8px;border-radius:6px;
+.sp-crows{display:flex;flex-direction:column;gap:8px}
+.sp-crow{display:flex;align-items:center;gap:8px;font-size:12.5px;min-width:0}
+.sp-cdot{flex:none;width:8px;height:8px;min-width:8px;padding:0;margin:0;border:0;
+border-radius:50%;background:var(--soft)}
+.sp-cdot.ok,.sp-cdot.is-ok{background:var(--green)}
+.sp-cdot.is-warn{background:var(--amber)}
+.sp-cdot.bad,.sp-cdot.is-bad{background:var(--red)}
+.sp-cdot.is-run{background:var(--accent);box-shadow:0 0 0 2px var(--accent-bg)}
+.sp-cname{flex:none;white-space:nowrap;font-weight:600;color:var(--ink)}
+.sp-csaid{flex:1;min-width:0;text-align:right;font-size:11.5px;color:var(--soft);
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-mini{flex:none;white-space:nowrap;text-decoration:none;font:600 11px/1 var(--font);padding:5px 9px;border-radius:6px;
 border:1px solid var(--line);background:var(--card);color:var(--accent);cursor:pointer}
 .sp-mini:hover{border-color:var(--accent-line);background:var(--accent-bg)}
 .sp-mini:disabled{opacity:.55;cursor:default}

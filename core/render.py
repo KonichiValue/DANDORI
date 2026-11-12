@@ -323,6 +323,12 @@ def gloss_text(text: str, glossary: dict[str, str], seen: set[str]) -> str:
     """
     if not text or not CJK.search(text) or jp_heavy(text):
         return text
+    # Never gloss inside `backticked` copy-paste snippets or URLs: injecting an
+    # English gloss into a literal client-language snippet corrupts what gets pasted.
+    protected = [
+        (m.start(), m.end())
+        for m in re.finditer(r"`[^`]+`|https?://\S+", text)
+    ]
     # Every occurrence of every term, so a term inside a longer one is left
     # alone: a short term that sits inside a longer compound would, glossed
     # there, break the longer word in half.
@@ -341,6 +347,9 @@ def gloss_text(text: str, glossary: dict[str, str], seen: set[str]) -> str:
             if i < 0:
                 break
             end = i + size
+            if any(pa <= i < pb or pa < end <= pb for pa, pb in protected):
+                at = end
+                continue
             inside = any(
                 a <= i and end <= b and length > size for a, b, length in covers
             )
@@ -629,14 +638,37 @@ def draft_html(raw: str, ruby: bool = False) -> str:
     return "".join(blocks)
 
 
+_CODE_OR_URL = re.compile(r"`([^`]+)`|(https?://[^\s<>\"'`]+)")
+
+
 def code(raw: Any) -> str:
-    """Escape, then let `backticks` become code. For instructions to the owner.
+    """Escape, let `backticks` become code, and linkify bare URLs.
 
     A step that names a dotted setting such as `module.some-setting-name` is
-    naming a thing they have to type or search for exactly, and a dotted string in running prose
-    is where a typo hides.
+    naming a thing they have to type or search for exactly, and a URL in a step
+    should open with one click rather than making them highlight around brackets.
     """
-    return re.sub(r"`([^`]+)`", r"<code>\1</code>", esc(raw))
+    s = str(raw or "")
+    out: list[str] = []
+    pos = 0
+    for m in _CODE_OR_URL.finditer(s):
+        out.append(esc(s[pos : m.start()]))
+        if m.group(1) is not None:
+            out.append(f"<code>{esc(m.group(1))}</code>")
+        else:
+            url = m.group(2)
+            trail = ""
+            while url and url[-1] in ").,;:!?":
+                if url[-1] == ")" and url.count("(") >= url.count(")"):
+                    break
+                trail = url[-1] + trail
+                url = url[:-1]
+            out.append(
+                f'<a href="{esc_url(url)}" target="_blank" rel="noopener">{esc(url)}</a>{esc(trail)}'
+            )
+        pos = m.end()
+    out.append(esc(s[pos:]))
+    return "".join(out)
 
 
 def opening(word: str) -> str:

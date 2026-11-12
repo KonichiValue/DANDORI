@@ -149,11 +149,12 @@ def draft_files(item: dict, k: int) -> list[str]:
     """What goes out with draft `k`: the files made, then the evidence still to get."""
     out = []
     for f in render_path.files_for(item, k):
-        where = f.get("path") or f.get("url")
-        if where:
-            out.append(f"- Attach: {link(f.get('label') or where, where)}")
+        path_or_url = f.get("path") or f.get("url")
+        place = f" (Paste: {f['where']})" if f.get("where") else ""
+        if path_or_url:
+            out.append(f"- Attach: {link(f.get('label') or path_or_url, path_or_url)}{place}")
         elif f.get("how"):
-            out.append(f"- Still to get: **{f.get('label') or 'Evidence'}**. {f['how']}")
+            out.append(f"- Still to get: **{f.get('label') or 'Evidence'}**. {f['how']}{place}")
     return out + [""] if out else []
 
 

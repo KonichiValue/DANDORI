@@ -990,6 +990,14 @@ def check(board: dict) -> list[str]:
         if isinstance(should, str) and should and statuses and should not in statuses:
             bad.append(f"asana.status_should on {ticket.get('ref', '?')}: {should!r} is "
                        f"not a Status this project has. One of {', '.join(statuses)}.")
+        for item in ticket.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            for d in drafts(item):
+                ds = d.get("asana_status")
+                if ds is not None and (not isinstance(ds, str) or (statuses and ds and ds not in statuses)):
+                    bad.append(f"draft.asana_status on item {item.get('id', '?')}: {ds!r} is "
+                               f"not a valid Status option. One of {', '.join(statuses)}.")
 
     # A prep list written as null rather than left out takes both pages down:
     # the renderers read a missing list as empty but iterate whatever is there.

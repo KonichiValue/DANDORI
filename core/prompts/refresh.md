@@ -260,8 +260,19 @@ Against that combined set:
   date. Only from an event you can quote, never from a guess at what comes
   next. Never on a ticket assigned to someone else, and never for a CE build's
   own Status, which is the refining engineer's to set. When Asana already
-  agrees, take both fields off (`null`). The card draws both chips in Asana's
-  colours and the owner sets it with one press; you never set it yourself.
+  agrees, take both fields off (`null`). On tickets assigned to the owner,
+  DANDORI automatically syncs `asana.status_should` into Asana after the sweep
+  (and when a draft carrying `"asana_status": "<Option>"` is marked posted), so
+  never tell the owner in a step to manually change the Asana Status dropdown on
+  a ticket they own.
+- **Always read attached images and files in Asana (`mcp__asana__get_attachments`).**
+  Whenever a task's `notes` or a comment contains `get_asset?asset_id=`, an
+  `attachment_added` story, or mentions an attached screenshot, rate table or
+  spreadsheet, call `mcp__asana__get_attachments(parent="<task_gid>")`, download
+  any image, PDF or sheet to the client's `tmp/` folder via `curl -fsSL "<download_url>"`,
+  and inspect it with `Read` before drafting any question or reply. Never ask
+  the client to confirm prices, tables or error messages they already pasted in
+  an attached image.
 - **Status follows the build.** `config.json` `asana.status_field.by_stage` says
   which client Status each CE build stage means (an engineer building it is "in
   development", whatever the client's word for that is). After step 3, any
@@ -576,6 +587,19 @@ delete the draft and the step that asked for it. A draft written yesterday
 morning is the most dangerous thing on the page, because it reads as ready to
 paste and it is addressed to the client.
 
+**Before drafting a build commitment to the client on an edge-case or incident
+ticket, weigh whether an operational route makes more sense (`prompts/post.md`,
+"Claim only what you can stand behind").** Push back toward existing operations
+when, and only when, there is an obvious low-burden alternative: the case is
+rare or temporary (such as a post-migration edge case), existing checks, holds
+or patrol already catch every instance, manual handling is light, or changing
+shared logic carries regression risk. Admit the bug honestly, give the count,
+and propose the operational path first while asking the client's view. When no
+clean operational alternative exists and a fix is warranted, do not push back
+for its own sake, and phrase the proposal in measured terms ("check the fix
+approach and impact with engineering") rather than promising an unconditional
+build before refinement.
+
 One exception: before clearing a draft, check whether it was already sent. A
 draft with `"sent": true` was marked by the owner's own press of Posted it, so
 leave it where it is: the page already shows it as what they sent.
@@ -754,16 +778,7 @@ that sends them. Only what goes out or what the owner opens is a file; an export
 or script made on the way is not. `./audit.py` flags a block over four findings
 or six files, and the fix is to rewrite it whole: `save()` keeps what you cut.
 
-A draft that claims or asks for evidence carries it. A screenshot, a query
-result or an export that proves what the message says is saved in the client's
-`docs/` (an Asana or Slack attachment downloaded, a `SELECT` result written as
-CSV) and goes in `prepared.files` with `draft` set, and the page shows an image
-in that message's box. Crop out account numbers, names and addresses before a
-screenshot leaves Kraken. Evidence only the owner can make, a screen behind a
-login you do not have, a test record to create, is an entry with `label`, `how`
-and `draft` and no `path`: in `how`, the page or query to open, what to do, what
-the result must show, and the `docs/` path to save it as. Never write "attached"
-in a draft that has nothing attached and no `how` saying how to get it. Likewise,
+A draft that claims or asks for evidence, or that would otherwise pack dates, rows or multi-account numbers into prose, carries an image instead. Generate or save the screenshot or query table into the client's `docs/` (using the workspace's portal/database evidence scripts in `clients/<client>/scripts/` when available) and put it in `prepared.files` with `"draft": K` and `"where"` saying exactly where to paste or attach it (for example `"Attach to the Slack reply"` or `"Paste right under section 2"`), so the page shows the thumbnail and its placement inside that message's box. Crop or scrub all customer PII before any screenshot is saved. Evidence only the owner can make, a screen behind a login you cannot reach, a test record to create, is an entry with `label`, `how`, `where` and `draft` and no `path`: in `how`, the page or query to open, what to do, what the result must show, and the `docs/` path to save it as. Never write "attached" in a draft that has nothing attached and no `how` saying how to get it. Likewise,
 when a draft reports feature or bug-fix test results to the client for sign-off
 or rollout (and the change logically involves test data, calculations or UI
 output), never rely on a text-only summary of an engineer's local run: pair the

@@ -244,6 +244,14 @@ that they answered at 15:14 and what came back at 15:18, and a story with their
 own moves missing reads as though nothing they did counted. It is also how they
 check, at six in the evening, that something they meant to send actually went.
 
+**Always read attached images and files in Asana (`mcp__asana__get_attachments`).**
+Whenever a task's description or a comment contains `get_asset?asset_id=`, an
+`attachment_added` story, or mentions an attached table or screenshot, call
+`mcp__asana__get_attachments(parent="<task_gid>")`, download the file into the
+client's `tmp/` folder via `curl -fsSL "<download_url>"`, and inspect it with
+`Read` before drafting any question or reply. Never ask the client to confirm
+figures or tables they already included in an attached image.
+
 ## Step 3: decide what belongs here
 
 A ticket belongs on this page if it is one of the owner's, meaning it is already
@@ -736,17 +744,12 @@ follows separately.
 
 ### Short is not the same as compressed
 
-Cut words, never steps. A sentence that only parses if the reader already knows
-the answer has failed, and a reply that skips the mechanism reads as though the
-owner did not follow the argument.
+Cut words, never steps, and **never pack database dumps into prose**. Two opposite failures hurt drafts: skipping the logic so the sentence makes no sense, and cramming every account ID, reason code, ISO date span and ticket rule into parentheticals (`(reason 11, or 07 correcting 11)`, `(and A-594D0555)`, `(2025-09-06 to 2025-10-02)`) until the message reads like a machine report.
 
-So when they are agreeing with someone's technical reasoning, say the reasoning
-back in full: the condition, what happens because of it, and what that means for
-the decision. "`start_at` would miss the cases this skip is for" is not an
-explanation. "Both records fall on the same business date, but we shift their
-periods so they do not overlap, which puts their `start_at` values on different
-calendar days, so a same-day check on `start_at` would never fire" is. It is
-three times as long and worth every word.
+- Answer only what the reader asked, in plain human sentences. Do not re-recite scope or ticket requirements the reader already has open in front of them.
+- Keep extra sample IDs, date ranges and row-by-row numbers out of prose. When a draft (to the client or to internal engineers/leads) is clearer with data rows, reading sequences, holds or portal state, generate a zero-PII evidence image from the database or support portal (using the client workspace's evidence scripts in `clients/<client>/scripts/` when present), attach it in `prepared.files` with `"draft": K` and `"where"` naming the exact spot to paste or attach it (for example `"Attach to the Slack reply"` or `"Paste after section 1"`), and keep the prose short.
+- Cut AI intensifiers and chatbot closers (`genuinely`, `cleanly`, `Does that work cleanly for...`, `Let me know if anything else is unclear`).
+- When agreeing with someone's technical reasoning, state the mechanism in plain words rather than shorthand: "`start_at` would miss the cases this skip is for" is too compressed; "Both records fall on the same business date, and shifting their periods puts `start_at` on different calendar days, so a same-day check on `start_at` would never fire" is clear without a single code dump.
 
 ### Claim only what you can stand behind
 
@@ -762,6 +765,20 @@ attribute and hedge where the certainty is not there:
   it that way. Write "what they are asking for is X" rather than "X must
   happen". Everything here is negotiable and a draft that closes the door
   removes the owner's room to negotiate.
+- **Push back toward an operational path when, and only when, a clear low-burden
+  alternative exists.** Before drafting a promise to change the codebase on an
+  incident or edge-case ticket, weigh whether existing operations genuinely beat
+  a build: occurrence is rare or tied to a temporary window (such as newly
+  migrated accounts), existing checks, holds or patrol already catch every case
+  so nothing slips out silently, manual recovery or hold release takes minimal
+  effort, or touching shared billing/issuance code carries disproportionate
+  regression risk. When those hold, admit the defect plainly (never disguise a
+  bug as intended design), state the occurrence count and why a build is risky
+  or disproportionate, and propose the operational route first while asking the
+  client's view. When the defect recurs ongoingly, creates real manual toil, or
+  has no clean operational path, do not push back for its own sake: propose
+  moving toward a fix, phrased as checking scope and approach with engineering
+  rather than promising an unconditional build before refinement.
 - When somebody else is already carrying part of the conversation, bring them in
   by @ mention and ask whether they see it the same way, rather than speaking for
   them. The profile's `## People` says who is often working the same ticket from

@@ -64,7 +64,10 @@ LOCK = settings.STATE_DIR / "scout.lock"
 LOG = settings.LOGS_DIR / "scout.log"
 
 SLACK_LIVE_DAYS = 30
-CANVAS_RE = re.compile(r"slack\.com/docs/[^/\s\"')]+/(F[A-Z0-9]{8,})")
+CANVAS_RE = re.compile(
+    r"slack\.com/docs/[^/\s\"')]+/(F[A-Z0-9]{8,})"
+    r"|(?i:canvas)[^.\n]{0,90}?\b(F[0-9A-Z]{9,12})\b"
+)
 ASANA_GID_RE = re.compile(r"asana\.com/(?:0/\d+/|1/\d+(?:/project/\d+)?/task/)(\d{10,})")
 SLACK_TS_RE = re.compile(r"slack\.com/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
 THREAD_TS_RE = re.compile(r"thread_ts=(\d{10}\.\d{6})")
@@ -437,12 +440,16 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
                 if d.get("link"):
                     links.append(str(d["link"]))
                 if B.unsent(d):
-                    for cid in CANVAS_RE.findall(str(d.get("link") or "") + " " + str(d.get("target") or "")):
-                        canvases.setdefault(cid, []).append(ref)
+                    for m in CANVAS_RE.finditer(str(d.get("link") or "") + " " + str(d.get("target") or "")):
+                        cid = m.group(1) or m.group(2)
+                        if cid:
+                            canvases.setdefault(cid, []).append(ref)
             if i.get("state") == "todo":
                 for st_text in B.open_steps(i):
-                    for cid in CANVAS_RE.findall(str(st_text)):
-                        canvases.setdefault(cid, []).append(ref)
+                    for m in CANVAS_RE.finditer(str(st_text)):
+                        cid = m.group(1) or m.group(2)
+                        if cid:
+                            canvases.setdefault(cid, []).append(ref)
 
         for url in links:
             key = _slack_ts(url)
@@ -1321,6 +1328,7 @@ def check(
             "--setting-sources", "user",
             "--settings", json.dumps({
                 "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
+                "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},
                 "hooks": {
                     "PostToolUse": [{
                         "matcher": "mcp__.*",

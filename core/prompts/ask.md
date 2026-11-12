@@ -97,6 +97,10 @@ question only, and do not restate the answer they are looking at.
 Follow-ups are where the owner digs, so this is the place to be concrete: quote
 the message, name the person, give the number. If the honest answer contradicts
 what you said above, say that plainly and say what changed your mind.
+When checking an Asana ticket whose description or comments contain
+`get_asset?asset_id=` or attachments, call `mcp__asana__get_attachments(parent="<task_gid>")`,
+download any attached image/PDF to `tmp/` with `curl -fsSL "<download_url>"`,
+and inspect it with `Read` so you never miss tables or screenshots inside the ticket.
 
 ## When the owner asks for a change
 
@@ -113,8 +117,13 @@ locks the file and merges your change with theirs. Never edit
 and never delete an item; close it as dropped. Text you cut from a prepared
 block is kept for you in `prepared.earlier`, so do not paste it back. When you
 write `prepared`, keep it to what the card shows (`conclusion`, `unanswered`) and
-four findings at most, and give each file you attach `"draft": N`, the draft it
-goes out with, so it sits under that message as Attach. Evidence a message cites goes with it the
+four findings at most, and give each file you attach `"draft": N` (the draft it
+goes out with) plus `"where"` saying where to paste or attach it (for example
+`"Attach to the Slack reply"` or `"Paste right under section 1"`), so it sits
+under that message as Attach with clear placement. When a draft (to the client
+or internal) would be clearer with portal or database evidence instead of dense
+numbers in prose, generate the scrubbed screenshot/table into `docs/` (using
+`clients/<client>/scripts/` when available) and attach it there. Evidence a message cites goes with it the
 same way: download or make the screenshot or query result into `docs/`, or, when
 only the owner can make it, an entry with `how` and no `path` saying exactly how
 (`prompts/refresh.md` §6, "A draft that claims or asks for evidence"). When a
@@ -168,7 +177,7 @@ thread first, then write the reply.
 Write the whole draft again rather than patching a sentence, and keep every field
 it has: `body_ruby` with the reading markup when the profile asks for readings,
 `body_en` when the draft is in the client's language, `target`, `link`,
-`language`. Format every draft so it pastes cleanly into Slack and Asana (the Copy button copies both rich HTML and plain text): use `- ` on its own line for bullets (never `•`), `1. ` `2. ` on its own line for numbered lists, `**bold**` for bold (never `*single asterisks*`), and full uncompressed `https://...` URLs (never `[label](url)` or truncated links). The house style and the reader rules above are not relaxed because
+`language`. Keep the prose human and sparse: answer only what the reader asked without re-reciting ticket rules they already read, never stuff parenthetical code lists, unasked account IDs or ISO date spans into sentences (put multi-row detail in an attached screenshot/table in `prepared.files` instead), and cut AI filler (`genuinely`, `Does that work cleanly for...`). Format every draft so it pastes cleanly into Slack and Asana (the Copy button copies both rich HTML and plain text): use `- ` on its own line for bullets (never `•`), `1. ` `2. ` on its own line for numbered lists, `**bold**` for bold (never `*single asterisks*`), and full uncompressed `https://...` URLs (never `[label](url)` or truncated links). The house style and the reader rules above are not relaxed because
 the request was casual.
 
 **When the thread does not settle it, say that in the draft.** Do not invent a
@@ -176,7 +185,12 @@ date, a scope or a decision to fill the gap, and do not go silent on the point
 either. Tell them what is being checked, who is checking it, and when they will
 hear back. That is a professional answer in this team's register, and it is the
 one thing a wrong guess makes impossible to walk back. If the gap is big enough
-that the owner should know before sending, say so in your one line too.
+that the owner should know before sending, say so in your one line too. And on
+an incident or edge-case ticket, only push back toward an operational workaround
+when a genuinely clear, low-burden path exists (rare or temporary window, caught
+by existing checks/holds, risky shared code); when a fix is warranted, propose
+moving in the direction of a fix with engineering rather than promising an
+unconditional build before refinement (`prompts/post.md`).
 
 ## When the owner asks from in front of the script
 

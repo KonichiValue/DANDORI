@@ -652,7 +652,13 @@ def mcp_server_holds() -> list[str]:
         tools = {t["name"] for t in json.loads(lines[1])["result"]["tools"]}
     except (ValueError, KeyError, TypeError) as exc:
         return [f"mcp_server.py tools/list malformed: {exc}"]
-    wanted = {"dandori_context", "dandori_inspect_account", "dandori_tick", "dandori_apply_patch"}
+    wanted = {
+        "dandori_context",
+        "dandori_inspect_account",
+        "dandori_tick",
+        "dandori_apply_patch",
+        "dandori_sync_asana_status",
+    }
     missing = wanted - tools
     return [f"mcp_server.py missing tools: {sorted(missing)}"] if missing else []
 

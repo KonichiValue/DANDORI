@@ -112,10 +112,12 @@ def evidence_html(files: list) -> str:
     for f in files:
         href = doc_href(f)
         label = f.get("label") or Path(href).name
+        where = str(f.get("where") or "").strip()
+        where_html = f'<b class="ev-where">Paste: {esc(where)}</b>' if where else ""
         out.append(
             f'<a class="ev-shot" href="{esc_url(href)}" target="_blank" rel="noopener">'
             f'<img src="{esc_url(href)}" alt="{esc(label)}" loading="lazy">'
-            f"<span>{esc(label)}</span></a>"
+            f"{where_html}<span>{esc(label)}</span></a>"
         )
     return "".join(out)
 
