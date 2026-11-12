@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DANDORI Interactive Desk</title>
+<style>
+:root {
+  --bg: var(--color-background-primary, #f6f8fb);
+  --card: var(--color-background-secondary, #ffffff);
+  --sub: var(--color-background-tertiary, #eef2f7);
+  --ink: var(--color-text-primary, #171b26);
+  --mut: var(--color-text-secondary, #4d5666);
+  --soft: var(--color-text-tertiary, #767f90);
+  --line: var(--color-border-primary, #dfe4ee);
+  --accent: #12539e;
+  --accent-bg: rgba(18, 83, 158, 0.10);
+  --accent-line: rgba(18, 83, 158, 0.30);
+  --red: #b3261e;
+  --red-bg: rgba(179, 38, 30, 0.10);
+  --amber: #a75d0a;
+  --amber-bg: rgba(167, 93, 10, 0.12);
+  --green: #0a6b4a;
+  --green-bg: rgba(10, 107, 74, 0.12);
+  --blue: #1a5bb8;
+  --blue-bg: rgba(26, 91, 184, 0.11);
+  --font: var(--font-sans, -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", sans-serif);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: var(--color-background-primary, #13161f);
+    --card: var(--color-background-secondary, #1b202d);
+    --sub: var(--color-background-tertiary, #242b3b);
+    --ink: var(--color-text-primary, #eceff6);
+    --mut: var(--color-text-secondary, #b2bccd);
+    --soft: var(--color-text-tertiary, #8290a7);
+    --line: var(--color-border-primary, #2d364a);
+    --accent: #6aa8ff;
+    --accent-bg: rgba(106, 168, 255, 0.14);
+    --accent-line: rgba(106, 168, 255, 0.35);
+    --red: #ff7b72;
+    --red-bg: rgba(255, 123, 114, 0.14);
+    --amber: #f2b84b;
+    --amber-bg: rgba(242, 184, 75, 0.15);
+    --green: #4cd49c;
+    --green-bg: rgba(76, 212, 156, 0.14);
+    --blue: #6aa8ff;
+    --blue-bg: rgba(106, 168, 255, 0.14);
+  }
+}
+body[data-theme="dark"] {
+  --bg: var(--color-background-primary, #13161f);
+  --card: var(--color-background-secondary, #1b202d);
+  --sub: var(--color-background-tertiary, #242b3b);
+  --ink: var(--color-text-primary, #eceff6);
+  --mut: var(--color-text-secondary, #b2bccd);
+  --soft: var(--color-text-tertiary, #8290a7);
+  --line: var(--color-border-primary, #2d364a);
+  --accent: #6aa8ff;
+  --accent-bg: rgba(106, 168, 255, 0.14);
+  --accent-line: rgba(106, 168, 255, 0.35);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  font: 13px/1.45 var(--font);
+  color: var(--ink);
+  background: var(--bg);
+}
+.app { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.top {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 12px; background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.brand { font-weight: 800; font-size: 13px; letter-spacing: .04em; }
+.meta { font-size: 11.5px; color: var(--soft); }
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab, .btn {
+  font: 600 11.5px/1 var(--font);
+  padding: 6px 10px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink); cursor: pointer; white-space: nowrap;
+}
+.tab:hover, .btn:hover { border-color: var(--accent-line); background: var(--accent-bg); color: var(--accent); }
+.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { opacity: 0.92; color: #fff; }
+.btn.green { background: var(--green-bg); border-color: rgba(10, 107, 74, .35); color: var(--green); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+.focus-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 11px; border-radius: 8px;
+  background: var(--accent-bg); border: 1px solid var(--accent-line);
+  font-size: 12px;
+}
+.focus-bar[hidden] { display: none; }
+.focus-bar b { color: var(--accent); }
+.focus-bar .note { color: var(--mut); font-size: 11.5px; margin-left: auto; }
+
+.layout { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 10px; align-items: start; }
+@media (max-width: 640px) { .layout { grid-template-columns: 1fr; } }
+
+.list {
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 460px; overflow-y: auto; padding-right: 2px;
+}
+.row {
+  text-align: left; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--card);
+  cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+}
+.row:hover { border-color: var(--accent-line); }
+.row.sel { border-color: var(--accent); background: var(--accent-bg); }
+.r-top { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.num {
+  font-weight: 800; padding: 1px 6px; border-radius: 5px;
+  background: var(--red-bg); color: var(--red); font-variant-numeric: tabular-nums;
+}
+.num.wait { background: var(--blue-bg); color: var(--blue); }
+.num.hold { background: var(--amber-bg); color: var(--amber); }
+.ref { font-weight: 700; color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.urg { margin-left: auto; font-size: 10.5px; color: var(--soft); }
+.r-title { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.35; }
+
+.detail {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.d-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.d-title { margin: 0; font-size: 14px; font-weight: 750; line-height: 1.35; }
+.d-sub { font-size: 11.5px; color: var(--mut); margin: 2px 0 0; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.stands {
+  margin: 0; padding: 8px 10px; border-radius: 7px;
+  background: var(--sub); font-size: 12px; color: var(--ink);
+}
+.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.step {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 8px; border-radius: 7px; border: 1px solid var(--line); font-size: 12px;
+}
+.step.done { opacity: 0.58; text-decoration: line-through; }
+.step button {
+  flex: none; width: 20px; height: 20px; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--sub); color: var(--ink);
+  font: 700 11px/1 var(--font); cursor: pointer;
+}
+.step.done button { background: var(--green-bg); color: var(--green); border-color: var(--green); }
+
+.drafts { display: flex; flex-direction: column; gap: 8px; }
+.draft {
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  background: var(--bg);
+}
+.draft.sel { border-color: var(--accent); }
+.dr-h {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 10px; background: var(--sub); border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+}
+.dr-num { font-weight: 800; color: var(--accent); text-transform: uppercase; font-size: 10.5px; }
+.dr-t { font-weight: 600; color: var(--ink); flex: 1; min-width: 120px; }
+.dr-body {
+  padding: 9px 11px; white-space: pre-wrap; font-size: 12px; line-height: 1.5;
+  max-height: 190px; overflow-y: auto; background: var(--card);
+}
+.toast {
+  font-size: 11.5px; font-weight: 600; color: var(--green);
+  margin-left: 6px;
+}
+.empty { color: var(--soft); font-size: 12.5px; padding: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="top">
+    <span class="brand" id="desk-title">DANDORI</span>
+    <span class="meta" id="desk-meta">Connecting…</span>
+    <div class="tabs">
+      <button type="button" class="tab on" data-filter="mine">My work</button>
+      <button type="button" class="tab" data-filter="waiting">Waiting</button>
+      <button type="button" class="tab" data-filter="tickets">All tickets</button>
+      <button type="button" class="btn" id="refresh-view" title="Reload board state">Reload</button>
+      <button type="button" class="btn" id="fullscreen-btn" hidden>Expand</button>
+    </div>
+  </div>
+
+  <div class="focus-bar" id="focus-bar" hidden>
+    <span>Pinned to chat: <b id="focus-label">None</b></span>
+    <span class="note">Whatever you type in chat automatically knows this selection</span>
+  </div>
+
+  <div class="layout">
+    <div class="list" id="list"></div>
+    <div class="detail" id="detail"><div class="empty">Loading your DANDORI board…</div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var rpcId = 1;
+  var pending = {};
+  var state = { board: null, filter: "mine", selectedKey: "", selectedDraft: 0, hostModes: [] };
+
+  function sendRequest(method, params) {
+    return new Promise(function (resolve, reject) {
+      var id = rpcId++;
+      pending[id] = { resolve: resolve, reject: reject };
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params || {} }, "*");
+    });
+  }
+  function sendNotification(method, params) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params || {} }, "*");
+  }
+
+  window.addEventListener("message", function (ev) {
+    var d = ev.data;
+    if (!d || d.jsonrpc !== "2.0") return;
+    if (d.id && pending[d.id]) {
+      var p = pending[d.id];
+      delete pending[d.id];
+      if (d.error) p.reject(new Error(d.error.message || "RPC error"));
+      else p.resolve(d.result);
+      return;
+    }
+    if (d.method === "ui/notifications/tool-result" && d.params) {
+      if (d.params.structuredContent && d.params.structuredContent.board) {
+        applyBoard(d.params.structuredContent.board, d.params.structuredContent.initial_ref);
+      }
+    } else if (d.method === "ui/notifications/host-context-changed" && d.params) {
+      applyHostContext(d.params);
+    } else if (d.method === "ui/resource-teardown" && d.id) {
+      window.parent.postMessage({ jsonrpc: "2.0", id: d.id, result: {} }, "*");
+    }
+  });
+
+  function applyHostContext(ctx) {
+    if (!ctx) return;
+    if (ctx.theme) document.body.dataset.theme = ctx.theme;
+    if (ctx.styles && ctx.styles.variables) {
+      var root = document.documentElement;
+      Object.keys(ctx.styles.variables).forEach(function (k) {
+        if (ctx.styles.variables[k]) root.style.setProperty(k, ctx.styles.variables[k]);
+      });
+    }
+    if (Array.isArray(ctx.availableDisplayModes)) {
+      state.hostModes = ctx.availableDisplayModes;
+      var fsBtn = document.getElementById("fullscreen-btn");
+      if (fsBtn && state.hostModes.indexOf("fullscreen") > -1) fsBtn.hidden = false;
+    }
+  }
+
+  function reportSize() {
+    var h = document.documentElement.scrollHeight || document.body.scrollHeight || 520;
+    sendNotification("ui/notifications/size-changed", { height: Math.min(Math.max(h, 320), 760) });
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(function () { reportSize(); }).observe(document.getElementById("app"));
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function stripRuby(s) {
+    return String(s == null ? "" : s).replace(/\{([^|{}]+)\|[^|{}]+\}/g, "$1");
+  }
+
+  function applyBoard(board, initialRef) {
+    state.board = board;
+    document.getElementById("desk-title").textContent = (board.desk_name || "DANDORI");
+    document.getElementById("desk-meta").textContent =
+      (board.todo_count || 0) + " with you · " + (board.waiting_count || 0) + " waiting · checked " + (board.checked_short || "now");
+    if (initialRef && !state.selectedKey) {
+      state.selectedKey = initialRef;
+    }
+    render();
+  }
+
+  function listEntries() {
+    var b = state.board;
+    if (!b) return [];
+    if (state.filter === "tickets") {
+      return (b.tickets || []).map(function (t) {
+        return {
+          key: "ticket:" + t.ref,
+          kind: "ticket",
+          num: (t.todo_count || 0) ? String(t.todo_count) : "0",
+          tone: (t.todo_count || 0) ? "mine" : "wait",
+          ref: t.ref,
+          urg: t.status || "",
+          title: t.title_en || t.title_ja || t.ref,
+          ticket: t
+        };
+      });
+    }
+    var out = [];
+    (b.tickets || []).forEach(function (t) {
+      (t.items || []).forEach(function (it) {
+        var isMine = it.state === "todo" || it.state === "hold";
+        if (state.filter === "mine" && !isMine) return;
+        if (state.filter === "waiting" && it.state !== "waiting") return;
+        out.push({
+          key: "item:" + it.id,
+          kind: "item",
+          num: String(it.id),
+          tone: it.state === "waiting" ? "wait" : (it.state === "hold" ? "hold" : "mine"),
+          ref: t.ref,
+          urg: it.state === "waiting" ? ("with " + (it.waits_who || "them")) : (it.due_by || it.urgency || ""),
+          title: it.title,
+          item: it,
+          ticket: t
+        });
+      });
+    });
+    return out;
+  }
+
+  function pinContext(entry, draftNum) {
+    if (!entry) return;
+    var label = entry.kind === "item"
+      ? ("Job " + entry.item.id + " (" + entry.ref + ")" + (draftNum ? " · Draft " + draftNum : ""))
+      : ("Ticket " + entry.ref);
+    var fb = document.getElementById("focus-bar");
+    document.getElementById("focus-label").textContent = label;
+    fb.hidden = false;
+
+    sendRequest("tools/call", {
+      name: "dandori_app_context",
+      arguments: { ref: entry.key, draft: draftNum || 0 }
+    }).then(function (res) {
+      var text = (res && res.content && res.content[0] && res.content[0].text) || "";
+      if (!text) return;
+      return sendRequest("ui/update-model-context", {
+        content: [{ type: "text", text: text }],
+        structuredContent: { selectedRef: entry.key, draft: draftNum || 0 }
+      });
+    }).catch(function () {});
+  }
+
+  function sendChatPrompt(entry, draftNum, promptText) {
+    sendRequest("tools/call", {
+      name: "dandori_app_context",
+      arguments: { ref: entry.key, draft: draftNum || 0 }
+    }).then(function (res) {
+      var ctx = (res && res.content && res.content[0] && res.content[0].text) || "";
+      return sendRequest("ui/update-model-context", {
+        content: ctx ? [{ type: "text", text: ctx }] : []
+      }).catch(function () {}).then(function () {
+        return sendRequest("ui/message", {
+          role: "user",
+          content: [{ type: "text", text: promptText }]
+        });
+      });
+    }).catch(function () {});
+  }
+
+  function reloadBoard() {
+    sendRequest("tools/call", { name: "dandori_app_state", arguments: {} }).then(function (res) {
+      if (res && res.structuredContent && res.structuredContent.board) {
+        applyBoard(res.structuredContent.board);
+      }
+    }).catch(function () {});
+  }
+
+  function render() {
+    var entries = listEntries();
+    var listEl = document.getElementById("list");
+    var detailEl = document.getElementById("detail");
+    if (!entries.length) {
+      listEl.innerHTML = '<div class="empty">Nothing in this view.</div>';
+      detailEl.innerHTML = '<div class="empty">Select another tab above.</div>';
+      reportSize();
+      return;
+    }
+    var cur = entries.find(function (e) { return e.key === state.selectedKey; }) || entries[0];
+    if (cur.key !== state.selectedKey) {
+      state.selectedKey = cur.key;
+      state.selectedDraft = 0;
+      pinContext(cur, 0);
+    }
+
+    listEl.innerHTML = entries.map(function (e) {
+      var cls = "row" + (e.key === cur.key ? " sel" : "");
+      var ncls = "num" + (e.tone === "wait" ? " wait" : (e.tone === "hold" ? " hold" : ""));
+      return '<button type="button" class="' + cls + '" data-select="' + esc(e.key) + '">'
+        + '<div class="r-top"><span class="' + ncls + '">' + esc(e.num) + '</span>'
+        + '<span class="ref">' + esc(e.ref) + '</span>'
+        + '<span class="urg">' + esc(e.urg) + '</span></div>'
+        + '<div class="r-title">' + esc(e.title) + '</div></button>';
+    }).join("");
+
+    renderDetail(cur, detailEl);
+    reportSize();
+  }
+
+  function renderDetail(entry, el) {
+    var t = entry.ticket;
+    if (entry.kind === "ticket") {
+      var itemsHtml = (t.items || []).map(function (it) {
+        return '<li class="step"><span><b>Job ' + esc(it.id) + '</b> [' + esc(it.state) + '] — ' + esc(it.title) + '</span></li>';
+      }).join("");
+      el.innerHTML =
+        '<div class="d-head"><div><h3 class="d-title">' + esc(t.ref) + ' — ' + esc(t.title_en || t.title_ja) + '</h3>'
+        + '<p class="d-sub">Status: ' + esc(t.status || "-") + ' · Assignee: ' + esc(t.assignee || "-") + '</p></div>'
+        + '<div class="acts">'
+        + (t.asana_url ? '<button type="button" class="btn" data-url="' + esc(t.asana_url) + '">Open Asana ↗</button>' : '')
+        + '<button type="button" class="btn primary" data-catchup="1">Check new replies & update</button>'
+        + '</div></div>'
+        + (t.where_it_stands ? '<p class="stands">' + esc(t.where_it_stands) + '</p>' : '')
+        + '<ul class="steps">' + (itemsHtml || '<li class="step">No open items</li>') + '</ul>';
+      return;
+    }
+
+    var it = entry.item;
+    var stepsHtml = (it.steps || []).map(function (st, idx) {
+      var done = !!it.steps_done_flags[idx];
+      return '<li class="step' + (done ? ' done' : '') + '">'
+        + '<button type="button" data-tick-step="' + (idx + 1) + '" title="Toggle step">' + (done ? "✓" : (idx + 1)) + '</button>'
+        + '<span>' + esc(st) + '</span></li>';
+    }).join("");
+
+    var draftsHtml = (it.drafts || []).filter(function (d) { return !d.sent; }).map(function (d) {
+      var body = stripRuby(d.body_ruby || d.body_en || "");
+      var sel = state.selectedDraft === d.num ? " sel" : "";
+      return '<div class="draft' + sel + '" data-draft-card="' + d.num + '">'
+        + '<div class="dr-h"><span class="dr-num">Draft ' + d.num + '</span>'
+        + '<span class="dr-t">' + esc(d.target || "") + '</span>'
+        + (d.link ? '<button type="button" class="btn" data-url="' + esc(d.link) + '">Go there ↗</button>' : '')
+        + '<button type="button" class="btn" data-copy-draft="' + d.num + '">Copy</button>'
+        + '<button type="button" class="btn primary" data-refine-draft="' + d.num + '">Refine in chat</button>'
+        + '<button type="button" class="btn green" data-posted-draft="' + d.num + '">Posted it</button>'
+        + '</div><div class="dr-body">' + esc(body) + '</div></div>';
+    }).join("");
+
+    el.innerHTML =
+      '<div class="d-head"><div><h3 class="d-title">Job ' + esc(it.id) + ' · ' + esc(it.title) + '</h3>'
+      + '<p class="d-sub">Ticket: ' + esc(t.ref) + ' · Status: ' + esc(t.status || "-") + '<span class="toast" id="act-toast"></span></p></div>'
+      + '<div class="acts">'
+      + (t.asana_url ? '<button type="button" class="btn" data-url="' + esc(t.asana_url) + '">Asana ↗</button>' : '')
+      + '<button type="button" class="btn primary" data-catchup="1">Check replies</button>'
+      + '<button type="button" class="btn" data-do-job="1">Work on Job ' + esc(it.id) + '</button>'
+      + '<button type="button" class="btn green" data-done-job="1">Mark done</button>'
+      + '</div></div>'
+      + (it.where_it_stands ? '<p class="stands">' + esc(it.where_it_stands) + '</p>' : '')
+      + (stepsHtml ? '<ul class="steps">' + stepsHtml + '</ul>' : '')
+      + (draftsHtml ? '<div class="drafts">' + draftsHtml + '</div>' : '');
+  }
+
+  function flash(msg) {
+    var t = document.getElementById("act-toast");
+    if (t) { t.textContent = msg; setTimeout(function () { if (t) t.textContent = ""; }, 2000); }
+  }
+
+  document.addEventListener("click", function (e) {
+    var tab = e.target.closest("[data-filter]");
+    if (tab) {
+      state.filter = tab.dataset.filter;
+      state.selectedKey = "";
+      [].forEach.call(document.querySelectorAll(".tab"), function (b) { b.classList.toggle("on", b === tab); });
+      render();
+      return;
+    }
+    if (e.target.id === "refresh-view") { reloadBoard(); return; }
+    if (e.target.id === "fullscreen-btn") {
+      sendRequest("ui/request-display-mode", { mode: "fullscreen" }).catch(function () {});
+      return;
+    }
+    var sel = e.target.closest("[data-select]");
+    if (sel) {
+      state.selectedKey = sel.dataset.select;
+      state.selectedDraft = 0;
+      var entries = listEntries();
+      var found = entries.find(function (x) { return x.key === state.selectedKey; });
+      pinContext(found, 0);
+      render();
+      return;
+    }
+    var urlBtn = e.target.closest("[data-url]");
+    if (urlBtn) {
+      sendRequest("ui/open-link", { url: urlBtn.dataset.url }).catch(function () {});
+      return;
+    }
+
+    var entriesNow = listEntries();
+    var cur = entriesNow.find(function (x) { return x.key === state.selectedKey; });
+    if (!cur) return;
+
+    if (e.target.closest("[data-catchup]")) {
+      var t = cur.ticket;
+      var sources = ["Asana task `" + t.id + "` (including `get_attachments` if any new image/file was added)"];
+      if (t.internal_gid) sources.push("internal Asana build `" + t.internal_gid + "`");
+      (t.slack_urls || []).forEach(function (u) { sources.push(u); });
+      sendChatPrompt(
+        cur, 0,
+        "Check ONLY the newest comments and replies since our last recorded timestamp on " + sources.join(", ") +
+        " for ticket " + t.ref + ". Tell me concisely what changed and what to do next, and update the steps/drafts on the DANDORI board if needed."
+      );
+      return;
+    }
+    if (e.target.closest("[data-do-job]") && cur.item) {
+      sendChatPrompt(
+        cur, 0,
+        "Help me execute Job " + cur.item.id + " (" + cur.ref + ") using the pinned DANDORI context. Prepare everything that does not require my judgement and update the board if needed."
+      );
+      return;
+    }
+    var refBtn = e.target.closest("[data-refine-draft]");
+    if (refBtn && cur.item) {
+      var dn = parseInt(refBtn.dataset.refineDraft, 10);
+      state.selectedDraft = dn;
+      pinContext(cur, dn);
+      render();
+      sendChatPrompt(
+        cur, dn,
+        "Let's review and refine Draft " + dn + " on Job " + cur.item.id + " (" + cur.ref + ") using the pinned DANDORI context. Check for clarity, accuracy, and house style."
+      );
+      return;
+    }
+    var cpBtn = e.target.closest("[data-copy-draft]");
+    if (cpBtn && cur.item) {
+      var dnum = parseInt(cpBtn.dataset.copyDraft, 10);
+      var dr = (cur.item.drafts || []).find(function (x) { return x.num === dnum; });
+      if (dr && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(stripRuby(dr.body_ruby || dr.body_en || "")).then(function () {
+          flash("Copied Draft " + dnum);
+        }).catch(function () {});
+      }
+      return;
+    }
+    var stepBtn = e.target.closest("[data-tick-step]");
+    if (stepBtn && cur.item) {
+      var sk = parseInt(stepBtn.dataset.tickStep, 10);
+      sendRequest("tools/call", {
+        name: "dandori_tick",
+        arguments: { item_id: cur.item.id, verb: "step", number: sk }
+      }).then(function () { flash("Step " + sk + " updated"); reloadBoard(); }).catch(function () {});
+      return;
+    }
+    var postBtn = e.target.closest("[data-posted-draft]");
+    if (postBtn && cur.item) {
+      var pk = parseInt(postBtn.dataset.postedDraft, 10);
+      sendRequest("tools/call", {
+        name: "dandori_tick",
+        arguments: { item_id: cur.item.id, verb: "draft", number: pk }
+      }).then(function () { flash("Marked Draft " + pk + " posted"); reloadBoard(); }).catch(function () {});
+      return;
+    }
+    if (e.target.closest("[data-done-job]") && cur.item) {
+      sendRequest("tools/call", {
+        name: "dandori_tick",
+        arguments: { item_id: cur.item.id, verb: "done" }
+      }).then(function () { flash("Job " + cur.item.id + " done!"); reloadBoard(); }).catch(function () {});
+    }
+  });
+
+  // Boot the MCP Apps lifecycle handshake, then load the live board if tool-result hasn't arrived yet.
+  sendRequest("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "DANDORI Desk", version: "1.3.0" },
+    appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] }
+  }).then(function (initRes) {
+    if (initRes && initRes.hostContext) applyHostContext(initRes.hostContext);
+    sendNotification("ui/notifications/initialized", {});
+    setTimeout(function () {
+      if (!state.board) reloadBoard();
+    }, 250);
+  }).catch(function () {});
+})();
+</script>
+</body>
+</html>

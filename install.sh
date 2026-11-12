@@ -37,20 +37,35 @@ mkdir -p "$BIN" "$HOME/Applications" "$LOGS_DIR"
 chmod +x "$DIR/bin/DANDORI" "$DIR/core/"*.py "$DIR/core/scripts/"*.sh "$DIR/packaging/make_icon.py"
 [[ -f "$DIR/packaging/package_mac.sh" ]] && chmod +x "$DIR/packaging/package_mac.sh"
 
-# Wire the local DANDORI MCP server into .cursor/mcp.json (gitignored) so Cursor
-# chats opened on this folder have `dandori_context` and `dandori_inspect_account`.
+# Wire the local DANDORI MCP server + MCP App (`ui://dandori/board`) into Cursor
+# (both workspace `.cursor/mcp.json` and global `~/.cursor/mcp.json`) and Claude
+# Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`) so
+# any chat in Cursor or Claude Desktop can open the interactive DANDORI Desk app.
 python3 - <<PY
 import json
 from pathlib import Path
-mcp_file = Path("$DIR/.cursor/mcp.json")
-mcp_file.parent.mkdir(parents=True, exist_ok=True)
-try:
-    cur = json.loads(mcp_file.read_text(encoding="utf-8")) if mcp_file.exists() else {}
-except Exception:
-    cur = {}
-servers = cur.setdefault("mcpServers", {})
-servers["dandori"] = {"command": "python3", "args": [str(Path("$DIR/core/mcp_server.py"))]}
-mcp_file.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8")
+
+entry = {"command": "python3", "args": [str(Path("$DIR/core/mcp_server.py"))]}
+targets = [
+    Path("$DIR/.cursor/mcp.json"),
+    Path.home() / ".cursor/mcp.json",
+]
+claude_dir = Path.home() / "Library/Application Support/Claude"
+if claude_dir.exists():
+    targets.append(claude_dir / "claude_desktop_config.json")
+
+for mcp_file in targets:
+    mcp_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        cur = json.loads(mcp_file.read_text(encoding="utf-8")) if mcp_file.exists() else {}
+    except Exception:
+        cur = {}
+    if not isinstance(cur, dict):
+        cur = {}
+    servers = cur.setdefault("mcpServers", {})
+    if isinstance(servers, dict):
+        servers["dandori"] = entry
+        mcp_file.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8")
 PY
 
 # `DANDORI` always, and the owner's own word for it as well when they chose one.

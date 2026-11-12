@@ -704,7 +704,8 @@ padding:1px 6px;border-radius:4px;background:var(--hair);border:1px solid var(--
 .ctx-copy{font:600 11px/1 var(--font);color:var(--mut);background:var(--card);
 border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;white-space:nowrap}
 .ctx-copy:hover{color:var(--accent-ink);border-color:var(--accent-line);background:var(--accent-bg)}
-.ctx-copy.bar-ctx{margin-left:6px;padding:5px 9px;border-radius:7px}
+.ctx-copy.bar-ctx{margin-left:0;padding:6px 10px;border-radius:7px}
+.act-cursor-row{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line)}
 .tk-cursor{color:var(--accent-ink);border-color:var(--accent-line);background:var(--accent-bg);font-weight:650}
 .tk-cursor:hover{background:var(--accent);border-color:var(--accent);color:#fff}
 /* The files that go out with a message, inside that message's box. */

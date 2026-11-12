@@ -334,17 +334,14 @@ def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "
         body = d.get("body_en") or d.get("body_ruby") or d.get("body", "")
         rendered = draft_html(body, ruby=False, keep_links=is_canvas)
         trans = ""
-    rewrite = "" if sent else f"""<button class="ask-here" type="button"
-                    data-ask-seed="Rewrite Draft {draft_num} ({esc(d.get("target", ""))}): ">{SPARK}Rewrite</button>"""
     ctx_btn = "" if (sent or not job_id) else f"""<button class="ctx-copy" type="button"
                     data-ctx-ref="item:{esc(job_id)}" data-ctx-draft="{draft_num}"
-                    title="Open Cursor in DANDORI with this draft, ticket, timeline &amp; DB X-Ray preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>"""
+                    title="Open Cursor with this draft, ticket, timeline &amp; DB X-Ray preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>"""
     return f"""
           <div class="draft-head">
             {"" if sent else f'<span>{esc(d.get("target"))}</span>'}
             {link_btn(d.get("link", ""), "Go there")}
             <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False, keep_links=is_canvas))}">copy</button>
-            {rewrite}
             {ctx_btn}
           </div>
           <div class="draft-body {"ja" if is_ja else ""}">{rendered}</div>
@@ -801,14 +798,10 @@ def render_items(
             {f'<p class="act-commit">You committed this to {esc(committed)}</p>' if committed else ""}
             {f'<p class="act-block">Blocked by: {esc(blocked)}</p>' if blocked else ""}
             {background(r, quote)}
-            {ask_block(
-                f'item:{r.get("id")}',
-                f'job {r.get("id")}, {ticket_ref}' if ticket_ref else f'job {r.get("id")}',
-                ASKED.get(f'item:{r.get("id")}', []),
-                f'Read prompts/ask.md, then answer this about job {r.get("id")}'
-                f' on {ticket_ref} ("{r.get("title", "")}"):',
-                bool(item_drafts(r)),
-            )}
+            {"" if done else f'''<div class="act-cursor-row">
+              <button type="button" class="ctx-copy bar-ctx" data-ctx-ref="item:{esc(r.get("id"))}"
+                      title="Open Cursor with Job {esc(r.get("id"))}, all drafts, threads &amp; DB X-Ray preloaded (Option-click to copy instead)">Open Job {esc(r.get("id"))} in Cursor &#8599;</button>
+            </div>'''}
           </div>
         </{tag}>"""
         )

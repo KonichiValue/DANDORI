@@ -425,8 +425,8 @@ def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
 
       <section class="sub say script">
         <h3>Say this<span class="hint">out loud, as written</span>
-          <button class="ask-here" type="button"
-                  data-ask-seed="Rewrite what I say here: ">{SPARK}Rewrite or ask</button></h3>
+          <button class="ctx-copy" type="button" data-ctx-ref="ticket:{esc(t.get("ref"))}"
+                  title="Open Cursor with this speaking script &amp; ticket preloaded (Option-click to copy instead)">Edit in Cursor &#8599;</button></h3>
         {f'<p class="st-none">Status only. Nothing needed from {esc(settings.client_short())}.</p>' if no_ask else ""}
         {render_script(prep.get("script", []))}
       </section>
@@ -450,18 +450,6 @@ def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
 
       <div class="st-cons">{render_consequences(prep.get("consequences", {}), t.get("ref", ""))}</div>
       {secret}
-      {section("Ask or change on this ticket",
-               ask_block(
-                   f'ticket:{t.get("ref")}',
-                   f'what I say on {t.get("ref", "this ticket")}',
-                   ASKED.get(f'ticket:{t.get("ref")}', []),
-                   "Read prompts/ask.md, then answer this about the "
-                   f'{t.get("ref", "")} ticket. The owner is asking from the speaking '
-                   "view, in front of what they say at the next session:",
-                   kind="say",
-               ),
-               role="ask",
-               hint="the same thread as the work view")}
     </article>"""
 
 

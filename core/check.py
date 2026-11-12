@@ -649,10 +649,15 @@ def mcp_server_holds() -> list[str]:
     if len(lines) != 2:
         return [f"mcp_server.py returned {len(lines)} lines instead of 2"]
     try:
+        init_res = json.loads(lines[0])["result"]
+        ext = ((init_res.get("capabilities") or {}).get("extensions") or {}).get("io.modelcontextprotocol/ui")
+        if not ext:
+            return ["mcp_server.py missing io.modelcontextprotocol/ui extension capability"]
         tools = {t["name"] for t in json.loads(lines[1])["result"]["tools"]}
     except (ValueError, KeyError, TypeError) as exc:
         return [f"mcp_server.py tools/list malformed: {exc}"]
     wanted = {
+        "dandori_board",
         "dandori_context",
         "dandori_inspect_account",
         "dandori_tick",

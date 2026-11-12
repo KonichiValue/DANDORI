@@ -169,12 +169,14 @@ def help_dialog() -> str:
     is behind it, so <b>Timeline, 10 moves today</b> has already answered you.
     The page remembers what you opened, per card.</p>
 
-    <h3>A longer conversation</h3>
-    <p>Press <b>Open in Cursor &#8599;</b> on any draft, job, or ask box to focus
-    <b>Cursor</b> right in <code>~/Projects/DANDORI</code> with a new chat already
-    preloaded with that ticket, numbered drafts, timeline, any screenshots you
-    pasted, and live database diagnostics (Option-click copies the bundle to your
-    clipboard instead).</p>
+    <h3>Working with Cursor &amp; Claude Desktop</h3>
+    <p>DANDORI ships a built-in <b>MCP App</b> (<code>ui://dandori/board</code>).
+    In <b>Cursor</b> or <b>Claude Desktop</b>, ask to open your <code>dandori_board</code>
+    and an interactive DANDORI desk renders right inside the chat: clicking any
+    job, ticket, or draft pins its full context and live DB Account X-Ray straight
+    into your conversation. From this browser page, press <b>Check replies in
+    Cursor &#8599;</b> or <b>Open in Cursor &#8599;</b> to jump straight into your
+    existing Cursor window.</p>
 
     <h3>If a connection expires</h3>
     <p>Press <b>Sign in</b> in the header (or click the sync pill and check
@@ -192,7 +194,7 @@ def help_dialog() -> str:
     <h3>Keys</h3>
     <p><kbd>1</kbd> your work, <kbd>2</kbd> what you say, <kbd>/</kbd> find
     anything, <kbd>s</kbd> {script_only}, <kbd>,</kbd> settings,
-    <kbd>a</kbd> the Ask panel, <kbd>[</kbd> <kbd>]</kbd> the week before
+    <kbd>[</kbd> <kbd>]</kbd> the week before
     and after, <kbd>?</kbd> this.</p>
     <p>On the To do list: <kbd>j</kbd> <kbd>k</kbd> move down and up,
     <kbd>x</kbd> opens the status of the job you are on, <kbd>&uarr;</kbd>

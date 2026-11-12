@@ -811,13 +811,6 @@ def render_ticket(
       )}
       {render_decisions(t.get("open_decisions", []))}
       {background_drawer(t, ident)}
-      <section class="sub ask">{ask_block(
-          f'ticket:{t.get("ref")}',
-          t.get("ref", "this ticket"),
-          ASKED.get(f'ticket:{t.get("ref")}', []),
-          "Read prompts/ask.md, then answer this about the "
-          f'{t.get("ref", "")} ticket:',
-      )}</section>
     </article>"""
 
 
@@ -1323,8 +1316,6 @@ def render(data: dict) -> str:
     <span id="countdown"></span>
     <button class="toggle" id="scriptonly">{esc(render_standup.script_only_words().capitalize())}</button>
     {controls(prep_label, needs_prep=needs_prep, initial_sync=initial_sync, initial_tone=initial_tone)}
-    <button class="toggle chat-go" data-chat-toggle type="button" aria-controls="chat" hidden
-            title="Ask in the side panel (a)">{SPARK}Ask</button>
     <button class="toggle icon-btn" data-settings type="button" aria-label="Settings"
             title="Settings (,)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="2.3"/><path d="M13.4 9.6a1.2 1.2 0 0 0 .24 1.32l.04.04a1.45 1.45 0 1 1-2.05 2.05l-.04-.04a1.2 1.2 0 0 0-1.32-.24 1.2 1.2 0 0 0-.73 1.1v.12a1.45 1.45 0 1 1-2.9 0v-.06a1.2 1.2 0 0 0-.78-1.1 1.2 1.2 0 0 0-1.32.24l-.04.04a1.45 1.45 0 1 1-2.05-2.05l.04-.04a1.2 1.2 0 0 0 .24-1.32 1.2 1.2 0 0 0-1.1-.73h-.12a1.45 1.45 0 1 1 0-2.9h.06a1.2 1.2 0 0 0 1.1-.78 1.2 1.2 0 0 0-.24-1.32l-.04-.04a1.45 1.45 0 1 1 2.05-2.05l.04.04a1.2 1.2 0 0 0 1.32.24h.06a1.2 1.2 0 0 0 .73-1.1v-.12a1.45 1.45 0 1 1 2.9 0v.06a1.2 1.2 0 0 0 .73 1.1 1.2 1.2 0 0 0 1.32-.24l.04-.04a1.45 1.45 0 1 1 2.05 2.05l-.04.04a1.2 1.2 0 0 0-.24 1.32v.06a1.2 1.2 0 0 0 1.1.73h.12a1.45 1.45 0 1 1 0 2.9h-.06a1.2 1.2 0 0 0-1.1.73z"/></svg></button>
     <button class="toggle icon-btn" data-help type="button" aria-label="How to use this"
@@ -1339,9 +1330,6 @@ def render(data: dict) -> str:
     {render_prioritize.render(data, refs)}
     {render_week.render(data, tickets, refs)}
     {render_track(tickets, refs, soon)}
-    {ask_block("board", "the desk", ASKED.get("board", []),
-               "Read prompts/ask.md, then answer this about the desk as a "
-               "whole rather than one job:")}
     <span id="tickets"></span>
     {cards}
     {gap_block}
@@ -1350,7 +1338,6 @@ def render(data: dict) -> str:
     {render_standup.render(data, refs, built, stale)}
   </div>
 </div>
-{render_chat.render(data, refs)}
 {people_json(data)}
 {finder([t for t in tickets if ticket_group(t) != "closed"], refs)}
 {render_dialogs.help_dialog()}

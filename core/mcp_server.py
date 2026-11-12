@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""DANDORI MCP server (stdio JSON-RPC 2.0, Python stdlib only).
+"""DANDORI MCP Server + MCP App (`ui://dandori/board`, Python stdlib only).
 
-Gives Cursor and Claude Desktop zero-token-waste, instant access to any job,
-ticket, draft, or client account diagnostic on the active DANDORI board, plus
-safe board patch / tick actions — so a chat never has to grep `desk.md` or
-hand-write partial SQL queries to find what the owner is looking at.
+Gives Cursor and Claude Desktop zero-token-waste, instant access to the live
+DANDORI board — both as an interactive MCP App (`dandori_board` ->
+`ui://dandori/board` with live selection pinning via `ui/update-model-context`
+and 1-click chat submission via `ui/message`) and as structured tools.
 
 Tools exposed:
+- `dandori_board`: Opens the interactive DANDORI Desk MCP App right inside
+  Cursor or Claude Desktop chat (`ui://dandori/board`).
 - `dandori_context`: Full context bundle for an item number (`42`), ticket ref,
-  or `"board"`, automatically running the local client account diagnostic hook
-  when an account number is present.
+  or `"board"`, automatically running the local client account diagnostic hook.
 - `dandori_inspect_account`: Run the active client's account diagnostic script
   (`ACCOUNT_CONTEXT` in `clients/<client>/plugin.py`) on one or more accounts.
 - `dandori_tick`: Move an item's status, step, or draft via `./core/tick.py`
-  when the owner explicitly instructs it.
+  when the owner explicitly instructs it (or presses it in the MCP App).
 - `dandori_apply_patch`: Apply a validated JSON patch through `./core/apply.py`
   (`board.save()`) and rebuild `desk.html` + `desk.md`.
+- `dandori_sync_asana_status`: Sync the Asana Status custom field on behind
+  tickets assigned to the owner.
 
 Usage:
     python3 core/mcp_server.py
@@ -24,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -39,6 +43,93 @@ import settings  # noqa: E402
 import tick as T  # noqa: E402
 
 PROTOCOL_VERSION = "2024-11-05"
+UI_RESOURCE_URI = "ui://dandori/board"
+UI_MIME_TYPE = "text/html;profile=mcp-app"
+
+
+def build_ui_board_snapshot() -> dict:
+    """Compact structured board state for the interactive MCP App (`ui://dandori/board`)."""
+    b = B.load()
+    checked = str(b.get("checked_at") or "")
+    checked_short = checked[11:16] if "T" in checked else (checked[:16] or "never")
+    todo_total = 0
+    wait_total = 0
+    tickets_out = []
+
+    for t in b.get("tickets", []):
+        asana = t.get("asana") or {}
+        if asana.get("completed"):
+            continue
+        open_items = []
+        t_todo = 0
+        for it in t.get("items", []):
+            if not B.is_open(it):
+                continue
+            st = str(it.get("state") or "todo")
+            if st in ("todo", "hold"):
+                todo_total += 1
+                t_todo += 1
+            elif st == "waiting":
+                wait_total += 1
+            steps = [str(s) for s in (it.get("steps") or []) if isinstance(s, str)]
+            done_map = it.get("steps_done") if isinstance(it.get("steps_done"), dict) else {}
+            flags = [s in done_map for s in steps]
+            drafts_out = []
+            for idx, dr in enumerate(B.drafts(it), 1):
+                drafts_out.append({
+                    "num": idx,
+                    "target": str(dr.get("target") or f"Draft {idx}"),
+                    "link": str(dr.get("link") or ""),
+                    "sent": not B.unsent(dr),
+                    "body_ruby": str(dr.get("body_ruby") or ""),
+                    "body_en": str(dr.get("body_en") or dr.get("body") or ""),
+                })
+            open_items.append({
+                "id": it.get("id"),
+                "state": st,
+                "title": str(it.get("title") or ""),
+                "where_it_stands": str(it.get("where_it_stands") or ""),
+                "urgency": str(it.get("urgency") or ""),
+                "due_by": str(it.get("due_by") or ""),
+                "waits_who": str((it.get("waits_on") or {}).get("who") or ""),
+                "steps": steps,
+                "steps_done_flags": flags,
+                "drafts": drafts_out,
+            })
+
+        if not open_items and str(asana.get("assignee") or "").strip().lower() not in settings.owner_aliases():
+            continue
+
+        internal_url = str((t.get("internal_ticket") or {}).get("url") or "")
+        ig_m = re.search(r"/task/(\d{10,})", internal_url)
+        slack_urls = [
+            str(th.get("url") or "")
+            for th in (t.get("threads") or [])
+            if "slack.com" in str(th.get("url") or "")
+        ][:3]
+        tickets_out.append({
+            "id": str(t.get("id") or ""),
+            "ref": str(t.get("ref") or t.get("id") or "?"),
+            "title_en": str(t.get("title_en") or ""),
+            "title_ja": str(t.get("title_ja") or ""),
+            "asana_url": str(t.get("asana_url") or ""),
+            "status": str(asana.get("status") or ""),
+            "assignee": str(asana.get("assignee") or ""),
+            "where_it_stands": str(t.get("where_it_stands") or ""),
+            "internal_gid": ig_m.group(1) if ig_m else "",
+            "slack_urls": slack_urls,
+            "todo_count": t_todo,
+            "items": open_items,
+        })
+
+    return {
+        "desk_name": f"{settings.desk_name()} ({settings.client_short()})",
+        "checked_at": checked,
+        "checked_short": checked_short,
+        "todo_count": todo_total,
+        "waiting_count": wait_total,
+        "tickets": tickets_out,
+    }
 
 
 def build_context_bundle(ref: str, draft_num: int = 0, include_db: bool = True) -> str:
@@ -139,6 +230,29 @@ def build_context_bundle(ref: str, draft_num: int = 0, include_db: bool = True) 
 
 TOOLS = [
     {
+        "name": "dandori_board",
+        "description": (
+            "Open the interactive DANDORI Desk MCP App right inside chat so the user "
+            "can click any job, ticket, or draft to pin live context, tick steps, "
+            "mark drafts posted, or check new Asana/Slack replies."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "focus": {
+                    "type": "string",
+                    "description": "Optional initial job number ('103'), 'item:103', or 'ticket:<ref>' to select",
+                },
+            },
+        },
+        "_meta": {
+            "ui": {
+                "resourceUri": UI_RESOURCE_URI,
+                "visibility": ["model", "app"],
+            }
+        },
+    },
+    {
         "name": "dandori_context",
         "description": (
             "Fetch complete context for a DANDORI job number (e.g. '42' or 'item:42'), "
@@ -184,6 +298,11 @@ TOOLS = [
             },
             "required": ["item_id", "verb"],
         },
+        "_meta": {
+            "ui": {
+                "visibility": ["model", "app"],
+            }
+        },
     },
     {
         "name": "dandori_apply_patch",
@@ -206,24 +325,69 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "dandori_app_state",
+        "description": "Internal app-only refresh endpoint for ui://dandori/board.",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_meta": {"ui": {"resourceUri": UI_RESOURCE_URI, "visibility": ["app"]}},
+    },
+    {
+        "name": "dandori_app_context",
+        "description": "Internal app-only context builder for ui://update-model-context.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string"},
+                "draft": {"type": "integer"},
+            },
+            "required": ["ref"],
+        },
+        "_meta": {"ui": {"resourceUri": UI_RESOURCE_URI, "visibility": ["app"]}},
+    },
 ]
 
 
-def _call_tool(name: str, args: dict) -> tuple[str, bool]:
+def _call_tool_full(name: str, args: dict) -> dict:
+    if name in ("dandori_board", "dandori_app_state"):
+        snap = build_ui_board_snapshot()
+        focus = str(args.get("focus") or "").strip()
+        if focus.isdigit():
+            focus = f"item:{focus}"
+        elif focus and ":" not in focus:
+            focus = f"ticket:{focus}"
+        summary = (
+            f"Opened {snap['desk_name']}: {snap['todo_count']} job(s) with you, "
+            f"{snap['waiting_count']} waiting (checked {snap['checked_short']}). "
+            "Click any job, ticket, or draft in the interactive board above to pin its full context into this chat."
+        )
+        return {
+            "content": [{"type": "text", "text": summary}],
+            "structuredContent": {"board": snap, "initial_ref": focus},
+            "isError": False,
+        }
+
+    if name == "dandori_app_context":
+        text = build_context_bundle(
+            str(args.get("ref") or "board"),
+            draft_num=int(args.get("draft") or 0),
+            include_db=True,
+        )
+        return {"content": [{"type": "text", "text": text}], "isError": False}
+
     if name == "dandori_context":
         text = build_context_bundle(
             str(args.get("ref") or "board"),
             draft_num=int(args.get("draft") or 0),
             include_db=bool(args.get("include_db", True)),
         )
-        return text, False
+        return {"content": [{"type": "text", "text": text}], "isError": False}
 
     if name == "dandori_inspect_account":
         accts = [str(x) for x in (args.get("accounts") or []) if x]
         out = plugins.account_context(accts, test=bool(args.get("test", False)))
         if not out:
-            return "No account diagnostic configured or no matching accounts.", True
-        return out, False
+            return {"content": [{"type": "text", "text": "No account diagnostic configured or no matching accounts."}], "isError": True}
+        return {"content": [{"type": "text", "text": out}], "isError": False}
 
     if name == "dandori_tick":
         ident = str(args.get("item_id") or "")
@@ -252,39 +416,72 @@ def _call_tool(name: str, args: dict) -> tuple[str, bool]:
             cmd += ["-n", note]
         proc = subprocess.run(cmd, cwd=settings.REPO, capture_output=True, text=True, timeout=30, check=False)
         out = (proc.stdout or proc.stderr or "").strip()
-        return out or "ok", proc.returncode != 0
+        return {"content": [{"type": "text", "text": out or "ok"}], "isError": proc.returncode != 0}
 
     if name == "dandori_apply_patch":
         patch = args.get("patch")
         if not isinstance(patch, dict):
-            return "patch must be a JSON object", True
+            return {"content": [{"type": "text", "text": "patch must be a JSON object"}], "isError": True}
         b = B.load()
         try:
             said = A.apply(b, patch)
             problems = B.check(b)
             if problems:
-                return "Refused — board shape error:\n" + "\n".join(problems), True
+                return {"content": [{"type": "text", "text": "Refused — board shape error:\n" + "\n".join(problems)}], "isError": True}
             B.save(b)
             T.rebuild()
-            return "Applied & rebuilt: " + "; ".join(said), False
+            return {"content": [{"type": "text", "text": "Applied & rebuilt: " + "; ".join(said)}], "isError": False}
         except Exception as exc:  # noqa: BLE001
-            return f"Patch failed: {exc}", True
+            return {"content": [{"type": "text", "text": f"Patch failed: {exc}"}], "isError": True}
 
     if name == "dandori_sync_asana_status":
         ref = str(args.get("ref") or "").strip()
         if ref:
             got = asana_status.set_status(ref)
             if got.get("error"):
-                return got["error"], True
+                return {"content": [{"type": "text", "text": got["error"]}], "isError": True}
             T.rebuild()
-            return f"{got['ref']}: Status {got['was']} -> {got['now']} in Asana", False
+            return {"content": [{"type": "text", "text": f"{got['ref']}: Status {got['was']} -> {got['now']} in Asana"}], "isError": False}
         moved = asana_status.sync_owned_statuses()
         if moved:
             T.rebuild()
-            return "; ".join(f"{m['ref']}: {m['was']} -> {m['now']}" for m in moved), False
-        return "All owned tickets already match Asana Status.", False
+            return {"content": [{"type": "text", "text": "; ".join(f"{m['ref']}: {m['was']} -> {m['now']}" for m in moved)}], "isError": False}
+        return {"content": [{"type": "text", "text": "All owned tickets already match Asana Status."}], "isError": False}
 
-    return f"Unknown tool: {name}", True
+    return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
+
+
+RESOURCES = [
+    {
+        "uri": UI_RESOURCE_URI,
+        "name": "DANDORI Interactive Desk",
+        "description": "Interactive DANDORI board with live context pinning, draft actions, and reply catchup",
+        "mimeType": UI_MIME_TYPE,
+        "_meta": {"ui": {"prefersBorder": True}},
+    }
+]
+
+
+def _read_resource(uri: str) -> dict | None:
+    if uri != UI_RESOURCE_URI:
+        return None
+    html_path = settings.STATIC / "mcp_app.html"
+    html = html_path.read_text(encoding="utf-8")
+    return {
+        "contents": [
+            {
+                "uri": UI_RESOURCE_URI,
+                "mimeType": UI_MIME_TYPE,
+                "text": html,
+                "_meta": {
+                    "ui": {
+                        "prefersBorder": True,
+                        "permissions": {"clipboardWrite": {}},
+                    }
+                },
+            }
+        ]
+    }
 
 
 def _reply(req_id, result: dict) -> None:
@@ -315,7 +512,15 @@ def main() -> int:
         if method == "initialize":
             _reply(req_id, {
                 "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {"tools": {}},
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                    "extensions": {
+                        "io.modelcontextprotocol/ui": {
+                            "mimeTypes": [UI_MIME_TYPE]
+                        }
+                    },
+                },
                 "serverInfo": {"name": "dandori", "version": settings.version()},
             })
         elif method in ("notifications/initialized", "cancelled"):
@@ -323,15 +528,24 @@ def main() -> int:
         elif method == "ping":
             _reply(req_id, {})
         elif method == "tools/list":
-            _reply(req_id, {"tools": TOOLS})
+            visible_tools = [
+                t for t in TOOLS
+                if "model" in (((t.get("_meta") or {}).get("ui") or {}).get("visibility") or ["model"])
+            ]
+            _reply(req_id, {"tools": visible_tools})
+        elif method == "resources/list":
+            _reply(req_id, {"resources": RESOURCES})
+        elif method == "resources/read":
+            uri = str(params.get("uri") or "")
+            res = _read_resource(uri)
+            if res is None:
+                _error(req_id, -32602, f"Unknown resource URI: {uri}")
+            else:
+                _reply(req_id, res)
         elif method == "tools/call":
             t_name = str(params.get("name") or "")
             t_args = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
-            text, is_err = _call_tool(t_name, t_args)
-            _reply(req_id, {
-                "content": [{"type": "text", "text": text}],
-                "isError": is_err,
-            })
+            _reply(req_id, _call_tool_full(t_name, t_args))
         elif req_id is not None:
             _error(req_id, -32601, f"Method not found: {method}")
     return 0
