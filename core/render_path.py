@@ -321,28 +321,29 @@ def render_draft(
 def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "") -> str:
     """The words of one message, with where they go, copy, and handoff to AI chat."""
     is_ja = d.get("language") == "ja"
+    is_canvas = "canvas" in str(d.get("target") or "").lower() or "/docs/" in str(d.get("link") or "")
     if is_ja:
         body = d.get("body_ruby") or d.get("body_ja") or d.get("body", "")
-        rendered = draft_html(body, ruby=True)
+        rendered = draft_html(body, ruby=True, keep_links=is_canvas)
         trans = (
-            f'<div class="draft-en">{draft_html(d.get("body_en"))}</div>'
+            f'<div class="draft-en">{draft_html(d.get("body_en"), keep_links=is_canvas)}</div>'
             if d.get("body_en")
             else ""
         )
     else:
         body = d.get("body_en") or d.get("body_ruby") or d.get("body", "")
-        rendered = draft_html(body, ruby=False)
+        rendered = draft_html(body, ruby=False, keep_links=is_canvas)
         trans = ""
     rewrite = "" if sent else f"""<button class="ask-here" type="button"
                     data-ask-seed="Rewrite Draft {draft_num} ({esc(d.get("target", ""))}): ">{SPARK}Rewrite</button>"""
     ctx_btn = "" if (sent or not job_id) else f"""<button class="ctx-copy" type="button"
                     data-ctx-ref="item:{esc(job_id)}" data-ctx-draft="{draft_num}"
-                    title="Copy full ticket, draft, evidence &amp; DB diagnostic to paste into Cursor or Claude">Copy for Cursor</button>"""
+                    title="Open Cursor in DANDORI with this draft, ticket, timeline &amp; DB X-Ray preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>"""
     return f"""
           <div class="draft-head">
             {"" if sent else f'<span>{esc(d.get("target"))}</span>'}
             {link_btn(d.get("link", ""), "Go there")}
-            <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False))}">copy</button>
+            <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False, keep_links=is_canvas))}">copy</button>
             {rewrite}
             {ctx_btn}
           </div>

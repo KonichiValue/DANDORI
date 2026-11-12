@@ -144,6 +144,8 @@ def render(data: dict, refs: dict[str, str] | None = None) -> str:
     <div class="ask-go">
       {model_picker()}
       <span class="ask-keys">Enter sends &middot; Paste image &middot; Shift+Enter newline</span>
+      <button type="button" class="ask-copy" data-chat-cursor hidden
+              title="Open Cursor in DANDORI with this conversation &amp; your typed prompt preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>
       <span class="ask-hint"></span>
     </div>
   </div>

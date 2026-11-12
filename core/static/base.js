@@ -388,6 +388,8 @@
     }else if(e.target.closest('.ask-cancel')){
       closeAsk(box);
     }else if(e.target.closest('.ask-copy')){
+      var ac=e.target.closest('.ask-copy');
+      if(ac.dataset.liveCursor)return;
       var q=(field.value||'').trim();
       // Following up in a chat means handing over what it is a follow-up to,
       // otherwise "why?" arrives on its own and means nothing.

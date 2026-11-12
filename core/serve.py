@@ -35,7 +35,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, NamedTuple
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import agent
 import asana_status
@@ -2236,6 +2236,125 @@ def ask_context(ref: str, question: str, parent: str = "") -> str:
     return "\n".join(lines)
 
 
+def _find_cursor_desktop() -> tuple[str, str]:
+    """Locate the Cursor Desktop CLI binary and .app bundle on macOS."""
+    for app in (Path("/Applications/Cursor.app"), Path.home() / "Applications/Cursor.app"):
+        if app.exists():
+            cli = app / "Contents/Resources/app/bin/cursor"
+            return (str(cli) if cli.exists() else ""), str(app)
+    return "", ""
+
+
+def open_in_cursor(body: dict) -> tuple[int, dict]:
+    """Write a complete context bundle to `tmp/`, focus Cursor on the DANDORI
+    workspace (`ROOT`), and pre-fill a new Agent chat via Cursor's deeplink."""
+    ref = str(body.get("ref") or "board").strip() or "board"
+    try:
+        draft_num = int(body.get("draft") or 0)
+    except (TypeError, ValueError):
+        draft_num = 0
+    question = str(body.get("question") or "").strip()
+    follow_up = str(body.get("follow_up") or "").strip()
+    raw_images = body.get("images") if isinstance(body.get("images"), list) else []
+
+    stamp = f"cursor-{int(time.time())}-{secrets.token_hex(2)}"
+    saved_imgs = _save_ask_images(stamp, raw_images)
+
+    md = mcp_server.build_context_bundle(ref, draft_num=draft_num, include_db=True)
+    if follow_up:
+        md += f"\n\n## Earlier Ask Exchange on Card\n\n{follow_up}\n"
+    if saved_imgs:
+        img_bullets = "\n".join(f"- `{ROOT / p}`" for p in saved_imgs)
+        md += f"\n\n## Attached Screenshot(s)\n\n{img_bullets}\n"
+
+    slug = re.sub(
+        r"[^A-Za-z0-9._-]+", "-",
+        f"{ref}" + (f"-draft-{draft_num}" if draft_num else ""),
+    ).strip("-")[:64] or "board"
+    ctx_file = settings.TMP_DIR / f"cursor-{slug}.md"
+    ctx_file.parent.mkdir(parents=True, exist_ok=True)
+    ctx_file.write_text(md + "\n", encoding="utf-8")
+    try:
+        rel_ctx = str(ctx_file.relative_to(ROOT))
+    except ValueError:
+        rel_ctx = str(ctx_file)
+
+    ticket, item = find_subject(ref)
+    t_ref = str(ticket.get("ref") or ticket.get("id") or "")
+    if item and draft_num:
+        head = f"Working on DANDORI Job {item.get('id')} ({t_ref}) - Draft {draft_num}."
+    elif item:
+        head = f"Working on DANDORI Job {item.get('id')} ({t_ref}): {item.get('title', '')}"
+    elif ticket and ref != "board":
+        head = f"Working on DANDORI ticket {t_ref}: {ticket.get('title_en') or ticket.get('title_ja') or ''}"
+    else:
+        head = f"Working on the {settings.client_short()} DANDORI board."
+
+    prompt_lines = [
+        head,
+        f"Read `{rel_ctx}` first: it already has the full ticket, numbered drafts, recent Slack/Asana timeline, and live DB Account X-Ray preloaded.",
+        "When updating the board or draft, write via `./core/apply.py` and `./core/tick.py --rebuild`. Never send external messages without my approval.",
+    ]
+    if saved_imgs:
+        prompt_lines.append("Also inspect attached screenshot(s): " + ", ".join(f"`{p}`" for p in saved_imgs))
+    prompt_lines.append("")
+    prompt_lines.append(question if question else "")
+    prompt_text = "\n".join(prompt_lines)
+
+    cursor_cli, cursor_app = _find_cursor_desktop()
+    if not cursor_app:
+        return 200, {
+            "opened": False,
+            "fallback_copy": md,
+            "context_file": rel_ctx,
+            "message": "Cursor.app not found; copied context to clipboard",
+        }
+
+    clean_env = agent.Claude()._base_env()
+    running = False
+    glass_open = False
+    if cursor_cli:
+        try:
+            st = subprocess.run(
+                [cursor_cli, "-s"],
+                cwd=str(ROOT), stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, timeout=2.5, check=False, env=clean_env,
+            )
+            st_out = (st.stdout or "") + (st.stderr or "")
+            running = "cursor main" in st_out
+            glass_open = "(Cursor Agents)" in st_out
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    try:
+        if not running:
+            subprocess.run(["open", "-a", cursor_app, str(ROOT)], timeout=5, check=False)
+            time.sleep(1.8)
+        elif cursor_cli:
+            if glass_open:
+                # Focus Cursor Agents first so `cursor <ROOT>` opens a New Agent
+                # draft scoped to DANDORI inside Cursor Agents rather than an editor window.
+                subprocess.run(["open", "cursor://anysphere.cursor-deeplink/glass"], timeout=5, check=False)
+                time.sleep(0.25)
+            subprocess.run(
+                [cursor_cli, str(ROOT)],
+                cwd=str(ROOT), stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=8, check=False, env=clean_env,
+            )
+            time.sleep(0.45)
+        else:
+            subprocess.run(["open", "-a", cursor_app, str(ROOT)], timeout=5, check=False)
+            time.sleep(0.6)
+
+        deeplink = "cursor://anysphere.cursor-deeplink/prompt?text=" + quote(prompt_text[:6000], safe="")
+        subprocess.run(["open", deeplink], timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 500, {"error": f"could not launch Cursor: {exc}"}
+
+    return 200, {"opened": True, "context_file": rel_ctx}
+
+
 def _save_ask_images(ask_id: str, raw_images: list) -> list[str]:
     """Decode up to 4 pasted/dropped images into `tmp/ask-images/` and return relative paths."""
     saved: list[str] = []
@@ -3216,6 +3335,22 @@ class Handler(BaseHTTPRequestHandler):
                 code, reply = setup_page.save_profile(body)
             else:
                 code, reply = setup_page.save_answers(body)
+            self.json_out(code, reply)
+            return
+        if path == "/api/open-cursor":
+            if not self.local():
+                self.json_out(403, {"error": "opening Cursor is only available on this Mac"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, OSError):
+                self.json_out(400, {"error": "unreadable"})
+                return
+            if not isinstance(body, dict):
+                self.json_out(400, {"error": "expected a map"})
+                return
+            code, reply = open_in_cursor(body)
             self.json_out(code, reply)
             return
         if path == "/api/db-login":

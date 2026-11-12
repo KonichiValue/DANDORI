@@ -682,8 +682,13 @@
   // not in the document yet: reaching for them here found nothing, which left
   // every card with the clipboard fallback and no way to actually send.
   function showSends() {
-    [].forEach.call(document.querySelectorAll("[data-ask-send],[data-chat-toggle],[data-chat-open]"), function (b) {
+    [].forEach.call(document.querySelectorAll("[data-ask-send],[data-chat-toggle],[data-chat-open],[data-chat-cursor]"), function (b) {
       b.hidden = false;
+    });
+    [].forEach.call(document.querySelectorAll(".ask-copy"), function (b) {
+      b.dataset.liveCursor = "1";
+      b.textContent = "Open in Cursor \u2197";
+      b.title = "Open Cursor in DANDORI with this job and your typed prompt preloaded (Option-click to copy instead)";
     });
     // A question still running when the page was drawn, from before a reload
     // or from another tab. Watch it like one asked here, so its answer lands in
@@ -1006,28 +1011,78 @@
     renderPanelImages(panel);
   });
 
-  // 1-click "Copy for Cursor": fetches the full self-contained Markdown bundle
-  // (ticket, job, numbered drafts, recent Slack/Asana events, and automatic DB
-  // Account X-Ray) so pasting into Cursor or Claude Desktop costs 0 search turns.
+  // 1-click "Open in Cursor ↗": writes the full context bundle (ticket, job,
+  // numbered drafts, recent Slack/Asana timeline, pasted screenshots, and live
+  // DB Account X-Ray) to `clients/<client>/tmp/`, focuses Cursor on the DANDORI
+  // workspace, and pre-fills a new Agent chat via Cursor's deeplink. Option-click
+  // copies the Markdown bundle to clipboard instead.
   document.addEventListener("click", function (e) {
-    var b = e.target && e.target.closest && e.target.closest("[data-ctx-ref]");
+    var b = e.target && e.target.closest && e.target.closest("[data-ctx-ref],.ask-copy[data-live-cursor],[data-chat-cursor]");
     if (!b || b.disabled) return;
+    var inChat = b.closest && b.closest(".chat-box");
+    var askBox = inChat ? (typeof chatBody === "function" ? chatBody() : null) : (b.closest && b.closest(".ask"));
+    var panel = inChat || (b.closest && (b.closest(".fu") || b.closest(".ask-box"))) || (askBox && askBox.querySelector(".ask-box"));
+    var ref = b.dataset.ctxRef || (askBox && askBox.dataset && askBox.dataset.ask) || "board";
+    var draftNum = b.dataset.ctxDraft ? parseInt(b.dataset.ctxDraft, 10) : 0;
+    var field = panel && panel.querySelector && panel.querySelector("textarea");
+    var question = field && field.value ? field.value.trim() : "";
+    var imgs = panel ? panelImages(panel).slice() : [];
+    var followUp = "";
+    var aboutQa = b.closest && b.closest(".qa");
+    if (aboutQa) {
+      var qEl = aboutQa.querySelector(".qa-q");
+      var aEl = aboutQa.querySelector(".qa-a");
+      followUp = "Q: " + (qEl ? qEl.textContent.trim() : "") + "\n\nA: " + (aEl ? aEl.textContent.trim() : "");
+    }
+
     var orig = b.textContent;
     b.disabled = true;
-    b.textContent = "Building\u2026";
-    var url = "/api/context?ref=" + encodeURIComponent(b.dataset.ctxRef || "board") +
-      (b.dataset.ctxDraft ? "&draft=" + encodeURIComponent(b.dataset.ctxDraft) : "");
-    fetch(url).then(function (r) {
-      if (!r.ok) throw new Error("context failed");
-      return r.json();
-    }).then(function (j) {
-      return copyTextToClipboard(j.markdown || "");
+
+    if (e.altKey) {
+      b.textContent = "Copying\u2026";
+      var ctxUrl = "/api/context?ref=" + encodeURIComponent(ref) + (draftNum ? "&draft=" + encodeURIComponent(draftNum) : "");
+      fetch(ctxUrl).then(function (r) {
+        if (!r.ok) throw new Error("context failed");
+        return r.json();
+      }).then(function (j) {
+        var md = (j.markdown || "") + (question ? "\n\n## My Request\n\n" + question : "");
+        return copyTextToClipboard(md);
+      }).then(function () {
+        b.textContent = "Copied context!";
+        setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+      }).catch(function () {
+        b.textContent = "Copy failed";
+        setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+      });
+      return;
+    }
+
+    b.textContent = "Opening Cursor\u2026";
+    fetch("/api/open-cursor?k=" + encodeURIComponent(key), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ref: ref,
+        draft: draftNum || 0,
+        question: question,
+        follow_up: followUp,
+        images: imgs
+      })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || "failed");
+        if (j.fallback_copy) {
+          return copyTextToClipboard(j.fallback_copy).then(function () {
+            b.textContent = "Copied context!";
+          });
+        }
+        b.textContent = "Opened in Cursor!";
+      });
     }).then(function () {
-      b.textContent = "Copied for Cursor!";
-      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1800);
     }).catch(function () {
-      b.textContent = "Copy failed";
-      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+      b.textContent = "Could not open";
+      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1800);
     });
   });
 

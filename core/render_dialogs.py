@@ -170,10 +170,11 @@ def help_dialog() -> str:
     The page remembers what you opened, per card.</p>
 
     <h3>A longer conversation</h3>
-    <p>Open <b>Claude Desktop</b> (Code tab) or Cursor on <code>~/Projects/DANDORI</code>
-    for work across several tickets or reading code together. Same board, same
-    rules, so &ldquo;do 3&rdquo; works with nothing else said. <b>Copy for a chat</b>
-    on any ask box hands the job and your words over.</p>
+    <p>Press <b>Open in Cursor &#8599;</b> on any draft, job, or ask box to focus
+    <b>Cursor</b> right in <code>~/Projects/DANDORI</code> with a new chat already
+    preloaded with that ticket, numbered drafts, timeline, any screenshots you
+    pasted, and live database diagnostics (Option-click copies the bundle to your
+    clipboard instead).</p>
 
     <h3>If a connection expires</h3>
     <p>Press <b>Sign in</b> in the header (or click the sync pill and check

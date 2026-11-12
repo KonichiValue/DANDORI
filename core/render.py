@@ -499,47 +499,66 @@ def _format_bold(escaped_html: str) -> str:
     return BOLD_SINGLE.sub(r"<strong>\1</strong>", s)
 
 
-def _inline_html(text: str, ruby: bool = False) -> str:
-    """Format one line of a draft: inline `code`, full clickable URLs, and bold."""
+def _inline_plain_or_url(segment: str, ruby: bool = False) -> str:
+    pos = 0
+    seg_out: list[str] = []
+    for m in URL_RE.finditer(segment):
+        before = segment[pos : m.start()]
+        if before:
+            seg_out.append(furi(before) if ruby else esc(before))
+        url = m.group(0)
+        trail = ""
+        while url and url[-1] in ".,;:!?)]}*":
+            if url[-1] == ")" and url.count("(") >= url.count(")"):
+                break
+            trail = url[-1] + trail
+            url = url[:-1]
+        attrs = ' target="_blank" rel="noopener"' if ruby else ""
+        seg_out.append(f'<a href="{esc_url(url)}"{attrs}>{esc(url)}</a>')
+        if trail:
+            seg_out.append(esc(trail))
+        pos = m.end()
+    tail = segment[pos:]
+    if tail:
+        seg_out.append(furi(tail) if ruby else esc(tail))
+    return "".join(seg_out)
+
+
+def _inline_html(text: str, ruby: bool = False, keep_links: bool = False) -> str:
+    """Format one line of a draft: inline `code`, clickable URLs (or named `[label](url)` links), and bold."""
     parts = INLINE_CODE.split(text or "")
     out: list[str] = []
     for idx, part in enumerate(parts):
         if idx % 2 == 1:
             out.append(f"<code>{esc(plain(part))}</code>")
             continue
-        pos = 0
-        seg_out: list[str] = []
-        for m in URL_RE.finditer(part):
-            before = part[pos : m.start()]
-            if before:
-                seg_out.append(furi(before) if ruby else esc(before))
-            url = m.group(0)
-            trail = ""
-            while url and url[-1] in ".,;:!?)]}*":
-                if url[-1] == ")" and url.count("(") >= url.count(")"):
-                    break
-                trail = url[-1] + trail
-                url = url[:-1]
+        if keep_links:
+            pos = 0
+            seg_out: list[str] = []
             attrs = ' target="_blank" rel="noopener"' if ruby else ""
-            seg_out.append(f'<a href="{esc_url(url)}"{attrs}>{esc(url)}</a>')
-            if trail:
-                seg_out.append(esc(trail))
-            pos = m.end()
-        tail = part[pos:]
-        if tail:
-            seg_out.append(furi(tail) if ruby else esc(tail))
-        out.append(_format_bold("".join(seg_out)))
+            for m in MD_LINK.finditer(part):
+                if m.start() > pos:
+                    seg_out.append(_inline_plain_or_url(part[pos : m.start()], ruby=ruby))
+                lbl_html = furi(m.group(1)) if ruby else esc(m.group(1))
+                seg_out.append(f'<a href="{esc_url(m.group(2).strip())}"{attrs}>{lbl_html}</a>')
+                pos = m.end()
+            if pos < len(part):
+                seg_out.append(_inline_plain_or_url(part[pos:], ruby=ruby))
+            out.append(_format_bold("".join(seg_out)))
+        else:
+            out.append(_format_bold(_inline_plain_or_url(part, ruby=ruby)))
     return "".join(out)
 
 
-def draft_html(raw: str, ruby: bool = False) -> str:
+def draft_html(raw: str, ruby: bool = False, keep_links: bool = False) -> str:
     """Rich HTML for both the draft card (ruby=True on ja) and clipboard text/html
-    (ruby=False), so pasting into Slack or Asana produces native bold, lists,
-    code spans and full non-truncated links."""
+    (ruby=False), so pasting into Slack, Canvas or Asana produces native bold, lists,
+    code spans and links."""
     text = (raw or "").replace("\r\n", "\n")
     if not ruby:
         text = plain(text)
-    text = _expand_links(text)
+    if not keep_links:
+        text = _expand_links(text)
     lines = text.split("\n")
 
     blocks: list[str] = []
@@ -601,7 +620,7 @@ def draft_html(raw: str, ruby: bool = False) -> str:
         if qm:
             flush_para()
             flush_list()
-            quote.append(_inline_html(qm.group(1), ruby=ruby))
+            quote.append(_inline_html(qm.group(1), ruby=ruby, keep_links=keep_links))
             continue
 
         is_hr = bool(HR_LINE.match(line))
@@ -613,7 +632,7 @@ def draft_html(raw: str, ruby: bool = False) -> str:
             indent = len((bm or nm).group(1))
             tag = "ul" if bm else "ol"
             content = bm.group(2) if bm else nm.group(3)
-            rendered = _inline_html(content, ruby=ruby)
+            rendered = _inline_html(content, ruby=ruby, keep_links=keep_links)
             if indent >= 2 and list_items:
                 prev_head, prev_sub_tag, prev_subs = list_items[-1]
                 sub_tag = prev_sub_tag or tag
@@ -628,7 +647,7 @@ def draft_html(raw: str, ruby: bool = False) -> str:
 
         flush_quote()
         flush_list()
-        para.append(_inline_html(line, ruby=ruby))
+        para.append(_inline_html(line, ruby=ruby, keep_links=keep_links))
 
     if in_code and code_lines:
         blocks.append(f"<pre><code>{esc(plain(chr(10).join(code_lines)))}</code></pre>")
@@ -1849,7 +1868,7 @@ def ask_block(
                 <button type="button" class="ask-open">{SPARK}Ask or change on
                   <span class="ask-of">{esc(label)}</span></button>
                 <button type="button" class="ctx-copy bar-ctx" data-ctx-ref="{esc(ref)}"
-                        title="Copy full job, drafts, threads &amp; DB diagnostic to paste into Cursor or Claude">Copy for Cursor</button>
+                        title="Open Cursor in DANDORI with this job, drafts, threads &amp; DB X-Ray preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>
                 {f'<span class="ask-n">{n} asked</span>' if asks else ""}
               </div>
               <div class="ask-box" hidden>

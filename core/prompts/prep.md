@@ -86,7 +86,11 @@ Otherwise sweep, briefly, in the same turns as above:
   `where`, `source_url`; the owner is "You"), and items move only on an event you
   can quote: a reply brings an item back to `todo` on the same number with its
   draft rewritten; something they sent makes it `waiting` on a named person with
-  a `chase_on` date. New work goes in `new_items`. Every job needs a day:
+  a `chase_on` date. New work goes in `new_items`. Keep drafts human and sparse:
+  when a draft would otherwise pack dates, rows or multi-account numbers into
+  prose, generate a zero-PII evidence image into `docs/` (using `clients/<client>/scripts/`
+  when present) and attach it in `prepared.files` with `"draft"` and `"where"`.
+  Every job needs a day:
   `urgency` exactly `today`, `this-week` or `monitor`, or an ISO `chase_on`,
   plus an ISO `due_by` on the owner's work that has a deadline rather than a start.
 - Fix every line of the digest's `OUT OF DATE` block, update `news` (route named,
