@@ -46,6 +46,7 @@ import keep
 import mcp_server
 import notify
 import plugins
+import quick_edit
 import render
 import render_desk
 import scout
@@ -3356,6 +3357,21 @@ class Handler(BaseHTTPRequestHandler):
                 code, reply = setup_page.save_profile(body)
             else:
                 code, reply = setup_page.save_answers(body)
+            self.json_out(code, reply)
+            return
+        if path == "/api/quick-edit":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, OSError):
+                self.json_out(400, {"error": "unreadable"})
+                return
+            if not isinstance(body, dict):
+                self.json_out(400, {"error": "expected a map"})
+                return
+            code, reply = quick_edit.run(body)
+            if code == 200 and (reply.get("action") == "edit" or reply.get("undone")) and not reply.get("reload"):
+                reply = {**reply, **drawn()}
             self.json_out(code, reply)
             return
         if path == "/api/open-cursor":

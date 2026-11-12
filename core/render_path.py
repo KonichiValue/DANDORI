@@ -334,6 +334,10 @@ def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "
         body = d.get("body_en") or d.get("body_ruby") or d.get("body", "")
         rendered = draft_html(body, ruby=False, keep_links=is_canvas)
         trans = ""
+    rev_btn = "" if (sent or not job_id) else f"""<button class="qe-btn" type="button"
+                    data-qe-kind="draft" data-qe-ref="item:{esc(job_id)}" data-qe-draft="{draft_num}"
+                    data-qe-lang="{"ja" if is_ja else "en"}" aria-expanded="false"
+                    title="Quick AI revision or question right inside this draft">{SPARK}Revise</button>"""
     ctx_btn = "" if (sent or not job_id) else f"""<button class="ctx-copy" type="button"
                     data-ctx-ref="item:{esc(job_id)}" data-ctx-draft="{draft_num}"
                     title="Open Cursor with this draft, ticket, timeline &amp; DB X-Ray preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>"""
@@ -342,8 +346,10 @@ def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "
             {"" if sent else f'<span>{esc(d.get("target"))}</span>'}
             {link_btn(d.get("link", ""), "Go there")}
             <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False, keep_links=is_canvas))}">copy</button>
+            {rev_btn}
             {ctx_btn}
           </div>
+          {"" if (sent or not job_id) else '<div class="qe-slot" data-qe-slot hidden></div>'}
           <div class="draft-body {"ja" if is_ja else ""}">{rendered}</div>
           {trans}"""
 
@@ -799,9 +805,13 @@ def render_items(
             {f'<p class="act-block">Blocked by: {esc(blocked)}</p>' if blocked else ""}
             {background(r, quote)}
             {"" if done else f'''<div class="act-cursor-row">
+              <button type="button" class="qe-btn bar-qe" data-qe-kind="job" data-qe-ref="item:{esc(r.get("id"))}"
+                      data-qe-lang="en" aria-expanded="false"
+                      title="Quick AI question or step edit right on Job {esc(r.get("id"))}">{SPARK}Quick AI</button>
               <button type="button" class="ctx-copy bar-ctx" data-ctx-ref="item:{esc(r.get("id"))}"
                       title="Open Cursor with Job {esc(r.get("id"))}, all drafts, threads &amp; DB X-Ray preloaded (Option-click to copy instead)">Open Job {esc(r.get("id"))} in Cursor &#8599;</button>
-            </div>'''}
+            </div>
+            <div class="qe-slot job-qe-slot" data-qe-slot hidden></div>'''}
           </div>
         </{tag}>"""
         )

@@ -425,10 +425,14 @@ def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
 
       <section class="sub say script">
         <h3>Say this<span class="hint">out loud, as written</span>
+          <button class="qe-btn" type="button" data-qe-kind="script" data-qe-ref="ticket:{esc(t.get("ref"))}"
+                  data-qe-lang="{"ja" if settings.language().get("client") == "ja" else "en"}" aria-expanded="false"
+                  title="Quick AI revision on these speaking lines">{SPARK}Revise</button>
           <button class="ctx-copy" type="button" data-ctx-ref="ticket:{esc(t.get("ref"))}"
                   title="Open Cursor with this speaking script &amp; ticket preloaded (Option-click to copy instead)">Edit in Cursor &#8599;</button></h3>
+        <div class="qe-slot script-qe-slot" data-qe-slot hidden></div>
         {f'<p class="st-none">Status only. Nothing needed from {esc(settings.client_short())}.</p>' if no_ask else ""}
-        {render_script(prep.get("script", []))}
+        <div class="st-script-wrap">{render_script(prep.get("script", []))}</div>
       </section>
 
       {warn}

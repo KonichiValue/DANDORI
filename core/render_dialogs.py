@@ -169,14 +169,13 @@ def help_dialog() -> str:
     is behind it, so <b>Timeline, 10 moves today</b> has already answered you.
     The page remembers what you opened, per card.</p>
 
-    <h3>Working with Cursor &amp; Claude Desktop</h3>
-    <p>DANDORI ships a built-in <b>MCP App</b> (<code>ui://dandori/board</code>).
-    In <b>Cursor</b> or <b>Claude Desktop</b>, ask to open your <code>dandori_board</code>
-    and an interactive DANDORI desk renders right inside the chat: clicking any
-    job, ticket, or draft pins its full context and live DB Account X-Ray straight
-    into your conversation. From this browser page, press <b>Check replies in
-    Cursor &#8599;</b> or <b>Open in Cursor &#8599;</b> to jump straight into your
-    existing Cursor window.</p>
+    <h3>Quick revisions vs. Cursor &amp; Claude</h3>
+    <p>For a quick tweak while reading a draft or script (&ldquo;make this shorter&rdquo;,
+    &ldquo;remove CC&rdquo;, &ldquo;softer tone&rdquo;), press <b>&#10022; Revise</b> right on
+    the draft or script: it updates in place in a few seconds with one-click
+    <b>Undo</b>. For multi-turn investigations or new replies, press <b>Check replies
+    in Cursor &#8599;</b> or open the interactive <code>dandori_board</code> MCP App
+    inside <b>Cursor</b> or <b>Claude Desktop</b>.</p>
 
     <h3>If a connection expires</h3>
     <p>Press <b>Sign in</b> in the header (or click the sync pill and check

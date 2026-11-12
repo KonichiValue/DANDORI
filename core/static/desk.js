@@ -199,13 +199,13 @@
     // sentence in a composer does not, so that is the one thing worth stopping
     // for. Losing what the owner was typing to a helpful refresh would be worse than
     // the staleness it fixes.
-    var half = [].slice.call(document.querySelectorAll(".ask textarea"))
+    var half = [].slice.call(document.querySelectorAll(".ask textarea,.qe-in"))
       .concat([].slice.call(document.querySelectorAll(".chat-box textarea")))
       .some(function (t) { return t.value.trim(); })
       || !!document.querySelector(".ask-imgs:not([hidden])");
     // The reply line under an answer is always there, so only an open box at
     // the foot of a card counts as open: an empty reply line is not theirs.
-    var open = document.querySelector(".ask-box:not([hidden])");
+    var open = document.querySelector(".ask-box:not([hidden]),.qe-slot:not([hidden])");
     var pal = document.getElementById("pal");
     var help = document.getElementById("help");
     var syncOpen = syncPop && !syncPop.hidden;
@@ -966,7 +966,7 @@
   }
   document.addEventListener("paste", function (e) {
     var panel = e.target && e.target.closest && (
-      e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
+      e.target.closest(".qe-tray") || e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
     );
     if (!panel || !e.clipboardData || !e.clipboardData.items) return;
     var files = [];
@@ -983,7 +983,7 @@
   });
   document.addEventListener("drop", function (e) {
     var panel = e.target && e.target.closest && (
-      e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
+      e.target.closest(".qe-tray") || e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
     );
     if (!panel || !e.dataTransfer || !e.dataTransfer.files) return;
     var files = [].slice.call(e.dataTransfer.files).filter(function (f) {
@@ -996,19 +996,351 @@
   });
   document.addEventListener("dragover", function (e) {
     var panel = e.target && e.target.closest && (
-      e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
+      e.target.closest(".qe-tray") || e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
     );
     if (panel) e.preventDefault();
   });
   document.addEventListener("click", function (e) {
     var rm = e.target && e.target.closest && e.target.closest("[data-rm-img]");
     if (!rm) return;
-    var panel = rm.closest(".ask-box") || rm.closest(".fu") || rm.closest(".chat-box");
+    var panel = rm.closest(".qe-tray") || rm.closest(".ask-box") || rm.closest(".fu") || rm.closest(".chat-box");
     if (!panel) return;
     var idx = parseInt(rm.dataset.rmImg, 10);
     var imgs = panelImages(panel);
     if (!isNaN(idx)) imgs.splice(idx, 1);
     renderPanelImages(panel);
+  });
+
+  // Inline Quick AI (`✦ Revise` on drafts & speaking scripts, `✦ Quick AI` on jobs).
+  var QE_PRESETS = {
+    draft_ja: [
+      ["Shorter", "Make this shorter and simpler while keeping all key facts and polite register."],
+      ["Plainer JP", "Rewrite in plainer, easier-to-read Japanese sentences while keeping house vocabulary and furigana readings."],
+      ["Softer", "Soften the tone slightly while keeping the exact point and question clear."],
+      ["More direct", "Lead with the conclusion directly and cut unnecessary preamble."],
+      ["Check facts", "Fact-check every claim, date, and number in this draft against the ticket and prepared findings without changing the text."]
+    ],
+    draft_en: [
+      ["Shorter", "Make this shorter and sharper while keeping all key facts."],
+      ["Clearer", "Rewrite with one clear idea per sentence, leading with the conclusion."],
+      ["Ask, don't propose", "Ensure every technical point is phrased as an observation-based question rather than an AI code proposal."],
+      ["Check facts", "Fact-check every claim, date, and number in this draft against the ticket and prepared findings without changing the text."]
+    ],
+    script: [
+      ["Shorter", "Shorten this speaking script to two crisp, natural sentences."],
+      ["Easier aloud", "Rewrite these lines so they are effortless to read out loud at normal pace, keeping furigana readings."],
+      ["Softer", "Make the wording slightly softer and more diplomatic for the client room."],
+      ["Status only", "Make this a brief status-only update with no question asked of the client."]
+    ],
+    job: [
+      ["What's left?", "Summarize in 2 short sentences what is left for me to do on this job right now."],
+      ["Tighten steps", "Simplify and tighten the steps on this job so each step is one concrete action."],
+      ["Verify status", "Check whether where_it_stands and the steps match the latest timeline events on this ticket."]
+    ]
+  };
+
+  function findQeSlot(btn) {
+    var dh = btn.closest && btn.closest(".draft-head");
+    if (dh && dh.nextElementSibling && dh.nextElementSibling.hasAttribute("data-qe-slot")) {
+      return dh.nextElementSibling;
+    }
+    var sc = btn.closest && btn.closest(".say.script");
+    if (sc) return sc.querySelector("[data-qe-slot]");
+    var cr = btn.closest && btn.closest(".act-cursor-row");
+    if (cr && cr.nextElementSibling && cr.nextElementSibling.hasAttribute("data-qe-slot")) {
+      return cr.nextElementSibling;
+    }
+    return null;
+  }
+
+  function wireCopyButtons(root) {
+    if (!root || !root.querySelectorAll) return;
+    [].forEach.call(root.querySelectorAll(".copy"), function (b) {
+      if (b._wired) return;
+      b._wired = true;
+      b.addEventListener("click", function () {
+        copyTextToClipboard(b.dataset.copy || "");
+        var o = b.textContent;
+        b.textContent = "copied";
+        setTimeout(function () { b.textContent = o; }, 1200);
+      });
+    });
+  }
+
+  function applyQeDomUpdate(tray, j) {
+    if (!tray || !j) return;
+    var kind = tray.dataset.qeKind;
+    if (kind === "draft") {
+      var container = tray.parentNode && tray.parentNode.parentNode;
+      if (!container) return;
+      var bodyEl = container.querySelector(".draft-body");
+      if (bodyEl && typeof j.draft_body_html === "string") {
+        bodyEl.innerHTML = j.draft_body_html;
+        bodyEl.classList.remove("qe-just-updated");
+        void bodyEl.offsetWidth;
+        bodyEl.classList.add("qe-just-updated");
+      }
+      var enEl = container.querySelector(".draft-en");
+      if (j.draft_en_html) {
+        if (!enEl && bodyEl) {
+          enEl = document.createElement("div");
+          enEl.className = "draft-en";
+          bodyEl.insertAdjacentElement("afterend", enEl);
+        }
+        if (enEl) enEl.innerHTML = j.draft_en_html;
+      } else if (enEl) {
+        enEl.remove();
+      }
+      var copyBtn = container.querySelector(".draft-head .copy");
+      if (copyBtn) {
+        if (typeof j.copy_plain === "string") copyBtn.dataset.copy = j.copy_plain;
+        if (typeof j.copy_html === "string") copyBtn.dataset.copyHtml = j.copy_html;
+      }
+    } else if (kind === "script") {
+      var sec = tray.closest && tray.closest(".say.script");
+      var wrap = sec && sec.querySelector(".st-script-wrap");
+      if (wrap && typeof j.script_html === "string") {
+        wrap.innerHTML = j.script_html;
+        wireCopyButtons(wrap);
+        wrap.classList.remove("qe-just-updated");
+        void wrap.offsetWidth;
+        wrap.classList.add("qe-just-updated");
+      }
+    }
+  }
+
+  function runQuickEdit(tray, instruction) {
+    var text = (instruction || "").trim();
+    var imgs = panelImages(tray).slice();
+    var input = tray.querySelector(".qe-in");
+    if (!text && !imgs.length) {
+      if (input) input.focus();
+      return;
+    }
+    var statusEl = tray.querySelector(".qe-status");
+    var sendBtn = tray.querySelector(".qe-send");
+    var chips = [].slice.call(tray.querySelectorAll(".qe-chip"));
+    var tierSel = tray.querySelector(".qe-tier");
+    var tier = tierSel ? tierSel.value : "sonnet";
+
+    if (sendBtn) sendBtn.disabled = true;
+    chips.forEach(function (c) { c.disabled = true; });
+    var secs = 0;
+    statusEl.hidden = false;
+    statusEl.className = "qe-status run";
+    statusEl.innerHTML = '<span class="qe-dot" aria-hidden="true"></span><span class="qe-msg">Working\u2026</span>';
+    var msgSpan = statusEl.querySelector(".qe-msg");
+    var tickTimer = setInterval(function () {
+      secs += 1;
+      if (msgSpan) msgSpan.textContent = "Working\u2026 " + secs + "s";
+    }, 1000);
+
+    if (input && input.value.trim() === text) {
+      input.value = "";
+      input.style.height = "";
+    }
+    tray._imgs = [];
+    renderPanelImages(tray);
+
+    inflight += 1;
+    fetch("/api/quick-edit?k=" + encodeURIComponent(key), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: tray.dataset.qeKind,
+        ref: tray.dataset.qeRef,
+        draft: tray.dataset.qeDraft ? parseInt(tray.dataset.qeDraft, 10) : 1,
+        tier: tier,
+        instruction: text,
+        prior: tray._prior || "",
+        images: imgs
+      })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        clearInterval(tickTimer);
+        inflight -= 1;
+        if (sendBtn) sendBtn.disabled = false;
+        chips.forEach(function (c) { c.disabled = false; });
+        if (!r.ok) throw new Error(j.error || "Quick edit failed");
+        adopt(j);
+        if (j.reload) {
+          reloadKeepingPlace();
+          return;
+        }
+        var summary = j.summary || "Updated.";
+        tray._prior = "Request: " + text + "\nResult: " + summary;
+        if (j.action === "edit") {
+          applyQeDomUpdate(tray, j);
+          statusEl.className = "qe-status ok";
+          statusEl.innerHTML =
+            '<span class="qe-msg">\u2713 ' + esc(summary) + '</span>' +
+            (j.undo_id ? '<button type="button" class="qe-undo" data-qe-undo="' + esc(j.undo_id) + '">\u21ba Undo</button>' : '');
+        } else {
+          statusEl.className = "qe-status ans";
+          statusEl.innerHTML = '<span class="qe-msg">' + esc(summary) + '</span>';
+        }
+      });
+    }).catch(function (err) {
+      clearInterval(tickTimer);
+      inflight -= 1;
+      if (sendBtn) sendBtn.disabled = false;
+      chips.forEach(function (c) { c.disabled = false; });
+      statusEl.className = "qe-status bad";
+      statusEl.innerHTML = '<span class="qe-msg">' + esc(err.message || "Could not reach server") + '</span>';
+    });
+  }
+
+  function buildQeTray(btn, slot) {
+    var kind = btn.dataset.qeKind || "draft";
+    var lang = btn.dataset.qeLang || "en";
+    var presetKey = kind === "draft" ? ("draft_" + lang) : kind;
+    var presets = QE_PRESETS[presetKey] || QE_PRESETS.draft_en;
+    var savedTier = (window.deskPref && window.deskPref.get && window.deskPref.get("desk-qe-tier")) || "sonnet";
+    var ph = kind === "draft"
+      ? "Tell AI what to change in this draft, or ask a quick question\u2026 (paste screenshot \u00b7 Enter)"
+      : kind === "script"
+      ? "Tell AI how to adjust these speaking lines\u2026 (Enter)"
+      : "Ask a quick question or tell AI how to update this job\u2026 (Enter)";
+
+    var chipsHtml = presets.map(function (p) {
+      return '<button type="button" class="qe-chip" data-qe-prompt="' + esc(p[1]) + '">' + esc(p[0]) + '</button>';
+    }).join("");
+
+    slot.innerHTML =
+      '<div class="qe-tray" data-qe-kind="' + esc(kind) + '" data-qe-ref="' + esc(btn.dataset.qeRef || "") + '"' +
+      (btn.dataset.qeDraft ? ' data-qe-draft="' + esc(btn.dataset.qeDraft) + '"' : '') + '>' +
+        '<div class="qe-top">' +
+          chipsHtml +
+          '<span class="qe-right">' +
+            '<select class="qe-tier" aria-label="AI Model" title="Model speed vs depth">' +
+              '<option value="sonnet"' + (savedTier === "sonnet" ? " selected" : "") + '>Sonnet 5.5 \u00b7 fast</option>' +
+              '<option value="opus"' + (savedTier === "opus" ? " selected" : "") + '>Opus 5.5 \u00b7 deep</option>' +
+            '</select>' +
+            '<button type="button" class="qe-close" data-qe-close aria-label="Close">&times;</button>' +
+          '</span>' +
+        '</div>' +
+        '<div class="ask-imgs" hidden></div>' +
+        '<div class="qe-bar">' +
+          '<textarea class="qe-in" rows="1" placeholder="' + esc(ph) + '"></textarea>' +
+          '<button type="button" class="qe-send" data-qe-send aria-label="Apply" title="Apply (Enter)">' +
+            '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 13.5 8l-1.4 1.4-3.1-3.1V13.5H7V6.3L3.9 9.4 2.5 8z"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<div class="qe-status" hidden></div>' +
+      '</div>';
+    slot._btn = btn;
+  }
+
+  document.addEventListener("click", function (e) {
+    var openBtn = e.target && e.target.closest && e.target.closest("[data-qe-kind].qe-btn");
+    if (openBtn) {
+      var slot = findQeSlot(openBtn);
+      if (!slot) return;
+      var willOpen = slot.hidden;
+      if (willOpen && !slot.querySelector(".qe-tray")) {
+        buildQeTray(openBtn, slot);
+      }
+      slot.hidden = !willOpen;
+      openBtn.setAttribute("aria-expanded", String(willOpen));
+      if (willOpen) {
+        var inp = slot.querySelector(".qe-in");
+        if (inp) inp.focus();
+      }
+      return;
+    }
+
+    var closeBtn = e.target && e.target.closest && e.target.closest("[data-qe-close]");
+    if (closeBtn) {
+      var sClose = closeBtn.closest("[data-qe-slot]");
+      if (sClose) {
+        sClose.hidden = true;
+        if (sClose._btn) sClose._btn.setAttribute("aria-expanded", "false");
+      }
+      return;
+    }
+
+    var chipBtn = e.target && e.target.closest && e.target.closest("[data-qe-prompt]");
+    if (chipBtn && !chipBtn.disabled) {
+      var cTray = chipBtn.closest(".qe-tray");
+      if (cTray) runQuickEdit(cTray, chipBtn.dataset.qePrompt || "");
+      return;
+    }
+
+    var sendBtn = e.target && e.target.closest && e.target.closest("[data-qe-send]");
+    if (sendBtn && !sendBtn.disabled) {
+      var sTray = sendBtn.closest(".qe-tray");
+      var sIn = sTray && sTray.querySelector(".qe-in");
+      if (sTray) runQuickEdit(sTray, sIn ? sIn.value : "");
+      return;
+    }
+
+    var undoBtn = e.target && e.target.closest && e.target.closest("[data-qe-undo]");
+    if (undoBtn && !undoBtn.disabled) {
+      var uTray = undoBtn.closest(".qe-tray");
+      var uStatus = uTray && uTray.querySelector(".qe-status");
+      undoBtn.disabled = true;
+      undoBtn.textContent = "Undoing\u2026";
+      inflight += 1;
+      fetch("/api/quick-edit?k=" + encodeURIComponent(key), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ undo: undoBtn.dataset.qeUndo })
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          inflight -= 1;
+          if (!r.ok) throw new Error(j.error || "Undo failed");
+          adopt(j);
+          if (j.reload) { reloadKeepingPlace(); return; }
+          applyQeDomUpdate(uTray, j);
+          if (uStatus) {
+            uStatus.className = "qe-status ans";
+            uStatus.innerHTML = '<span class="qe-msg">\u21ba ' + esc(j.summary || "Restored previous version.") + '</span>';
+          }
+        });
+      }).catch(function (err) {
+        inflight -= 1;
+        undoBtn.disabled = false;
+        undoBtn.textContent = "\u21ba Undo";
+        if (uStatus) {
+          uStatus.className = "qe-status bad";
+          uStatus.innerHTML = '<span class="qe-msg">' + esc(err.message) + '</span>';
+        }
+      });
+    }
+  });
+
+  document.addEventListener("change", function (e) {
+    var sel = e.target && e.target.closest && e.target.closest(".qe-tier");
+    if (!sel) return;
+    if (window.deskPref && window.deskPref.set) window.deskPref.set("desk-qe-tier", sel.value);
+    [].forEach.call(document.querySelectorAll(".qe-tier"), function (o) {
+      if (o !== sel) o.value = sel.value;
+    });
+  });
+
+  document.addEventListener("input", function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains("qe-in")) return;
+    t.style.height = "auto";
+    t.style.height = Math.min(t.scrollHeight + 2, 140) + "px";
+  });
+
+  document.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains("qe-in")) return;
+    if (e.key === "Escape") {
+      var slot = t.closest("[data-qe-slot]");
+      if (slot) {
+        slot.hidden = true;
+        if (slot._btn) slot._btn.setAttribute("aria-expanded", "false");
+      }
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.isComposing) {
+      e.preventDefault();
+      var tray = t.closest(".qe-tray");
+      if (tray) runQuickEdit(tray, t.value);
+    }
   });
 
   // 1-click "Open in Cursor ↗": writes the full context bundle (ticket, job,
@@ -1022,6 +1354,9 @@
     var inChat = b.closest && b.closest(".chat-box");
     var askBox = inChat ? (typeof chatBody === "function" ? chatBody() : null) : (b.closest && b.closest(".ask"));
     var panel = inChat || (b.closest && (b.closest(".fu") || b.closest(".ask-box"))) || (askBox && askBox.querySelector(".ask-box"));
+    var nearSlot = findQeSlot(b);
+    var qeTray = nearSlot && !nearSlot.hidden ? nearSlot.querySelector(".qe-tray") : null;
+    if (qeTray) panel = qeTray;
     var ref = b.dataset.ctxRef || (askBox && askBox.dataset && askBox.dataset.ask) || "board";
     var mode = b.dataset.ctxMode || "default";
     var draftNum = b.dataset.ctxDraft ? parseInt(b.dataset.ctxDraft, 10) : 0;

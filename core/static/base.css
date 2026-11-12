@@ -636,7 +636,7 @@ body.script-only .st-warn,body.script-only .st-cons,body.script-only .st-land,
 body.script-only .st-run,body.script-only .sess{display:none}
 /* Rewrite or ask stays. It sits in the Say this header, on the words themselves,
    and reading them out loud is when the owner notices one is wrong. */
-body.script-only .say .ask-here{display:inline-flex}
+body.script-only .say .ask-here,body.script-only .say .qe-btn{display:inline-flex}
 body.script-only .sub.ask details{display:block}
 body.script-only .sub.ask{border-top:1px solid var(--line);margin-top:16px}
 body.script-only .sub.ask>h3{display:none}

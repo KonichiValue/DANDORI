@@ -78,7 +78,7 @@ function makePage(options) {
     getElementById: (id) => (Object.hasOwn(ids, id) ? ids[id] : null),
     querySelectorAll: (sel) => {
       if (sel === "[data-run]") return [element({ dataset: {} })];
-      if (sel === ".ask textarea") return [textarea];
+      if (sel.indexOf(".ask textarea") === 0) return [textarea];
       // A question still out when the page was drawn: a bubble on one card.
       if (sel === ".qa[data-live]" && opts.running) {
         const box = element({ dataset: { ask: "item:1" } });
@@ -87,7 +87,7 @@ function makePage(options) {
       return [];
     },
     querySelector: (sel) => {
-      if (sel.indexOf(".ask-box") === 0) return opts.composerOpen ? element() : null;
+      if (sel.indexOf(".ask-box") === 0) return (opts.composerOpen || opts.qeOpen) ? element() : null;
       return null;
     },
     // Kept, so a test can press something the way a click would arrive.
@@ -442,6 +442,16 @@ async function run() {
     check("opening a stale board on a weekday morning triggers /api/scout automatically",
       page.sandbox.fetched.some((u) => u.indexOf("/api/scout") === 0),
       "fetched: " + page.sandbox.fetched.join(", "));
+  }
+
+  // 16. An open inline Quick Revise tray (.qe-slot) holds back background reloads
+  //     just like a composer, so a draft tweak is never wiped out mid-edit.
+  {
+    const page = makePage({ stamp: "AAA", qeOpen: true });
+    page.sandbox.reply = { state: "idle", message: "", asks: {}, stamp: "BBB" };
+    await settle();
+    check("an open Quick Revise tray is not reloaded away", page.reloads.count === 0,
+      `reloaded ${page.reloads.count} times while Quick Revise was open`);
   }
 
   const bad = results.filter((r) => !r.pass);
