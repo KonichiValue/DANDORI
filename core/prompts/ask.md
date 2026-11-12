@@ -38,10 +38,14 @@ When it is not enough:
 - Slack and Asana are readable through the tools you have, and so is the
   read-only production replica named in `config.json` `database.mcp`
   (`execute_sql`, read only; the profile's `## Data I can reach` says what not to
-  query). Notion and Google are not loaded for a question, because their tool
-  lists alone were most of what a question cost. If the answer needs a meeting
-  note or a Drive file, say so and name it: that is a job for a refresh or a
-  chat, not a guess.
+  query). When an account number is involved and the prompt above includes an
+  **Automatic account diagnostic** (or when `clients/<client>/scripts/` provides
+  an account inspection / rule-lookup script named in the profile), rely on that
+  complete multi-layer diagnostic rather than hand-writing partial SQL queries
+  that check only one fuel or one hold table. Notion and Google are not loaded
+  for a question, because their tool lists alone were most of what a question
+  cost. If the answer needs a meeting note or a Drive file, say so and name it:
+  that is a job for a refresh or a chat, not a guess.
 
 **Never invent a source.** If you cannot quote the message or the code a claim
 rests on, say you could not find it. "I could not verify this" is a useful

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import re
 import shutil
 import subprocess
@@ -632,6 +633,30 @@ def tracked_files_are_generic() -> list[str]:
     return bad
 
 
+def mcp_server_holds() -> list[str]:
+    """The local MCP server answers initialize and tools/list cleanly."""
+    proc = subprocess.run(
+        [sys.executable, str(CORE / "mcp_server.py")],
+        input=(
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n'
+        ),
+        cwd=ROOT, capture_output=True, text=True, timeout=10,
+    )
+    if proc.returncode != 0:
+        return [f"mcp_server.py exited {proc.returncode}: {proc.stderr.strip()[:200]}"]
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    if len(lines) != 2:
+        return [f"mcp_server.py returned {len(lines)} lines instead of 2"]
+    try:
+        tools = {t["name"] for t in json.loads(lines[1])["result"]["tools"]}
+    except (ValueError, KeyError, TypeError) as exc:
+        return [f"mcp_server.py tools/list malformed: {exc}"]
+    wanted = {"dandori_context", "dandori_inspect_account", "dandori_tick", "dandori_apply_patch"}
+    missing = wanted - tools
+    return [f"mcp_server.py missing tools: {sorted(missing)}"] if missing else []
+
+
 CHECKS = (
     ("Whose DANDORI this is", setup_state),
     ("Python parses", python_parses),
@@ -642,6 +667,7 @@ CHECKS = (
     ("The page reloads itself, but never over the owner's typing", reload_guard_holds),
     ("The page server stays on this Mac", local_server_stays_local),
     ("The background scout loses nothing and never loops", scout_delta_holds),
+    ("The local MCP bridge answers cleanly", mcp_server_holds),
     ("The board is the shape the renderers expect", board_shape),
     ("Spoken lines carry their readings", furigana_present),
     ("Every page renders", pages_render),

@@ -195,7 +195,8 @@
     // the staleness it fixes.
     var half = [].slice.call(document.querySelectorAll(".ask textarea"))
       .concat([].slice.call(document.querySelectorAll(".chat-box textarea")))
-      .some(function (t) { return t.value.trim(); });
+      .some(function (t) { return t.value.trim(); })
+      || !!document.querySelector(".ask-imgs:not([hidden])");
     // The reply line under an answer is always there, so only an open box at
     // the foot of a card counts as open: an empty reply line is not theirs.
     var open = document.querySelector(".ask-box:not([hidden])");
@@ -869,11 +870,155 @@
     if (window.deskPref) window.deskPref.set("desk-ask-model", sel.value);
   });
 
-  function ask(ref, question, parent, li, model) {
+  function copyTextToClipboard(s) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(s).catch(function () { fallbackCopyText(s); });
+    }
+    fallbackCopyText(s);
+    return Promise.resolve();
+  }
+  function fallbackCopyText(s) {
+    var a = document.createElement("textarea");
+    a.value = s;
+    a.setAttribute("readonly", "");
+    a.style.cssText = "position:fixed;top:-1000px";
+    document.body.appendChild(a);
+    a.select();
+    try { document.execCommand("copy"); } finally { document.body.removeChild(a); }
+  }
+
+  function panelImages(panel) {
+    if (!panel) return [];
+    if (!panel._imgs) panel._imgs = [];
+    return panel._imgs;
+  }
+  function renderPanelImages(panel) {
+    var tray = panel && panel.querySelector && panel.querySelector(".ask-imgs");
+    if (!tray) return;
+    var imgs = panelImages(panel);
+    if (!imgs.length) {
+      tray.innerHTML = "";
+      tray.hidden = true;
+      return;
+    }
+    tray.hidden = false;
+    tray.innerHTML = imgs.map(function (im, idx) {
+      return '<span class="ask-img-chip">' +
+        '<img src="' + esc(im.data) + '" alt="">' +
+        '<span>' + esc(im.name || ("image-" + (idx + 1))) + '</span>' +
+        '<button type="button" data-rm-img="' + idx + '" aria-label="Remove image">&times;</button>' +
+        '</span>';
+    }).join("");
+  }
+  function attachImageFiles(panel, files) {
+    var imgs = panelImages(panel);
+    [].slice.call(files || []).forEach(function (file) {
+      if (!file || !/^image\/(png|jpeg|jpg|webp|gif)$/i.test(file.type || "")) return;
+      if (imgs.length >= 4 || file.size > 5 * 1024 * 1024) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        if (typeof reader.result === "string" && imgs.length < 4) {
+          imgs.push({ name: file.name || "screenshot.png", data: reader.result });
+          renderPanelImages(panel);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  document.addEventListener("paste", function (e) {
+    var panel = e.target && e.target.closest && (
+      e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
+    );
+    if (!panel || !e.clipboardData || !e.clipboardData.items) return;
+    var files = [];
+    [].slice.call(e.clipboardData.items).forEach(function (it) {
+      if (it.kind === "file" && /^image\//i.test(it.type || "")) {
+        var f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    });
+    if (files.length) {
+      e.preventDefault();
+      attachImageFiles(panel, files);
+    }
+  });
+  document.addEventListener("drop", function (e) {
+    var panel = e.target && e.target.closest && (
+      e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
+    );
+    if (!panel || !e.dataTransfer || !e.dataTransfer.files) return;
+    var files = [].slice.call(e.dataTransfer.files).filter(function (f) {
+      return /^image\//i.test(f.type || "");
+    });
+    if (files.length) {
+      e.preventDefault();
+      attachImageFiles(panel, files);
+    }
+  });
+  document.addEventListener("dragover", function (e) {
+    var panel = e.target && e.target.closest && (
+      e.target.closest(".ask-box") || e.target.closest(".fu") || e.target.closest(".chat-box")
+    );
+    if (panel) e.preventDefault();
+  });
+  document.addEventListener("click", function (e) {
+    var rm = e.target && e.target.closest && e.target.closest("[data-rm-img]");
+    if (!rm) return;
+    var panel = rm.closest(".ask-box") || rm.closest(".fu") || rm.closest(".chat-box");
+    if (!panel) return;
+    var idx = parseInt(rm.dataset.rmImg, 10);
+    var imgs = panelImages(panel);
+    if (!isNaN(idx)) imgs.splice(idx, 1);
+    renderPanelImages(panel);
+  });
+
+  // 1-click "Copy for Cursor": fetches the full self-contained Markdown bundle
+  // (ticket, job, numbered drafts, recent Slack/Asana events, and automatic DB
+  // Account X-Ray) so pasting into Cursor or Claude Desktop costs 0 search turns.
+  document.addEventListener("click", function (e) {
+    var b = e.target && e.target.closest && e.target.closest("[data-ctx-ref]");
+    if (!b || b.disabled) return;
+    var orig = b.textContent;
+    b.disabled = true;
+    b.textContent = "Building\u2026";
+    var url = "/api/context?ref=" + encodeURIComponent(b.dataset.ctxRef || "board") +
+      (b.dataset.ctxDraft ? "&draft=" + encodeURIComponent(b.dataset.ctxDraft) : "");
+    fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("context failed");
+      return r.json();
+    }).then(function (j) {
+      return copyTextToClipboard(j.markdown || "");
+    }).then(function () {
+      b.textContent = "Copied for Cursor!";
+      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+    }).catch(function () {
+      b.textContent = "Copy failed";
+      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+    });
+  });
+
+  // Clicking a `Draft N` chip inside a step jumps straight to that draft and opens it.
+  document.addEventListener("click", function (e) {
+    var chipEl = e.target && e.target.closest && e.target.closest("a.ds-dref");
+    if (!chipEl) return;
+    var href = chipEl.getAttribute("href") || "";
+    if (href.charAt(0) !== "#") return;
+    var targetEl = document.getElementById(href.slice(1));
+    if (!targetEl) return;
+    e.preventDefault();
+    if (targetEl.tagName === "DETAILS") targetEl.open = true;
+    var parentDet = targetEl.closest && targetEl.closest("details.job");
+    if (parentDet) parentDet.open = true;
+    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+
+  function ask(ref, question, parent, li, model, images) {
+    var payload = { ref: ref, question: question, parent: parent || "", model: model || "" };
+    if (images && images.length) payload.images = images;
     return fetch("/api/ask?k=" + encodeURIComponent(key), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ref: ref, question: question, parent: parent || "", model: model || "" })
+      body: JSON.stringify(payload)
     }).then(function (r) {
       if (!r.ok) {
         return r.json().catch(function () { return {}; }).then(function (j) {
@@ -906,11 +1051,14 @@
     var panel = inChat || b.closest(".fu") || box.querySelector(".ask-box");
     var field = panel.querySelector("textarea");
     var hint = panel.querySelector(".ask-hint");
+    var imgs = panelImages(panel).slice();
     var question = (field.value || "").trim();
-    if (!question) { field.focus(); return; }
+    if (!question && !imgs.length) { field.focus(); return; }
+    if (!question && imgs.length) question = "Inspect the attached screenshot(s) against this item.";
     if (hint) hint.textContent = "";
     var sel = picker(panel);
-    var li = runningBubble(question, "", modelName(sel));
+    var shownQ = question + (imgs.length ? " [+" + imgs.length + " image" + (imgs.length === 1 ? "" : "s") + "]" : "");
+    var li = runningBubble(shownQ, "", modelName(sel));
     li.dataset.parent = panel.dataset.parent || "";
     placeBubble(box, panel, li);
     if (inChat) chatScroll(true);
@@ -918,12 +1066,14 @@
     // them: it shuts, and the next question starts on an empty line.
     field.value = "";
     field.style.height = "";
+    panel._imgs = [];
+    renderPanelImages(panel);
     if (!panel.classList.contains("fu") && !inChat) {
       panel.hidden = true;
       var bar = box.querySelector(".ask-bar");
       if (bar) bar.hidden = false;
     }
-    ask(box.dataset.ask, question, li.dataset.parent, li, sel ? sel.value : "").catch(function (err) {
+    ask(box.dataset.ask, question, li.dataset.parent, li, sel ? sel.value : "", imgs).catch(function (err) {
       failBubble(li, err.message);
     });
   });

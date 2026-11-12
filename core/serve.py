@@ -16,6 +16,7 @@ generated at startup, so nothing else on the machine can start an agent run.
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import hashlib
 import json
@@ -42,7 +43,9 @@ import board
 import calendar_sync
 import doctor
 import keep
+import mcp_server
 import notify
+import plugins
 import render
 import render_desk
 import scout
@@ -2174,8 +2177,60 @@ def ask_context(ref: str, question: str, parent: str = "") -> str:
                 a = a[:EARLIER_CAP] + " …"
             lines += [f"  Q: {r.get('question', '')}", f"  A: {a}"]
     lines += followed(chain)
-    lines += ["", "The owner's question:", "", question.strip(), ""]
+
+    # Optional local client account-diagnostic hook (zero proprietary SQL in core/).
+    acct_pat = plugins.account_pattern()
+    scan_blob = f"{question} " + (
+        json.dumps({"title": item.get("title"), "where_it_stands": item.get("where_it_stands"), "steps": item.get("steps")}, ensure_ascii=False)
+        if item
+        else f"{ticket.get('title_en', '')} {ticket.get('where_it_stands', '')}"
+    )
+    accts = list(dict.fromkeys(m.group(0).upper() for m in acct_pat.finditer(scan_blob)))[:3]
+    if accts:
+        is_test = bool(re.search(r"\btest\b|テスト環境", question, re.I))
+        diag = plugins.account_context(accts, test=is_test)
+        if diag:
+            lines += [
+                "",
+                "Automatic account diagnostic from the local client plugin (all billing layers + live code rules):",
+                "",
+                diag,
+            ]
+
+    if question.strip():
+        lines += ["", "The owner's question:", "", question.strip(), ""]
     return "\n".join(lines)
+
+
+def _save_ask_images(ask_id: str, raw_images: list) -> list[str]:
+    """Decode up to 4 pasted/dropped images into `tmp/ask-images/` and return relative paths."""
+    saved: list[str] = []
+    if not isinstance(raw_images, list):
+        return saved
+    out_dir = settings.TMP_DIR / "ask-images"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    allowed_exts = {"png": ".png", "jpeg": ".jpg", "jpg": ".jpg", "webp": ".webp", "gif": ".gif"}
+    for idx, entry in enumerate(raw_images[:4], 1):
+        if not isinstance(entry, dict):
+            continue
+        data_url = str(entry.get("data") or "")
+        m = re.match(r"^data:image/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+)$", data_url)
+        if not m:
+            continue
+        ext = allowed_exts.get(m.group(1), ".png")
+        try:
+            raw = base64.b64decode(m.group(2), validate=False)
+        except Exception:  # noqa: BLE001
+            continue
+        if not raw or len(raw) > 5 * 1024 * 1024:
+            continue
+        dest = out_dir / f"{ask_id}-{idx}{ext}"
+        dest.write_bytes(raw)
+        try:
+            saved.append(str(dest.relative_to(ROOT)))
+        except ValueError:
+            saved.append(str(dest))
+    return saved
 
 
 def run_ask(ask_id: str, ref: str, question: str, parent: str = "",
@@ -2240,7 +2295,14 @@ def run_ask(ask_id: str, ref: str, question: str, parent: str = "",
         # Streamed rather than collected, so the card can say what it is doing
         # rather than only that it is doing something. The answer is the final
         # message, which keeps the CLI's own chatter off the card.
-        payload = settings.prompt(prompt) + ask_context(ref, question, parent)
+        img_note = ""
+        if row.get("images"):
+            img_lines = [f"- `{ROOT / p}`" for p in row["images"]]
+            img_note = (
+                "\n\nAttached screenshot(s) from the owner (inspect with `Read` before answering):\n"
+                + "\n".join(img_lines) + "\n"
+            )
+        payload = settings.prompt(prompt) + ask_context(ref, question + img_note, parent)
         waits = list(RECONNECT_WAITS)
         refetches = KEY_REFETCHES
         while True:
@@ -2792,6 +2854,20 @@ class Handler(BaseHTTPRequestHandler):
             state["version"] = settings.version_label()
             self.json_out(200, state)
             return
+        if path == "/api/context":
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            qparts = {
+                b.split("=", 1)[0]: unquote(b.split("=", 1)[1])
+                for b in query.split("&") if "=" in b
+            }
+            ref = qparts.get("ref") or "board"
+            try:
+                draft_num = int(qparts.get("draft") or "0")
+            except ValueError:
+                draft_num = 0
+            md = mcp_server.build_context_bundle(ref, draft_num=draft_num, include_db=True)
+            self.json_out(200, {"markdown": md, "ref": ref})
+            return
         if path == "/api/activity":
             seen_cal = calendar_sync.seen_at()
             last_full = scout.last_full_refresh_at()
@@ -2952,9 +3028,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             ref = str(body.get("ref", ""))
             question = str(body.get("question", "")).strip()
-            if not question:
+            raw_images = body.get("images") if isinstance(body.get("images"), list) else []
+            if not question and not raw_images:
                 self.json_out(400, {"error": "no question"})
                 return
+            if not question and raw_images:
+                question = "Inspect the attached screenshot(s) against this item."
             ticket, _ = find_subject(ref)
             if not ticket:
                 self.json_out(404, {"error": f"nothing on the board matches {ref}"})
@@ -2963,18 +3042,20 @@ class Handler(BaseHTTPRequestHandler):
             chosen = str(body.get("model", "")).strip()
             chosen = chosen if chosen in ask_model_ids() else ""
             ask_id = f"{int(time.time())}-{secrets.token_hex(3)}"
+            saved_imgs = _save_ask_images(ask_id, raw_images)
             # Written before the reply goes back, so the card can find itself on
             # the very next poll rather than racing the worker for it.
             save_ask(
                 {
                     "id": ask_id,
                     "ref": ref,
-                    "question": question,
+                    "question": question + (f" [+{len(saved_imgs)} image{'s' if len(saved_imgs) != 1 else ''}]" if saved_imgs else ""),
                     "asked_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "state": "queued",
                     "model": chosen or ask_model(),
                 }
                 | ({"parent": parent} if parent else {})
+                | ({"images": saved_imgs} if saved_imgs else {})
             )
             ahead = ask_queue.qsize()
             ask_queue.put((ask_id, ref, question, parent, chosen))

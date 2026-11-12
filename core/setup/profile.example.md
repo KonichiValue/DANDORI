@@ -52,7 +52,6 @@ The headings are fixed: the prompts refer to them by name.
 - Sentence length and shape.
 - House vocabulary: the client's own terms, never simplified substitutes.
 - Readings: whether lines carry `{漢字|かんじ}` markup, and above which level.
-- The standard caveat line when AI helped with an answer, if there is one.
 - Any phrasing to avoid.
 
 ## Never reaches the client

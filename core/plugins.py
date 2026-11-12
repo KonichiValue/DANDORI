@@ -75,6 +75,25 @@ def board_checks() -> tuple[tuple[str, Callable], ...]:
     return tuple(checks) if isinstance(checks, (list, tuple)) else ()
 
 
+def account_context(accounts: list[str], test: bool = False) -> str:
+    """Optional client hook `ACCOUNT_CONTEXT(accounts, test=...) -> str` in `plugin.py`.
+
+    Lets a local gitignored client workspace attach deterministic account
+    diagnostics to an Ask or handoff bundle while `core/` holds zero SQL,
+    table names, or proprietary client logic.
+    """
+    if not accounts:
+        return ""
+    mod = load()
+    fn = getattr(mod, "ACCOUNT_CONTEXT", None) if mod else None
+    if not callable(fn):
+        return ""
+    try:
+        return str(fn(accounts, test=test) or "").strip()
+    except Exception:
+        return ""
+
+
 def _script_summary(path: Path) -> str:
     """Extract the one-line summary from a client script's docstring or header comment."""
     try:

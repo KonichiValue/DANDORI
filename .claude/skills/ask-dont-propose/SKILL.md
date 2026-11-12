@@ -29,8 +29,9 @@ from AI rather than from:
   PDF;
 - what the client said or asked.
 
-It does not apply to drafts to the client, which keep the house AI caveat line
-from the profile's `## Writing to the client` and follow `prompts/post.md`.
+It does not apply to drafts to the client, which follow the profile's
+`## Writing to the client` and `prompts/post.md` (never add an AI disclaimer
+unless the owner explicitly asks for one).
 
 ## The rules
 

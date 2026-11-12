@@ -533,6 +533,10 @@ someone who opens the card cold, with none of the context in your head:
   group, with what it should show and what it shows now) and the step says
   "Check the accounts table in prepared". If you can run the query, run it and
   put the answer in the table, so the step is "compare", not "go and find".
+  When diagnosing a specific client account and `clients/<client>/scripts/`
+  provides an account diagnostic script (named in the profile's `## Data I can reach`),
+  run that script rather than writing partial ad-hoc SQL so you never miss
+  another fuel's agreement, a statement/manual hold, or an integrity resolver.
   Production reads go through the read-only database MCP named in `config.json`
   `database.mcp`, only when it is set; a single account is usually faster on the
   support site (`config.json` `client.support_url`). Never write to either.
@@ -544,7 +548,10 @@ someone who opens the card cold, with none of the context in your head:
   rest is a table in `prepared` or a second step.
 - **Only what is due now.** Something that waits on another person or a later
   date is a `done_when` condition or a later step that says what it waits for,
-  never an instruction to do it today.
+  never an instruction to do it today. Never write a release-announcement or
+  canvas draft with placeholder dates (`MM/__`, `TBD`, `（_）`) before a real
+  release date is agreed; keep that requirement in `closes_when` or `done_when`
+  until the date is known, and use the exact workspace URL from the profile.
 
 `./audit.py` lists steps that break this ("Steps that are not steps"); fix them
 before finishing.

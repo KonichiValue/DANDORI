@@ -522,7 +522,10 @@ someone who opens the card cold, with none of the context in your head:
   rest is a table in `prepared` or a second step.
 - **Only what is due now.** Something that waits on another person or a later
   date is a `done_when` condition or a later step that says what it waits for,
-  never an instruction to do it today.
+  never an instruction to do it today. Never write a release-announcement or
+  canvas draft with placeholder dates (`MM/__`, `TBD`, `（_）`) before a real
+  release date is agreed; keep that requirement in `closes_when` or `done_when`
+  until the date is known, and use the exact workspace URL from the profile.
 
 `./audit.py` lists steps that break this ("Steps that are not steps"); fix them
 before finishing.

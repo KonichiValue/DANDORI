@@ -142,27 +142,29 @@ item_drafts = B.drafts
 def render_drafts(r: dict, st: dict | None = None) -> str:
     """The job's messages: the ones still to send, then the chain of what went.
 
-    A message still to send is the thing on the card the owner acts on, so each
-    gets its own open box. What already went is history, and on a long job it
-    was most of the card: twenty grey WHAT YOU SENT bars in a row, each the same
-    height as the reply still owed. So everything sent folds into one line that
-    says how many and the last one, and opens to a chain read top to bottom.
+    Each live draft shows its true permanent `Draft N` number (`1` is `draft`,
+    `2+` are `drafts`) and which step posts it (`for step K`), so a step saying
+    "Post draft 4" always matches a box explicitly labelled `Draft 4`.
     """
     drafts = item_drafts(r)
     live = [(n, d) for n, d in enumerate(drafts, 1) if not draft_gone(d, st)]
-    # In the order they went, so the chain reads like the thread it was posted in.
     went = sorted(
         ((n, d) for n, d in enumerate(drafts, 1) if draft_gone(d, st)),
         key=lambda nd: str(nd[1].get("sent_at") or ""),
     )
-    many = len(live) > 1
-    out = "".join(
-        render_draft(
-            d, st, f"Reply {k} of {len(live)}" if many else "Reply to send", r, n
-        )
-        for k, (n, d) in enumerate(live, 1)
-    )
-    return out + sent_chain(went, r)
+    total = len(drafts)
+    out = []
+    for k, (n, d) in enumerate(live, 1):
+        s_num = B.step_for_draft(r, d)
+        step_tag = f"for step {s_num}" if s_num else ""
+        if total == 1:
+            lbl = "Draft"
+        elif len(live) == 1:
+            lbl = f"Draft {n}"
+        else:
+            lbl = f"Draft {n} ({k} of {len(live)} open)"
+        out.append(render_draft(d, st, lbl, r, n, step_tag=step_tag))
+    return "".join(out) + sent_chain(went, r)
 
 
 def draft_gone(d: dict, st: dict | None) -> bool:
@@ -208,7 +210,8 @@ def sent_chain(went: list[dict], r: dict) -> str:
             <li class="ch-step{" newest" if newest else ""}">
               <span class="ch-dot" aria-hidden="true"></span>
               <details class="ch-msg"{" open" if newest else ""}>
-                <summary><span class="ch-at">{esc(sent_when(d) or "sent")}</span>
+                <summary><span class="ch-num">Draft {num}</span>
+                  <span class="ch-at">{esc(sent_when(d) or "sent")}</span>
                   <span class="ch-to">{esc(d.get("target") or "")}</span>
                   {f'<span class="ch-reply">{reply}</span>' if reply else ""}</summary>
                 {draft_inner(d, sent=True)}
@@ -293,40 +296,29 @@ def posted_bar(r: dict, k: int) -> str:
 def render_draft(
     d: dict,
     st: dict | None = None,
-    label: str = "Reply to send",
+    label: str = "Draft",
     item: dict | None = None,
     k: int = 1,
+    step_tag: str = "",
 ) -> str:
-    """A draft still to paste, open, with Posted it at its foot."""
+    """A draft still to paste, open, with its Draft N number, step badge, and Posted it bar."""
     if not d:
         return ""
-    inner = draft_inner(d)
+    job_id = esc((item or {}).get("id", ""))
+    inner = draft_inner(d, draft_num=k, job_id=str((item or {}).get("id", "")))
+    step_badge = f'<span class="draft-step">{esc(step_tag)}</span>' if step_tag else ""
     return f"""
-        <details class="act-draft live" open data-draft-of="{esc((item or {}).get("id", ""))}">
-          <summary><b>{esc(label)}</b> {esc(d.get("target"))}</summary>
+        <details class="act-draft live" id="job-{job_id}-draft-{k}" open data-draft-of="{job_id}" data-draft-k="{k}">
+          <summary><b>{esc(label)}</b> {esc(d.get("target"))}{step_badge}<span class="fold-hint"></span></summary>
           {inner}
           {attach_row(item, k) if item else ""}
           {posted_bar(item, k) if item else ""}
         </details>"""
 
 
-def draft_inner(d: dict, sent: bool = False) -> str:
-    """The words of one message, with where they go and the copy button.
-
-    A message already sent keeps Go there and copy, since checking it against the
-    thread is why it was opened, but loses Rewrite: there is nothing left to rewrite.
-    """
+def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "") -> str:
+    """The words of one message, with where they go, copy, and handoff to AI chat."""
     is_ja = d.get("language") == "ja"
-    # Two shapes of draft. A draft in the client's language keeps its text, with any
-    # {word|reading} markup, in body_ruby, and body_en is the translation shown
-    # beneath it. The `language` value is "ja" for historical reasons: it marks a
-    # draft in the client's language. An English draft (to a Kraken colleague)
-    # keeps its text in body_en and has no body_ruby. Reading body_ruby for both
-    # rendered every English draft blank: the text was saved, never shown.
-    # Both branches fall back through the other body keys, so a draft whose text
-    # landed under body_ja or a bare body still renders instead of showing an empty
-    # box: furi() passes plain text through untouched, so the worst case is no ruby,
-    # never a blank card. board.check() refuses a draft with no body at all.
     if is_ja:
         body = d.get("body_ruby") or d.get("body_ja") or d.get("body", "")
         rendered = draft_html(body, ruby=True)
@@ -339,17 +331,18 @@ def draft_inner(d: dict, sent: bool = False) -> str:
         body = d.get("body_en") or d.get("body_ruby") or d.get("body", "")
         rendered = draft_html(body, ruby=False)
         trans = ""
-    # The draft is the thing the owner most often wants changed rather than explained,
-    # and the box that changes it is at the foot of the card. This opens that box
-    # with the ask already started, so a rewrite is one click from the words.
     rewrite = "" if sent else f"""<button class="ask-here" type="button"
-                    data-ask-seed="Rewrite the draft {esc(d.get("target", ""))}: ">{SPARK}Rewrite or ask</button>"""
+                    data-ask-seed="Rewrite Draft {draft_num} ({esc(d.get("target", ""))}): ">{SPARK}Rewrite</button>"""
+    ctx_btn = "" if (sent or not job_id) else f"""<button class="ctx-copy" type="button"
+                    data-ctx-ref="item:{esc(job_id)}" data-ctx-draft="{draft_num}"
+                    title="Copy full ticket, draft, evidence &amp; DB diagnostic to paste into Cursor or Claude">Copy for Cursor</button>"""
     return f"""
           <div class="draft-head">
             {"" if sent else f'<span>{esc(d.get("target"))}</span>'}
             {link_btn(d.get("link", ""), "Go there")}
             <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False))}">copy</button>
             {rewrite}
+            {ctx_btn}
           </div>
           <div class="draft-body {"ja" if is_ja else ""}">{rendered}</div>
           {trans}"""
@@ -481,6 +474,10 @@ def prepared_block(p: dict, meeting_href: str = "") -> str:
             f'{esc(meeting.get("label", "Open meeting version"))}</a></div>'
         )
     open_qs = "".join(f"<li>{code(q)}</li>" for q in p.get("unanswered", []))
+    open_block = (
+        f'<div class="pw-open-top"><b>Open question{"s" if len(p.get("unanswered", [])) != 1 else ""} to verify</b><ul>{open_qs}</ul></div>'
+        if open_qs else ""
+    )
 
     def count(n: int, word: str) -> str:
         return f"{n} {word}{'' if n == 1 else 's'}" if n else ""
@@ -496,33 +493,39 @@ def prepared_block(p: dict, meeting_href: str = "") -> str:
         )
         if part
     )
-    notes_fold = ""
-    if tally or p.get("earlier"):
-        notes_fold = f"""
-              <details class="pw-ev">
-                <summary>Working notes<span class="pw-tally">{tally}</span><span class="fold-hint"></span></summary>
+    built_raw = str(p.get("built_at") or "")
+    built_short = ""
+    if len(built_raw) >= 16 and "T" in built_raw:
+        built_short = f"{day_words(built_raw[:10])} {built_raw[11:16]}"
+    elif built_raw:
+        built_short = built_raw[:16]
+
+    answer = conclusion_html(p.get("conclusion")) or (
+        f'<div class="pw-answer"><b>Summary</b><span class="pw-line">{code(p.get("what"))}</span></div>'
+        if p.get("what") else ""
+    )
+    if not (answer or tally or open_block or meeting_block or p.get("earlier")):
+        return ""
+    meta_bits = " &middot; ".join(x for x in (tally, built_short) if x)
+    return f"""
+            {open_block}
+            {meeting_block}
+            <details class="act-prep">
+              <summary>
+                <span class="pw-title">Background &amp; evidence</span>
+                {f'<span class="pw-tally">{meta_bits}</span>' if meta_bits else ""}
+                <span class="fold-hint"></span>
+              </summary>
+              <div class="act-prep-in">
+                {answer}
                 {table}
                 {f'<ul class="pw-f">{finds}</ul>' if finds else ""}
                 {note_html}
                 {file_groups(files)}
-                {f'<div class="pw-src"><span>Read from</span>{src_html}</div>' if src_html else ""}
+                {f'<div class="pw-src"><span>Sources</span>{src_html}</div>' if src_html else ""}
                 {earlier_block(p.get("earlier") or [])}
-              </details>"""
-    # With no conclusion the line naming the work is the answer, so it stands in.
-    answer = conclusion_html(p.get("conclusion")) or (
-        f'<div class="pw-answer"><b>What is ready</b><span class="pw-line">{code(p.get("what"))}</span></div>'
-        if p.get("what") else ""
-    )
-    return f"""
-            <div class="act-prep">
-              <p class="act-lab done">Worked out for you{f'<span class="pw-at">{esc(p.get("built_at"))}</span>' if p.get("built_at") else ""}
-                <button class="ask-here" type="button"
-                        data-ask-seed="About the work done on this: ">{SPARK}Ask about this</button></p>
-              {answer}
-              {f'<div class="pw-open"><b>Still open</b><ul>{open_qs}</ul></div>' if open_qs else ""}
-              {meeting_block}
-              {notes_fold}
-            </div>"""
+              </div>
+            </details>"""
 
 
 def earlier_block(rows: list) -> str:
@@ -560,15 +563,25 @@ def stands_block(r: dict, done: bool) -> str:
     return f'<p class="act-stands"><b>Where it stands</b>{code(text)}</p>'
 
 
-def steps_list(r: dict) -> str:
-    """Each step as a line of a checklist the owner ticks off on the page.
+DRAFT_REF_RE = re.compile(r"\b(draft\s+(\d+))\b", re.I)
 
-    The number is the box. Pressing it strikes the step through and moves the
-    highlight to the next one, so a card with four steps says at a glance which
-    one they are on, rather than four equal lines they have to remember their
-    way down. It never moves the job: only the status and Posted it do that.
-    """
+
+def link_draft_refs(html_str: str, job_id: str, live_nums: set[int]) -> str:
+    """Turn `draft 4` in a step into a jump chip pointing at `#job-N-draft-4`."""
+    def repl(m: re.Match) -> str:
+        k = int(m.group(2))
+        if k not in live_nums:
+            return f'<span class="ds-dref sent">{m.group(1)} (sent)</span>'
+        return f'<a class="ds-dref" href="#job-{job_id}-draft-{k}">Draft {k}</a>'
+
+    return DRAFT_REF_RE.sub(repl, html_str)
+
+
+def steps_list(r: dict) -> str:
+    """Each step as a line of a checklist the owner ticks off on the page."""
     n = esc(r.get("id", ""))
+    drafts = item_drafts(r)
+    live_nums = {idx for idx, d in enumerate(drafts, 1) if B.unsent(d)}
     out, first = [], True
     for k, text in enumerate(r.get("steps") or [], 1):
         text = str(text)
@@ -576,13 +589,14 @@ def steps_list(r: dict) -> str:
         cls = "ds done" if when else "ds next" if first else "ds"
         first = first and bool(when)
         said = f"Step {k} done {esc(when[:10])}, press to put it back" if when else f"Mark step {k} done"
+        rendered_step = link_draft_refs(code(text), n, live_nums)
         out.append(
             f'<li class="{cls}" data-step-k="{k}">'
             f'<button type="button" class="ds-n" data-step-job="{n}" data-step="{k}" '
             f'aria-pressed="{"true" if when else "false"}" aria-label="{said}" title="{said}">'
             f'<span class="ds-k">{k}</span>'
             f'<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5.5"/></svg>'
-            f'</button><span class="ds-b"><span class="ds-t">{code(text)}</span></span></li>'
+            f'</button><span class="ds-b"><span class="ds-t">{rendered_step}</span></span></li>'
         )
     return "".join(out)
 

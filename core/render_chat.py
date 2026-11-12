@@ -133,16 +133,17 @@ def render(data: dict, refs: dict[str, str] | None = None) -> str:
   </div>
   <div class="chat-box" data-parent="">
     <div class="chat-follow" hidden>Following on from the last answer</div>
+    <div class="ask-imgs" hidden></div>
     <div class="ask-field">
       {SPARK}
       <textarea rows="1" aria-label="Ask"
-        placeholder="Ask, or tell it what to change&hellip;"></textarea>
+        placeholder="Ask, or tell it what to change (paste screenshots)&hellip;"></textarea>
       <button type="button" class="ask-send" data-ask-send hidden
               aria-label="Send" title="Send (Enter)">{SEND}</button>
     </div>
     <div class="ask-go">
       {model_picker()}
-      <span class="ask-keys">Enter sends &middot; Shift+Enter for a new line &middot; Esc closes</span>
+      <span class="ask-keys">Enter sends &middot; Paste image &middot; Shift+Enter newline</span>
       <span class="ask-hint"></span>
     </div>
   </div>

@@ -675,11 +675,36 @@ border-radius:5px;padding:1px 5px;word-break:break-all}
    with a green edge, the bottom line and what is still open in view, and the
    reasoning one fold down. The green panel it replaced was the loudest thing
    on the card after the reply, and the owner read past it. */
-.act-prep{margin:12px 0 0;padding:10px 13px 10px;background:var(--card);
-border:1px solid var(--line);border-left:3px solid var(--green);border-radius:9px}
+.act-prep{margin:12px 0 0;background:var(--hair);border:1px solid var(--line);
+border-radius:9px;overflow:hidden}
+.act-prep>summary{display:flex;align-items:center;gap:10px;padding:8px 12px;
+cursor:pointer;list-style:none;font-size:12px}
+.act-prep>summary::-webkit-details-marker{display:none}
+.act-prep[open]>summary{border-bottom:1px solid var(--line);background:var(--card)}
+.pw-title{font-weight:700;color:var(--mut)}
+.act-prep-in{padding:11px 13px;background:var(--card)}
+.pw-open-top{margin:11px 0 0;padding:9px 12px;background:var(--amber-bg);
+border:1px solid var(--amber-line);border-radius:9px;font-size:13px;color:var(--amber-ink)}
+.pw-open-top b{display:block;font-size:10.5px;text-transform:uppercase;
+letter-spacing:.07em;color:var(--amber);margin-bottom:3px}
+.pw-open-top ul{margin:0;padding-left:18px}
 .act-lab.done{color:var(--green)}
 .pw-at{margin-left:8px;font-weight:600;color:var(--soft);text-transform:none;letter-spacing:0}
-.pw-tally{font-weight:500;color:var(--soft);text-transform:none;letter-spacing:0}
+.pw-tally{font-weight:500;color:var(--soft);text-transform:none;letter-spacing:0;font-size:11.5px}
+.ds-dref{display:inline-block;font-weight:700;font-size:12px;padding:1px 6px;
+border-radius:5px;background:var(--plum-bg);border:1px solid var(--plum-line);
+color:var(--plum-ink);text-decoration:none}
+.ds-dref:hover{background:var(--plum-line)}
+.ds-dref.sent{background:var(--hair);border-color:var(--line);color:var(--soft);font-weight:600}
+.draft-step{margin-left:auto;margin-right:8px;font-size:11px;font-weight:650;
+padding:2px 7px;border-radius:99px;background:var(--card);border:1px solid var(--plum-line);
+color:var(--plum-ink);white-space:nowrap}
+.ch-num{font-size:10.5px;font-weight:750;text-transform:uppercase;letter-spacing:.05em;
+padding:1px 6px;border-radius:4px;background:var(--hair);border:1px solid var(--line);color:var(--mut)}
+.ctx-copy{font:600 11px/1 var(--font);color:var(--mut);background:var(--card);
+border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.ctx-copy:hover{color:var(--accent-ink);border-color:var(--accent-line);background:var(--accent-bg)}
+.ctx-copy.bar-ctx{margin-left:6px;padding:5px 9px;border-radius:7px}
 /* The files that go out with a message, inside that message's box. */
 .draft-attach{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;
 padding:8px 12px;border-top:1px solid var(--line);background:var(--card)}
@@ -1079,10 +1104,12 @@ padding:6px 10px;cursor:pointer;list-style:none;font-size:12px}
 /* A reply still to send is the thing on the card the owner acts on, so it is drawn
    above the evidence with a coloured edge, and each one folds on its own. */
 .act-draft.live{border-color:var(--plum-line);border-left:3px solid var(--plum)}
-.act-draft.live>summary{padding:9px 13px;cursor:pointer;font-size:12.5px;
+.act-draft.live>summary{display:flex;align-items:center;gap:6px;padding:9px 13px;cursor:pointer;font-size:12.5px;
 color:var(--mut);background:var(--plum-bg)}
 .act-draft.live>summary b{font-size:10.5px;text-transform:uppercase;
-letter-spacing:.06em;color:var(--plum-ink);margin-right:6px}
+letter-spacing:.06em;color:var(--plum-ink);margin-right:2px;flex:none}
+.act-draft.live>summary .fold-hint{margin-left:auto}
+.act-draft.live>summary .draft-step+.fold-hint{margin-left:0}
 .act-draft.live[open]>summary{border-bottom:1px solid var(--line)}
 /* Posted it: the foot of the box the owner copies from, so the press that says
    it went is where their hand already is. Green because it is the finishing move;
@@ -1875,3 +1902,13 @@ border-radius:999px;padding:4px 8px;border:1px solid var(--line);color:var(--mut
 .wd-room.wd-pr{color:var(--blue);background:var(--blue-bg);box-shadow:inset 0 0 0 1px var(--blue-line);
 text-decoration:none}
 .wd-room.wd-pr:hover{box-shadow:inset 0 0 0 1px var(--blue)}
+
+/* Image attachment tray inside Ask composers */
+.ask-imgs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}
+.ask-imgs[hidden]{display:none}
+.ask-img-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 7px 3px 4px;
+background:var(--bg);border:1px solid var(--line);border-radius:6px;font-size:11.5px;color:var(--soft)}
+.ask-img-chip img{width:22px;height:22px;object-fit:cover;border-radius:3px;border:1px solid var(--line)}
+.ask-img-chip button{border:none;background:none;color:var(--mut);cursor:pointer;padding:0 2px;font-size:13px;line-height:1}
+.ask-img-chip button:hover{color:var(--red)}
+

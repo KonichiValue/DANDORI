@@ -1639,12 +1639,13 @@ def qa_foot(ident: str) -> str:
     """
     return f"""
                   <div class="fu" data-parent="{ident}">
+                    <div class="ask-imgs" hidden></div>
                     <textarea rows="1" aria-label="Reply to this answer"
-                      placeholder="Reply&hellip; why, or what to change"></textarea>
+                      placeholder="Reply&hellip; why, or what to change (paste screenshots)"></textarea>
                     <button type="button" class="ask-send" data-ask-send hidden
                             aria-label="Send reply" title="Send (Enter)">{SEND}</button>
                     <div class="ask-go">
-                      <span class="ask-keys">Enter sends &middot; Shift+Enter for a new line &middot; Esc lets go</span>
+                      <span class="ask-keys">Enter sends &middot; Paste image &middot; Shift+Enter newline</span>
                       <button type="button" class="ask-copy">Copy for a chat</button>
                       <span class="ask-hint"></span>
                     </div>
@@ -1815,9 +1816,12 @@ def ask_block(
               <div class="ask-bar">
                 <button type="button" class="ask-open">{SPARK}Ask or change on
                   <span class="ask-of">{esc(label)}</span></button>
+                <button type="button" class="ctx-copy bar-ctx" data-ctx-ref="{esc(ref)}"
+                        title="Copy full job, drafts, threads &amp; DB diagnostic to paste into Cursor or Claude">Copy for Cursor</button>
                 {f'<span class="ask-n">{n} asked</span>' if asks else ""}
               </div>
               <div class="ask-box" hidden>
+                <div class="ask-imgs" hidden></div>
                 <div class="ask-field">
                   {SPARK}
                   <textarea rows="1" aria-label="Ask or change on {esc(label)}"
@@ -1828,7 +1832,7 @@ def ask_block(
                 </div>
                 <div class="ask-go">
                   {model_picker()}
-                  <span class="ask-keys">Enter sends &middot; Shift+Enter for a new line &middot; Esc closes</span>
+                  <span class="ask-keys">Enter sends &middot; Paste image &middot; Shift+Enter newline</span>
                   <button type="button" class="ask-chat" data-chat-open="{esc(ref)}" hidden
                           title="Carry on in the side panel (a)">Open in side panel</button>
                   <button type="button" class="ask-copy">Copy for a chat</button>
