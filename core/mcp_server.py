@@ -243,6 +243,10 @@ TOOLS = [
                     "type": "string",
                     "description": "Optional initial job number ('103'), 'item:103', or 'ticket:<ref>' to select",
                 },
+                "draft": {
+                    "type": "integer",
+                    "description": "Optional 1-based draft number on that job to highlight and pin",
+                },
             },
         },
         "_meta": {
@@ -351,18 +355,25 @@ def _call_tool_full(name: str, args: dict) -> dict:
     if name in ("dandori_board", "dandori_app_state"):
         snap = build_ui_board_snapshot()
         focus = str(args.get("focus") or "").strip()
+        try:
+            draft_num = int(args.get("draft") or 0)
+        except (TypeError, ValueError):
+            draft_num = 0
         if focus.isdigit():
             focus = f"item:{focus}"
-        elif focus and ":" not in focus:
+        elif focus and focus not in ("board", "desk", "day") and ":" not in focus:
             focus = f"ticket:{focus}"
+        elif focus in ("board", "desk", "day"):
+            focus = ""
+        focus_note = f" focused on `{focus}`" + (f" (Draft {draft_num})" if draft_num else "") if focus else ""
         summary = (
-            f"Opened {snap['desk_name']}: {snap['todo_count']} job(s) with you, "
+            f"Opened {snap['desk_name']}{focus_note}: {snap['todo_count']} job(s) with you, "
             f"{snap['waiting_count']} waiting (checked {snap['checked_short']}). "
             "Click any job, ticket, or draft in the interactive board above to pin its full context into this chat."
         )
         return {
             "content": [{"type": "text", "text": summary}],
-            "structuredContent": {"board": snap, "initial_ref": focus},
+            "structuredContent": {"board": snap, "initial_ref": focus, "initial_draft": draft_num},
             "isError": False,
         }
 
@@ -451,6 +462,44 @@ def _call_tool_full(name: str, args: dict) -> dict:
     return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
 
 
+PROMPTS = [
+    {
+        "name": "dandori",
+        "description": "Open the interactive DANDORI board inside chat (optionally focused on a job, ticket, or draft)",
+        "arguments": [
+            {"name": "focus", "description": "Optional job number ('103'), 'item:103', or ticket ref ('ガス未掃出')", "required": False},
+            {"name": "draft", "description": "Optional 1-based draft number ('8')", "required": False},
+        ],
+    },
+]
+
+
+def _get_prompt(name: str, args: dict) -> dict | None:
+    if name != "dandori":
+        return None
+    focus = str(args.get("focus") or "").strip()
+    draft_raw = str(args.get("draft") or "").strip()
+    call_args = []
+    if focus:
+        call_args.append(f'focus="{focus}"')
+    if draft_raw.isdigit():
+        call_args.append(f"draft={int(draft_raw)}")
+    call_str = f"dandori_board({', '.join(call_args)})"
+    extra = f" Also load `dandori_context(ref=\"{focus}\"" + (f", draft={int(draft_raw)}" if draft_raw.isdigit() else "") + ")` so you have the full details ready." if focus else ""
+    return {
+        "description": "Open the interactive DANDORI Desk MCP App",
+        "messages": [
+            {
+                "role": "user",
+                "content": {
+                    "type": "text",
+                    "text": f"Call `{call_str}` right now to open my interactive DANDORI board.{extra}",
+                },
+            }
+        ],
+    }
+
+
 RESOURCES = [
     {
         "uri": UI_RESOURCE_URI,
@@ -515,6 +564,7 @@ def main() -> int:
                 "capabilities": {
                     "tools": {},
                     "resources": {},
+                    "prompts": {},
                     "extensions": {
                         "io.modelcontextprotocol/ui": {
                             "mimeTypes": [UI_MIME_TYPE]
@@ -527,6 +577,16 @@ def main() -> int:
             continue
         elif method == "ping":
             _reply(req_id, {})
+        elif method == "prompts/list":
+            _reply(req_id, {"prompts": PROMPTS})
+        elif method == "prompts/get":
+            p_name = str(params.get("name") or "")
+            p_args = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+            got_p = _get_prompt(p_name, p_args)
+            if got_p is None:
+                _error(req_id, -32602, f"Unknown prompt: {p_name}")
+            else:
+                _reply(req_id, got_p)
         elif method == "tools/list":
             visible_tools = [
                 t for t in TOOLS

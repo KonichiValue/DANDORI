@@ -209,7 +209,7 @@
     var pal = document.getElementById("pal");
     var help = document.getElementById("help");
     var syncOpen = syncPop && !syncPop.hidden;
-    var over = (pal && !pal.hidden) || (help && help.open) || syncOpen;
+    var over = (pal && !pal.hidden) || (help && help.open) || syncOpen || !!document.querySelector(".ai-menu");
     return !half && !open && !over && !ticking();
   }
 
@@ -1343,13 +1343,48 @@
     }
   });
 
-  // 1-click "Open in Cursor ↗": writes the full context bundle (ticket, job,
-  // numbered drafts, recent Slack/Asana timeline, pasted screenshots, and live
-  // DB Account X-Ray) to `clients/<client>/tmp/`, focuses Cursor on the DANDORI
-  // workspace, and pre-fills a new Agent chat via Cursor's deeplink. Option-click
-  // copies the Markdown bundle to clipboard instead.
-  document.addEventListener("click", function (e) {
-    var b = e.target && e.target.closest && e.target.closest("[data-ctx-ref],.ask-copy[data-live-cursor],[data-chat-cursor]");
+  // Unified AI Split Button & Target Switcher (`Cursor`, `Claude Code`, `Claude Desktop`, `Copy`).
+  var AI_META = {
+    "cursor": {
+      name: "Cursor",
+      sub: "Focus running Cursor window & open board here",
+      svg: '<svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5L8 1.8Z"/><path d="M8 8 13.3 5M8 8 2.7 5M8 8v6.1"/></svg>'
+    },
+    "claude-code": {
+      name: "Claude Code",
+      sub: "Open Claude Code in DANDORI at this exact spot",
+      svg: '<svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 2.1v11.8M2.1 8h11.8M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"/></svg>'
+    },
+    "claude-desktop": {
+      name: "Claude Desktop",
+      sub: "Open Claude Desktop chat + interactive board",
+      svg: '<svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 2.1v11.8M2.1 8h11.8M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"/></svg>'
+    }
+  };
+
+  function currentAiTarget() {
+    var t = (window.deskPref && window.deskPref.get && window.deskPref.get("desk-ai-target")) || "cursor";
+    return AI_META[t] ? t : "cursor";
+  }
+
+  function syncAiButtons(target) {
+    var meta = AI_META[target] || AI_META.cursor;
+    [].forEach.call(document.querySelectorAll(".ai-go[data-ai-tpl]"), function (b) {
+      var tpl = b.dataset.aiTpl || "Open in {app}";
+      var lblText = tpl.replace("{app}", meta.name) + " \u2197";
+      b.innerHTML = meta.svg + '<span class="ai-lbl">' + esc(lblText) + '</span>';
+    });
+  }
+  window.deskSyncAiButtons = syncAiButtons;
+
+  var aiMenuEl = null;
+  var aiMenuPickBtn = null;
+  function closeAiMenu() {
+    if (aiMenuEl) { aiMenuEl.remove(); aiMenuEl = null; }
+    if (aiMenuPickBtn) { aiMenuPickBtn.setAttribute("aria-expanded", "false"); aiMenuPickBtn = null; }
+  }
+
+  function triggerAiButton(b, overrideTarget, forceCopy) {
     if (!b || b.disabled) return;
     var inChat = b.closest && b.closest(".chat-box");
     var askBox = inChat ? (typeof chatBody === "function" ? chatBody() : null) : (b.closest && b.closest(".ask"));
@@ -1371,11 +1406,23 @@
       followUp = "Q: " + (qEl ? qEl.textContent.trim() : "") + "\n\nA: " + (aEl ? aEl.textContent.trim() : "");
     }
 
-    var orig = b.textContent;
+    var target = overrideTarget || currentAiTarget();
+    var meta = AI_META[target] || AI_META.cursor;
+    var lblSpan = b.querySelector(".ai-lbl");
+    var origHtml = b.innerHTML;
     b.disabled = true;
+    function setBtnText(txt) {
+      if (lblSpan) lblSpan.textContent = txt;
+      else b.textContent = txt;
+    }
+    function restoreBtn() {
+      b.disabled = false;
+      b.innerHTML = origHtml;
+      if (b.dataset.aiTpl) syncAiButtons(currentAiTarget());
+    }
 
-    if (e.altKey) {
-      b.textContent = "Copying\u2026";
+    if (forceCopy) {
+      setBtnText("Copying\u2026");
       var ctxUrl = "/api/context?ref=" + encodeURIComponent(ref) + (draftNum ? "&draft=" + encodeURIComponent(draftNum) : "");
       fetch(ctxUrl).then(function (r) {
         if (!r.ok) throw new Error("context failed");
@@ -1384,20 +1431,21 @@
         var md = (j.markdown || "") + (question ? "\n\n## My Request\n\n" + question : "");
         return copyTextToClipboard(md);
       }).then(function () {
-        b.textContent = "Copied context!";
-        setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+        setBtnText("Copied context!");
+        setTimeout(restoreBtn, 1600);
       }).catch(function () {
-        b.textContent = "Copy failed";
-        setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1600);
+        setBtnText("Copy failed");
+        setTimeout(restoreBtn, 1600);
       });
       return;
     }
 
-    b.textContent = "Opening Cursor\u2026";
-    fetch("/api/open-cursor?k=" + encodeURIComponent(key), {
+    setBtnText("Opening " + meta.name + "\u2026");
+    fetch("/api/open-ai?k=" + encodeURIComponent(key), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        target: target,
         ref: ref,
         mode: mode,
         draft: draftNum || 0,
@@ -1410,18 +1458,102 @@
         if (!r.ok) throw new Error(j.error || "failed");
         if (j.fallback_copy) {
           return copyTextToClipboard(j.fallback_copy).then(function () {
-            b.textContent = "Copied context!";
+            setBtnText("Copied context!");
           });
         }
-        b.textContent = "Opened in Cursor!";
+        setBtnText("Opened in " + meta.name + "!");
       });
     }).then(function () {
-      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1800);
+      setTimeout(restoreBtn, 1800);
     }).catch(function () {
-      b.textContent = "Could not open";
-      setTimeout(function () { b.disabled = false; b.textContent = orig; }, 1800);
+      setBtnText("Could not open");
+      setTimeout(restoreBtn, 1800);
     });
+  }
+
+  function openAiMenu(pickBtn) {
+    if (aiMenuPickBtn === pickBtn) { closeAiMenu(); return; }
+    closeAiMenu();
+    var split = pickBtn.closest(".ai-split");
+    var goBtn = split && split.querySelector(".ai-go");
+    if (!goBtn) return;
+
+    var cur = currentAiTarget();
+    var m = document.createElement("div");
+    m.className = "ai-menu";
+    m.setAttribute("role", "menu");
+    var rows = ["cursor", "claude-code", "claude-desktop"].map(function (k) {
+      var info = AI_META[k];
+      var on = k === cur;
+      return '<button type="button" role="menuitemradio" aria-checked="' + on + '" data-ai-choice="' + k + '">' +
+        '<span class="am-ic">' + info.svg + '</span>' +
+        '<span class="am-t">' + esc(info.name) + '</span>' +
+        '<span class="am-chk">' + (on ? "\u2713" : "") + '</span>' +
+        '<span class="am-sub">' + esc(info.sub) + '</span>' +
+      '</button>';
+    }).join("");
+    m.innerHTML =
+      '<div class="ai-menu-h">Open this spot in</div>' +
+      rows +
+      '<hr>' +
+      '<button type="button" role="menuitem" data-ai-choice="copy">' +
+        '<span class="am-ic"><svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 10.5V3.5A1.5 1.5 0 0 1 4.5 2H11"/></svg></span>' +
+        '<span class="am-t">Copy context bundle</span>' +
+        '<span class="am-chk"></span>' +
+        '<span class="am-sub">Copy Markdown + DB X-Ray to clipboard</span>' +
+      '</button>';
+
+    document.body.appendChild(m);
+    var rect = split.getBoundingClientRect();
+    var mw = m.offsetWidth || 264;
+    var mh = m.offsetHeight || 210;
+    var left = Math.min(Math.max(8, rect.right - mw), window.innerWidth - mw - 8);
+    var top = (rect.bottom + mh + 12 > window.innerHeight && rect.top > mh + 12)
+      ? (rect.top - mh - 6)
+      : (rect.bottom + 6);
+    m.style.left = Math.round(left) + "px";
+    m.style.top = Math.round(top) + "px";
+
+    aiMenuEl = m;
+    aiMenuPickBtn = pickBtn;
+    pickBtn.setAttribute("aria-expanded", "true");
+
+    m.addEventListener("click", function (ev) {
+      var opt = ev.target && ev.target.closest && ev.target.closest("[data-ai-choice]");
+      if (!opt) return;
+      var choice = opt.dataset.aiChoice;
+      closeAiMenu();
+      if (choice === "copy") {
+        triggerAiButton(goBtn, "", true);
+        return;
+      }
+      if (window.deskPref && window.deskPref.set) window.deskPref.set("desk-ai-target", choice);
+      syncAiButtons(choice);
+      if (window.deskMarkSettings) window.deskMarkSettings();
+      triggerAiButton(goBtn, choice, false);
+    });
+  }
+
+  document.addEventListener("click", function (e) {
+    var pickBtn = e.target && e.target.closest && e.target.closest(".ai-pick");
+    if (pickBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      openAiMenu(pickBtn);
+      return;
+    }
+    if (aiMenuEl && !(e.target && e.target.closest && e.target.closest(".ai-menu"))) {
+      closeAiMenu();
+    }
+    var b = e.target && e.target.closest && e.target.closest("[data-ctx-ref],.ask-copy[data-live-cursor],[data-chat-cursor]");
+    if (!b || b.disabled) return;
+    triggerAiButton(b, "", !!e.altKey);
   });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && aiMenuEl) closeAiMenu();
+  });
+  window.addEventListener("scroll", function () { if (aiMenuEl) closeAiMenu(); }, { passive: true });
 
   // Clicking a `Draft N` chip inside a step jumps straight to that draft and opens it.
   document.addEventListener("click", function (e) {

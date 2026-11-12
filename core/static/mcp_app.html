@@ -226,9 +226,18 @@ html, body {
       else p.resolve(d.result);
       return;
     }
-    if (d.method === "ui/notifications/tool-result" && d.params) {
+    if (d.method === "ui/notifications/tool-input" && d.params && d.params.arguments) {
+      var a = d.params.arguments;
+      if (a.focus) state.pendingFocus = String(a.focus);
+      if (a.draft) state.pendingDraft = parseInt(a.draft, 10) || 0;
+    } else if (d.method === "ui/notifications/tool-result" && d.params) {
+      state.toolResultArrived = true;
       if (d.params.structuredContent && d.params.structuredContent.board) {
-        applyBoard(d.params.structuredContent.board, d.params.structuredContent.initial_ref);
+        applyBoard(
+          d.params.structuredContent.board,
+          d.params.structuredContent.initial_ref || state.pendingFocus || "",
+          d.params.structuredContent.initial_draft || state.pendingDraft || 0
+        );
       }
     } else if (d.method === "ui/notifications/host-context-changed" && d.params) {
       applyHostContext(d.params);
@@ -270,15 +279,59 @@ html, body {
     return String(s == null ? "" : s).replace(/\{([^|{}]+)\|[^|{}]+\}/g, "$1");
   }
 
-  function applyBoard(board, initialRef) {
+  function syncTabUi() {
+    [].forEach.call(document.querySelectorAll(".tab[data-filter]"), function (b) {
+      b.classList.toggle("on", b.dataset.filter === state.filter);
+    });
+  }
+
+  function normalizeFocusKey(raw, board) {
+    var s = String(raw || "").trim();
+    if (!s) return "";
+    if (/^\d+$/.test(s)) return "item:" + s;
+    if (s.indexOf(":") < 0) return "ticket:" + s;
+    if (s.indexOf("ticket:") === 0 && board && board.tickets) {
+      var target = s.slice(7);
+      var foundT = board.tickets.find(function (t) { return t.ref === target || String(t.id) === target; });
+      if (foundT) return "ticket:" + foundT.ref;
+    }
+    return s;
+  }
+
+  function filterForKey(key, board) {
+    if (!key || !board || !board.tickets) return null;
+    if (key.indexOf("ticket:") === 0) return "tickets";
+    if (key.indexOf("item:") === 0) {
+      var idStr = key.slice(5);
+      for (var i = 0; i < board.tickets.length; i++) {
+        var items = board.tickets[i].items || [];
+        for (var j = 0; j < items.length; j++) {
+          if (String(items[j].id) === idStr) {
+            return items[j].state === "waiting" ? "waiting" : "mine";
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function applyBoard(board, initialRef, initialDraft) {
     state.board = board;
     document.getElementById("desk-title").textContent = (board.desk_name || "DANDORI");
     document.getElementById("desk-meta").textContent =
       (board.todo_count || 0) + " with you · " + (board.waiting_count || 0) + " waiting · checked " + (board.checked_short || "now");
-    if (initialRef && !state.selectedKey) {
-      state.selectedKey = initialRef;
+    var normKey = normalizeFocusKey(initialRef, board);
+    if (normKey) {
+      var wantFilter = filterForKey(normKey, board);
+      if (wantFilter) {
+        state.filter = wantFilter;
+        syncTabUi();
+      }
+      state.selectedKey = normKey;
+      state.selectedDraft = parseInt(initialDraft, 10) || 0;
+      state.pinnedSig = "";
     }
-    render();
+    render(!!normKey);
   }
 
   function listEntries() {
@@ -367,7 +420,7 @@ html, body {
     }).catch(function () {});
   }
 
-  function render() {
+  function render(scrollFocus) {
     var entries = listEntries();
     var listEl = document.getElementById("list");
     var detailEl = document.getElementById("detail");
@@ -381,7 +434,11 @@ html, body {
     if (cur.key !== state.selectedKey) {
       state.selectedKey = cur.key;
       state.selectedDraft = 0;
-      pinContext(cur, 0);
+    }
+    var sig = cur.key + "#" + (state.selectedDraft || 0);
+    if (state.pinnedSig !== sig) {
+      state.pinnedSig = sig;
+      pinContext(cur, state.selectedDraft || 0);
     }
 
     listEl.innerHTML = entries.map(function (e) {
@@ -395,6 +452,16 @@ html, body {
     }).join("");
 
     renderDetail(cur, detailEl);
+    if (scrollFocus) {
+      setTimeout(function () {
+        var selRow = listEl.querySelector(".row.sel");
+        if (selRow && selRow.scrollIntoView) selRow.scrollIntoView({ block: "nearest" });
+        if (state.selectedDraft) {
+          var drCard = detailEl.querySelector('[data-draft-card="' + state.selectedDraft + '"]');
+          if (drCard && drCard.scrollIntoView) drCard.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 40);
+    }
     reportSize();
   }
 
@@ -424,16 +491,18 @@ html, body {
         + '<span>' + esc(st) + '</span></li>';
     }).join("");
 
-    var draftsHtml = (it.drafts || []).filter(function (d) { return !d.sent; }).map(function (d) {
+    var draftsHtml = (it.drafts || []).filter(function (d) {
+      return !d.sent || state.selectedDraft === d.num;
+    }).map(function (d) {
       var body = stripRuby(d.body_ruby || d.body_en || "");
       var sel = state.selectedDraft === d.num ? " sel" : "";
       return '<div class="draft' + sel + '" data-draft-card="' + d.num + '">'
-        + '<div class="dr-h"><span class="dr-num">Draft ' + d.num + '</span>'
+        + '<div class="dr-h"><span class="dr-num">Draft ' + d.num + (d.sent ? " (sent)" : "") + '</span>'
         + '<span class="dr-t">' + esc(d.target || "") + '</span>'
         + (d.link ? '<button type="button" class="btn" data-url="' + esc(d.link) + '">Go there ↗</button>' : '')
         + '<button type="button" class="btn" data-copy-draft="' + d.num + '">Copy</button>'
         + '<button type="button" class="btn primary" data-refine-draft="' + d.num + '">Refine in chat</button>'
-        + '<button type="button" class="btn green" data-posted-draft="' + d.num + '">Posted it</button>'
+        + (d.sent ? '' : '<button type="button" class="btn green" data-posted-draft="' + d.num + '">Posted it</button>')
         + '</div><div class="dr-body">' + esc(body) + '</div></div>';
     }).join("");
 
@@ -567,8 +636,14 @@ html, body {
     if (initRes && initRes.hostContext) applyHostContext(initRes.hostContext);
     sendNotification("ui/notifications/initialized", {});
     setTimeout(function () {
-      if (!state.board) reloadBoard();
-    }, 250);
+      if (!state.board && !state.toolResultArrived) {
+        sendRequest("tools/call", { name: "dandori_app_state", arguments: {} }).then(function (res) {
+          if (!state.toolResultArrived && res && res.structuredContent && res.structuredContent.board) {
+            applyBoard(res.structuredContent.board, state.pendingFocus || "", state.pendingDraft || 0);
+          }
+        }).catch(function () {});
+      }
+    }, 650);
   }).catch(function () {});
 })();
 </script>

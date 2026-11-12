@@ -2266,12 +2266,28 @@ def _find_cursor_app() -> str:
     return ""
 
 
-def open_in_cursor(body: dict) -> tuple[int, dict]:
-    """Write a complete context bundle to `tmp/`, reuse the running Cursor
-    instance via native `cursor://` AppleEvent (zero duplicate windows), and
-    pre-fill an actionable Agent prompt."""
+def _find_claude_app() -> str:
+    """Locate Claude.app (Claude Desktop) on macOS."""
+    for app in (Path("/Applications/Claude.app"), Path.home() / "Applications/Claude.app"):
+        if app.exists():
+            return str(app)
+    return ""
+
+
+AI_TARGETS = ("cursor", "claude-code", "claude-desktop")
+
+
+def open_in_ai(body: dict) -> tuple[int, dict]:
+    """Write a complete context bundle to `tmp/` and launch Cursor, Claude Code,
+    or Claude Desktop right at that exact job, ticket, and draft — opening the
+    interactive `dandori_board` MCP App automatically."""
     ref = str(body.get("ref") or "board").strip() or "board"
     mode = str(body.get("mode") or "default").strip()
+    target = str(body.get("target") or "").strip().lower()
+    if target not in AI_TARGETS:
+        target = str(render.prefs().get("desk-ai-target") or "cursor")
+        if target not in AI_TARGETS:
+            target = "cursor"
     try:
         draft_num = int(body.get("draft") or 0)
     except (TypeError, ValueError):
@@ -2280,7 +2296,7 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
     follow_up = str(body.get("follow_up") or "").strip()
     raw_images = body.get("images") if isinstance(body.get("images"), list) else []
 
-    stamp = f"cursor-{int(time.time())}-{secrets.token_hex(2)}"
+    stamp = f"ai-{int(time.time())}-{secrets.token_hex(2)}"
     saved_imgs = _save_ask_images(stamp, raw_images)
 
     md = mcp_server.build_context_bundle(ref, draft_num=draft_num, include_db=True)
@@ -2294,7 +2310,7 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
         r"[^A-Za-z0-9._-]+", "-",
         f"{ref}" + (f"-draft-{draft_num}" if draft_num else ""),
     ).strip("-")[:64] or "board"
-    ctx_file = settings.TMP_DIR / f"cursor-{slug}.md"
+    ctx_file = settings.TMP_DIR / f"ai-{slug}.md"
     ctx_file.parent.mkdir(parents=True, exist_ok=True)
     ctx_file.write_text(md + "\n", encoding="utf-8")
     abs_ctx = str(ctx_file.resolve())
@@ -2316,21 +2332,35 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
     ][:3]
 
     if item and draft_num:
-        head = f"Working on DANDORI Job {item.get('id')} ({t_ref}) - Draft {draft_num}."
+        focus_arg = f'focus="item:{item.get("id")}", draft={draft_num}'
+        ctx_arg = f'ref="item:{item.get("id")}", draft={draft_num}'
+        head = f"Working on DANDORI Job {item.get('id')} ({t_ref}) · Draft {draft_num}."
     elif item:
+        focus_arg = f'focus="item:{item.get("id")}"'
+        ctx_arg = f'ref="item:{item.get("id")}"'
         head = f"Working on DANDORI Job {item.get('id')} ({t_ref}): {item.get('title', '')}"
     elif ticket and ref != "board":
+        focus_arg = f'focus="ticket:{t_ref}"'
+        ctx_arg = f'ref="ticket:{t_ref}"'
         head = f"Working on DANDORI ticket {t_ref}: {ticket.get('title_en') or ticket.get('title_ja') or ''}"
     else:
+        focus_arg = ""
+        ctx_arg = 'ref="board"'
         head = f"Working on the {settings.client_short()} DANDORI board."
 
-    prompt_lines = [
-        head,
-        f"Read `{abs_ctx}` first (repo `{ROOT}`): it already has the full ticket, numbered drafts, recent timeline, and live DB Account X-Ray preloaded so you do NOT need to search `desk.md` or `board.json`.",
-        f"When updating the board or draft, write via `python3 {ROOT / 'core/apply.py'}` and `python3 {ROOT / 'core/tick.py'} --rebuild`. Never send external messages without my approval.",
-    ]
-    if saved_imgs:
-        prompt_lines.append("Also inspect attached screenshot(s): " + ", ".join(f"`{ROOT / p}`" for p in saved_imgs))
+    if target == "claude-desktop":
+        prompt_lines = [
+            f"Open `dandori_board({focus_arg})` and load `dandori_context({ctx_arg})` right now ({head}).",
+            "When updating the board or a draft, use `dandori_apply_patch` or `dandori_tick`. Never send external messages without my explicit approval.",
+        ]
+    else:
+        prompt_lines = [
+            f"Open `dandori_board({focus_arg})` first so the interactive board opens right at this spot, and read `{abs_ctx}` ({head}).",
+            f"All ticket context, numbered drafts, recent timeline, and live DB Account X-Ray are already preloaded in `{abs_ctx}` — do NOT search `desk.md` or `board.json`.",
+            f"When updating the board or draft, write via `python3 {ROOT / 'core/apply.py'}` and `python3 {ROOT / 'core/tick.py'} --rebuild` (or `dandori_apply_patch`). Never send external messages without my approval.",
+        ]
+        if saved_imgs:
+            prompt_lines.append("Also inspect attached screenshot(s): " + ", ".join(f"`{ROOT / p}`" for p in saved_imgs))
 
     if mode == "catchup" and ticket:
         fetch_bits = []
@@ -2340,19 +2370,73 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
             fetch_bits.append(f"internal Asana build `{internal_gid}`")
         if thread_urls:
             fetch_bits.append("linked Slack thread(s): " + ", ".join(thread_urls))
-        sources_txt = "; ".join(fetch_bits) if fetch_bits else "the linked Asana task and Slack threads in the context file"
+        sources_txt = "; ".join(fetch_bits) if fetch_bits else "the linked Asana task and Slack threads"
         default_task = (
-            f"Check ONLY the newest comments/replies since `{rel_ctx}`'s last recorded timestamp on {sources_txt}. "
+            f"Check ONLY the newest comments/replies since the last recorded timestamp on {sources_txt}. "
             "Tell me concisely what changed and what I should do next, and update this ticket's open item steps/drafts on the board if needed."
         )
     elif item and draft_num:
-        default_task = f"Review Draft {draft_num} against `{rel_ctx}`. My instruction: "
+        default_task = f"Summarize Draft {draft_num} in one line and wait for my edit or question."
+    elif item:
+        default_task = f"Summarize what is left on Job {item.get('id')} in one line and wait for my instruction."
     else:
-        default_task = ""
+        default_task = "Show the board above and wait for my instruction."
 
     prompt_lines.append("")
     prompt_lines.append(question if question else default_task)
     prompt_text = "\n".join(prompt_lines)
+    # Claude.app's URL validator rejects `q` values starting with `/`.
+    if prompt_text.startswith("/"):
+        prompt_text = " " + prompt_text
+
+    if target == "claude-code":
+        claude_app = _find_claude_app()
+        if claude_app:
+            deeplink = (
+                "claude://code/new?folder=" + quote(str(ROOT), safe="")
+                + "&q=" + quote(prompt_text[:6500], safe="")
+            )
+            try:
+                subprocess.run(["open", deeplink], timeout=5, check=False)
+                return 200, {"opened": True, "target": target, "context_file": rel_ctx}
+            except (OSError, subprocess.SubprocessError) as exc:
+                return 500, {"error": f"could not launch Claude Code: {exc}"}
+        claude_bin = shutil.which("claude")
+        if claude_bin:
+            p_file = settings.TMP_DIR / "claude-launch-prompt.txt"
+            p_file.write_text(prompt_text, encoding="utf-8")
+            cmd_script = settings.TMP_DIR / "launch-claude-code.command"
+            cmd_script.write_text(
+                "#!/bin/zsh\n"
+                f"cd {json.dumps(str(ROOT))} || exit 1\n"
+                f"exec {json.dumps(claude_bin)} \"$(cat {json.dumps(str(p_file))})\"\n",
+                encoding="utf-8",
+            )
+            cmd_script.chmod(0o755)
+            subprocess.run(["open", str(cmd_script)], timeout=5, check=False)
+            return 200, {"opened": True, "target": target, "context_file": rel_ctx}
+        return 200, {
+            "opened": False,
+            "fallback_copy": md,
+            "context_file": rel_ctx,
+            "message": "Claude Code not found; copied context to clipboard",
+        }
+
+    if target == "claude-desktop":
+        claude_app = _find_claude_app()
+        if not claude_app:
+            return 200, {
+                "opened": False,
+                "fallback_copy": md,
+                "context_file": rel_ctx,
+                "message": "Claude.app not found; copied context to clipboard",
+            }
+        deeplink = "claude://claude.ai/new?q=" + quote(prompt_text[:6500], safe="")
+        try:
+            subprocess.run(["open", deeplink], timeout=5, check=False)
+            return 200, {"opened": True, "target": target, "context_file": rel_ctx}
+        except (OSError, subprocess.SubprocessError) as exc:
+            return 500, {"error": f"could not launch Claude Desktop: {exc}"}
 
     cursor_app = _find_cursor_app()
     if not cursor_app:
@@ -2374,7 +2458,7 @@ def open_in_cursor(body: dict) -> tuple[int, dict]:
     except (OSError, subprocess.SubprocessError) as exc:
         return 500, {"error": f"could not launch Cursor: {exc}"}
 
-    return 200, {"opened": True, "context_file": rel_ctx}
+    return 200, {"opened": True, "target": "cursor", "context_file": rel_ctx}
 
 
 def _save_ask_images(ask_id: str, raw_images: list) -> list[str]:
@@ -3374,9 +3458,9 @@ class Handler(BaseHTTPRequestHandler):
                 reply = {**reply, **drawn()}
             self.json_out(code, reply)
             return
-        if path == "/api/open-cursor":
+        if path in ("/api/open-ai", "/api/open-cursor"):
             if not self.local():
-                self.json_out(403, {"error": "opening Cursor is only available on this Mac"})
+                self.json_out(403, {"error": "opening external AI apps is only available on this Mac"})
                 return
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -3387,7 +3471,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 self.json_out(400, {"error": "expected a map"})
                 return
-            code, reply = open_in_cursor(body)
+            code, reply = open_in_ai(body)
             self.json_out(code, reply)
             return
         if path == "/api/db-login":

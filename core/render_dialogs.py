@@ -173,9 +173,11 @@ def help_dialog() -> str:
     <p>For a quick tweak while reading a draft or script (&ldquo;make this shorter&rdquo;,
     &ldquo;remove CC&rdquo;, &ldquo;softer tone&rdquo;), press <b>&#10022; Revise</b> right on
     the draft or script: it updates in place in a few seconds with one-click
-    <b>Undo</b>. For multi-turn investigations or new replies, press <b>Check replies
-    in Cursor &#8599;</b> or open the interactive <code>dandori_board</code> MCP App
-    inside <b>Cursor</b> or <b>Claude Desktop</b>.</p>
+    <b>Undo</b>. For multi-turn work or checking new replies, press any <b>Open
+    in Cursor / Claude Code &#8599;</b> split button (click <b>&#9662;</b> to switch
+    your default AI app), or type <code>/dandori</code> inside <b>Cursor</b>,
+    <b>Claude Code</b>, or <b>Claude Desktop</b> to open the interactive board at
+    that exact spot.</p>
 
     <h3>If a connection expires</h3>
     <p>Press <b>Sign in</b> in the header (or click the sync pill and check
@@ -352,6 +354,28 @@ def settings_dialog() -> str:
     </div>
 
     {asana_status_block}
+
+    <h3>Default external AI workspace</h3>
+    <p>Which app opens when you press <b>Check replies</b> or <b>Open in &hellip;</b>
+    on a ticket, job, or draft (you can also switch anytime from the <b>&#9662;</b>
+    arrow next to any button).</p>
+    <div class="thms">
+      <button type="button" class="thm wide" data-ai-set="cursor"
+              aria-pressed="false">
+        <span class="thm-t"><b>Cursor</b>Focuses your running Cursor window and opens the interactive board at that item.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+      <button type="button" class="thm wide" data-ai-set="claude-code"
+              aria-pressed="false">
+        <span class="thm-t"><b>Claude Code</b>Opens Claude Code in DANDORI (Claude Desktop Code tab or Terminal) at that item.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+      <button type="button" class="thm wide" data-ai-set="claude-desktop"
+              aria-pressed="false">
+        <span class="thm-t"><b>Claude Desktop</b>Opens Claude Desktop chat with the interactive DANDORI MCP App.</span>
+        <span class="thm-on">Using this</span>
+      </button>
+    </div>
 
     <h3>Connections</h3>
     <p>Checks your 1Password model key, your Asana and Slack grants, and your

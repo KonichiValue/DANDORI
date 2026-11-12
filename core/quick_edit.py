@@ -188,21 +188,26 @@ def _render_draft_payload(board_data: dict, item_id: str, draft_num: int) -> dic
         return {}
     d = g_drafts[draft_num - 1]
     is_ja = d.get("language") == "ja"
-    is_canvas = "canvas" in str(d.get("target") or "").lower() or "/docs/" in str(d.get("link") or "")
+    link_url = str(d.get("link") or "")
+    keep_links = (
+        "canvas" in str(d.get("target") or "").lower()
+        or "/docs/" in link_url
+        or (not is_ja and "slack.com" in link_url)
+    )
     if is_ja:
         raw_body = d.get("body_ruby") or d.get("body_ja") or d.get("body", "")
-        body_html = render.draft_html(raw_body, ruby=True, keep_links=is_canvas)
-        en_html = render.draft_html(d.get("body_en"), keep_links=is_canvas) if d.get("body_en") else ""
+        body_html = render.draft_html(raw_body, ruby=True, keep_links=keep_links)
+        en_html = render.draft_html(d.get("body_en"), keep_links=keep_links) if d.get("body_en") else ""
     else:
         raw_body = d.get("body_en") or d.get("body_ruby") or d.get("body", "")
-        body_html = render.draft_html(raw_body, ruby=False, keep_links=is_canvas)
+        body_html = render.draft_html(raw_body, ruby=False, keep_links=keep_links)
         en_html = ""
     return {
         "is_ja": is_ja,
         "draft_body_html": body_html,
         "draft_en_html": en_html,
         "copy_plain": render.draft_plain(raw_body),
-        "copy_html": render.draft_html(raw_body, ruby=False, keep_links=is_canvas),
+        "copy_html": render.draft_html(raw_body, ruby=False, keep_links=keep_links),
     }
 
 

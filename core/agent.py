@@ -120,6 +120,7 @@ BUILTIN_TOOLS = (
 # this desk ever sends, and a tool that is not there cannot be called by
 # mistake, which is a stronger guarantee than a sentence in a prompt.
 NEVER = (
+    "mcp__dandori__*",
     "mcp__google__gmail_*", "mcp__google__sheets_*", "mcp__google__slides_*",
     "mcp__google__calendar_create*", "mcp__google__calendar_delete*",
     "mcp__google__calendar_update*", "mcp__google__calendar_respond*",

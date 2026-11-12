@@ -126,7 +126,7 @@ def _run_update_tasks(tasks_payload: list[dict], wanted_gids: list[str], timeout
         "--output-format", "stream-json", "--verbose",
     ]
     db = settings.database_mcp()
-    for gone in ("mcp__slack__*", "mcp__notion__*", "mcp__google__*", "mcp__glean*",
+    for gone in ("mcp__dandori__*", "mcp__slack__*", "mcp__notion__*", "mcp__google__*", "mcp__glean*",
                  *((f"mcp__{db}__*",) if db else ()),
                  "mcp__asana__get*", "mcp__asana__search*", "mcp__asana__add*",
                  "mcp__asana__create*", "mcp__asana__delete*", "mcp__asana__update_project*"):

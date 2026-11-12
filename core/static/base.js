@@ -459,6 +459,7 @@
     var openBtns=[].slice.call(settings.querySelectorAll('[data-open-set]'));
     var autoBtns=[].slice.call(settings.querySelectorAll('[data-auto-set]'));
     var astatusBtns=[].slice.call(settings.querySelectorAll('[data-astatus-set]'));
+    var aiBtns=[].slice.call(settings.querySelectorAll('[data-ai-set]'));
     function stored(key,fallback){return getPref(key)||fallback}
     function mark(){
       var now=document.body.dataset.theme||'plain';
@@ -466,6 +467,7 @@
       var opening=stored('desk-open','auto');
       var autoMode=stored('desk-auto','15');
       var astatusMode=stored('desk-auto-status','on');
+      var aiMode=stored('desk-ai-target','cursor');
       themeBtns.forEach(function(b){
         b.setAttribute('aria-pressed',b.dataset.themeSet===now);
       });
@@ -480,6 +482,9 @@
       });
       astatusBtns.forEach(function(b){
         b.setAttribute('aria-pressed',b.dataset.astatusSet===astatusMode);
+      });
+      aiBtns.forEach(function(b){
+        b.setAttribute('aria-pressed',b.dataset.aiSet===aiMode);
       });
     }
     openBtns.forEach(function(b){
@@ -500,6 +505,14 @@
         mark();
       });
     });
+    aiBtns.forEach(function(b){
+      b.addEventListener('click',function(){
+        setPref('desk-ai-target',b.dataset.aiSet);
+        if(window.deskSyncAiButtons)window.deskSyncAiButtons(b.dataset.aiSet);
+        mark();
+      });
+    });
+    window.deskMarkSettings=mark;
 
     // Forget the folds, the remembered tab and the scroll positions. Every one
     // of them is this browser's memory of how the owner left the page, so throwing

@@ -147,6 +147,17 @@ def javascript_parses() -> list[str]:
         if done.returncode != 0:
             first = (done.stderr or "").strip().splitlines()
             bad.append(f"{settings.client_rel(path)}: {first[0] if first else 'failed'}")
+    app_html = settings.STATIC / "mcp_app.html"
+    if app_html.exists():
+        m = re.search(r"<script>([\s\S]+?)</script>", app_html.read_text(encoding="utf-8"))
+        if m:
+            done = subprocess.run(
+                [node, "--input-type=commonjs", "--check"],
+                input=m.group(1), capture_output=True, text=True, check=False,
+            )
+            if done.returncode != 0:
+                first = (done.stderr or "").strip().splitlines()
+                bad.append(f"core/static/mcp_app.html: {first[0] if first else 'failed'}")
     return bad
 
 
@@ -634,28 +645,32 @@ def tracked_files_are_generic() -> list[str]:
 
 
 def mcp_server_holds() -> list[str]:
-    """The local MCP server answers initialize and tools/list cleanly."""
+    """The local MCP server answers initialize, tools/list, and prompts/list cleanly."""
     proc = subprocess.run(
         [sys.executable, str(CORE / "mcp_server.py")],
         input=(
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
             '{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n'
+            '{"jsonrpc":"2.0","id":3,"method":"prompts/list"}\n'
         ),
         cwd=ROOT, capture_output=True, text=True, timeout=10,
     )
     if proc.returncode != 0:
         return [f"mcp_server.py exited {proc.returncode}: {proc.stderr.strip()[:200]}"]
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
-    if len(lines) != 2:
-        return [f"mcp_server.py returned {len(lines)} lines instead of 2"]
+    if len(lines) != 3:
+        return [f"mcp_server.py returned {len(lines)} lines instead of 3"]
     try:
         init_res = json.loads(lines[0])["result"]
         ext = ((init_res.get("capabilities") or {}).get("extensions") or {}).get("io.modelcontextprotocol/ui")
         if not ext:
             return ["mcp_server.py missing io.modelcontextprotocol/ui extension capability"]
         tools = {t["name"] for t in json.loads(lines[1])["result"]["tools"]}
+        prompts = {p["name"] for p in json.loads(lines[2])["result"]["prompts"]}
     except (ValueError, KeyError, TypeError) as exc:
         return [f"mcp_server.py tools/list malformed: {exc}"]
+    if "dandori" not in prompts:
+        return ["mcp_server.py missing 'dandori' MCP prompt"]
     wanted = {
         "dandori_board",
         "dandori_context",

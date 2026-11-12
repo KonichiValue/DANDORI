@@ -1950,3 +1950,60 @@ def sub_line(st: dict, item: dict | None = None) -> str:
     if st.get("note"):
         bits.append(st["note"])
     return " &middot; ".join(esc(b) for b in bits)
+
+
+AI_LABELS = {
+    "cursor": "Cursor",
+    "claude-code": "Claude Code",
+    "claude-desktop": "Claude Desktop",
+}
+
+CURSOR_MARK = (
+    '<svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
+    'stroke-width="1.55" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5L8 1.8Z"/>'
+    '<path d="M8 8 13.3 5M8 8 2.7 5M8 8v6.1"/></svg>'
+)
+
+CLAUDE_MARK = (
+    '<svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
+    'stroke-width="1.6" stroke-linecap="round" aria-hidden="true">'
+    '<path d="M8 2.1v11.8M2.1 8h11.8M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"/></svg>'
+)
+
+
+def ai_split_btn(
+    ref: str,
+    tpl: str = "Open in {app}",
+    mode: str = "default",
+    draft_num: int = 0,
+    cls: str = "",
+    title: str = "",
+) -> str:
+    """Unified split button to open an exact board item/ticket/draft in Cursor,
+    Claude Code, or Claude Desktop (with ▾ target switcher + clipboard copy)."""
+    chosen = str(prefs().get("desk-ai-target") or "cursor")
+    if chosen not in AI_LABELS:
+        chosen = "cursor"
+    app_name = AI_LABELS[chosen]
+    icon = CURSOR_MARK if chosen == "cursor" else CLAUDE_MARK
+    label = tpl.replace("{app}", app_name) + " \u2197"
+    draft_attr = f' data-ctx-draft="{draft_num}"' if draft_num else ""
+    tip = title or (
+        "Open in your chosen AI workspace right at this exact part of the board "
+        "(Option-click copies context; click \u25be to switch Cursor / Claude Code / Claude Desktop)"
+    )
+    cls_str = f"ai-split {cls}".strip()
+    return (
+        f'<span class="{esc(cls_str)}">'
+        f'<button type="button" class="ai-go" data-ctx-ref="{esc(ref)}" '
+        f'data-ctx-mode="{esc(mode)}" data-ai-tpl="{esc(tpl)}"{draft_attr} '
+        f'title="{esc(tip)}">{icon}<span class="ai-lbl">{esc(label)}</span></button>'
+        f'<button type="button" class="ai-pick" aria-haspopup="menu" aria-expanded="false" '
+        f'aria-label="Choose AI app" title="Switch between Cursor, Claude Code, Claude Desktop, or Copy">'
+        f'<svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" '
+        f'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        f'<path d="m2.5 4.5 3.5 3.5 3.5-3.5"/></svg></button>'
+        f"</span>"
+    )
+

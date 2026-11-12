@@ -26,6 +26,7 @@ from render import (
     ASKED,
     SPARK,
     after_posting,
+    ai_split_btn,
     apply_glossary,
     ask_block,
     blocked_on,
@@ -321,31 +322,40 @@ def render_draft(
 def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "") -> str:
     """The words of one message, with where they go, copy, and handoff to AI chat."""
     is_ja = d.get("language") == "ja"
-    is_canvas = "canvas" in str(d.get("target") or "").lower() or "/docs/" in str(d.get("link") or "")
+    link_url = str(d.get("link") or "")
+    keep_links = (
+        "canvas" in str(d.get("target") or "").lower()
+        or "/docs/" in link_url
+        or (not is_ja and "slack.com" in link_url)
+    )
     if is_ja:
         body = d.get("body_ruby") or d.get("body_ja") or d.get("body", "")
-        rendered = draft_html(body, ruby=True, keep_links=is_canvas)
+        rendered = draft_html(body, ruby=True, keep_links=keep_links)
         trans = (
-            f'<div class="draft-en">{draft_html(d.get("body_en"), keep_links=is_canvas)}</div>'
+            f'<div class="draft-en">{draft_html(d.get("body_en"), keep_links=keep_links)}</div>'
             if d.get("body_en")
             else ""
         )
     else:
         body = d.get("body_en") or d.get("body_ruby") or d.get("body", "")
-        rendered = draft_html(body, ruby=False, keep_links=is_canvas)
+        rendered = draft_html(body, ruby=False, keep_links=keep_links)
         trans = ""
     rev_btn = "" if (sent or not job_id) else f"""<button class="qe-btn" type="button"
                     data-qe-kind="draft" data-qe-ref="item:{esc(job_id)}" data-qe-draft="{draft_num}"
                     data-qe-lang="{"ja" if is_ja else "en"}" aria-expanded="false"
                     title="Quick AI revision or question right inside this draft">{SPARK}Revise</button>"""
-    ctx_btn = "" if (sent or not job_id) else f"""<button class="ctx-copy" type="button"
-                    data-ctx-ref="item:{esc(job_id)}" data-ctx-draft="{draft_num}"
-                    title="Open Cursor with this draft, ticket, timeline &amp; DB X-Ray preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>"""
+    ctx_btn = "" if (sent or not job_id) else ai_split_btn(
+        f"item:{job_id}",
+        tpl="Open in {app}",
+        draft_num=draft_num,
+        cls="dr-ai",
+        title="Open this exact draft + ticket + DB X-Ray on the interactive DANDORI board in Cursor, Claude Code, or Claude Desktop (Option-click copies context)",
+    )
     return f"""
           <div class="draft-head">
             {"" if sent else f'<span>{esc(d.get("target"))}</span>'}
             {link_btn(d.get("link", ""), "Go there")}
-            <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False, keep_links=is_canvas))}">copy</button>
+            <button class="copy" data-copy="{esc(draft_plain(body))}" data-copy-html="{esc(draft_html(body, ruby=False, keep_links=keep_links))}">copy</button>
             {rev_btn}
             {ctx_btn}
           </div>
@@ -808,8 +818,12 @@ def render_items(
               <button type="button" class="qe-btn bar-qe" data-qe-kind="job" data-qe-ref="item:{esc(r.get("id"))}"
                       data-qe-lang="en" aria-expanded="false"
                       title="Quick AI question or step edit right on Job {esc(r.get("id"))}">{SPARK}Quick AI</button>
-              <button type="button" class="ctx-copy bar-ctx" data-ctx-ref="item:{esc(r.get("id"))}"
-                      title="Open Cursor with Job {esc(r.get("id"))}, all drafts, threads &amp; DB X-Ray preloaded (Option-click to copy instead)">Open Job {esc(r.get("id"))} in Cursor &#8599;</button>
+              {ai_split_btn(
+                  f'item:{r.get("id")}',
+                  tpl=f'Open Job {r.get("id")} in {{app}}',
+                  cls="bar-ai",
+                  title=f'Open Job {r.get("id")} on the interactive DANDORI board in Cursor, Claude Code, or Claude Desktop (Option-click copies context)',
+              )}
             </div>
             <div class="qe-slot job-qe-slot" data-qe-slot hidden></div>'''}
           </div>

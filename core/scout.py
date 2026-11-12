@@ -1347,7 +1347,7 @@ def check(
 
         db = settings.database_mcp()
         disallowed = [
-            "mcp__google__*", "mcp__notion__*", "mcp__glean*",
+            "mcp__dandori__*", "mcp__google__*", "mcp__notion__*", "mcp__glean*",
             *((f"mcp__{db}__*",) if db else ()),
             "mcp__asana__add_*", "mcp__asana__create*", "mcp__asana__update*",
             "mcp__asana__delete*", "mcp__asana__*portfolio*", "mcp__asana__*agent*",

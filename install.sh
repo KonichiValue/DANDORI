@@ -37,18 +37,20 @@ mkdir -p "$BIN" "$HOME/Applications" "$LOGS_DIR"
 chmod +x "$DIR/bin/DANDORI" "$DIR/core/"*.py "$DIR/core/scripts/"*.sh "$DIR/packaging/make_icon.py"
 [[ -f "$DIR/packaging/package_mac.sh" ]] && chmod +x "$DIR/packaging/package_mac.sh"
 
-# Wire the local DANDORI MCP server + MCP App (`ui://dandori/board`) into Cursor
-# (both workspace `.cursor/mcp.json` and global `~/.cursor/mcp.json`) and Claude
-# Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`) so
-# any chat in Cursor or Claude Desktop can open the interactive DANDORI Desk app.
+# Wire the local DANDORI MCP server + MCP App (`ui://dandori/board`) and `/dandori`
+# slash command into Cursor, Claude Code (`~/.claude.json`), and Claude Desktop
+# so `/dandori [job] [draft]` and 1-click Open buttons work everywhere.
 python3 - <<PY
 import json
+import shutil
 from pathlib import Path
 
-entry = {"command": "python3", "args": [str(Path("$DIR/core/mcp_server.py"))]}
+repo_dir = Path("$DIR")
+entry = {"command": "python3", "args": [str(repo_dir / "core/mcp_server.py")]}
 targets = [
-    Path("$DIR/.cursor/mcp.json"),
+    repo_dir / ".cursor/mcp.json",
     Path.home() / ".cursor/mcp.json",
+    Path.home() / ".claude.json",
 ]
 claude_dir = Path.home() / "Library/Application Support/Claude"
 if claude_dir.exists():
@@ -64,8 +66,32 @@ for mcp_file in targets:
         cur = {}
     servers = cur.setdefault("mcpServers", {})
     if isinstance(servers, dict):
-        servers["dandori"] = entry
+        mcp_entry = dict(entry)
+        if mcp_file.name == ".claude.json":
+            mcp_entry["type"] = "stdio"
+        servers["dandori"] = mcp_entry
         mcp_file.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8")
+
+cmd_src = repo_dir / ".claude/commands/dandori.md"
+if cmd_src.exists():
+    for dest in (
+        repo_dir / ".cursor/commands/dandori.md",
+        Path.home() / ".cursor/commands/dandori.md",
+        Path.home() / ".claude/commands/dandori.md",
+    ):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cmd_src, dest)
+
+local_claude = repo_dir / ".claude/settings.local.json"
+local_claude.parent.mkdir(parents=True, exist_ok=True)
+try:
+    lc = json.loads(local_claude.read_text(encoding="utf-8")) if local_claude.exists() else {}
+except Exception:
+    lc = {}
+allow = lc.setdefault("permissions", {}).setdefault("allow", [])
+if isinstance(allow, list) and "mcp__dandori__*" not in allow:
+    allow.append("mcp__dandori__*")
+    local_claude.write_text(json.dumps(lc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 
 # `DANDORI` always, and the owner's own word for it as well when they chose one.

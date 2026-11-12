@@ -44,6 +44,7 @@ from render import (
     sub_line,
     ASKED,
     SPARK,
+    ai_split_btn,
     answered,
     apply_glossary,
     ask_block,
@@ -785,8 +786,13 @@ def render_ticket(
           {link_btn(t.get("asana_url", ""), "Open in Asana")}
           {say_link}
           {internal_btn(internal)}
-          <button type="button" class="btn tk-cursor" data-ctx-ref="ticket:{esc(t.get("ref"))}" data-ctx-mode="catchup"
-                  title="Open your existing Cursor window with this full ticket preloaded and check the newest Asana/Slack replies to update steps &amp; drafts (Option-click copies context)">Check replies in Cursor &#8599;</button>
+          {ai_split_btn(
+              f'ticket:{t.get("ref")}',
+              tpl="Check replies in {app}",
+              mode="catchup",
+              cls="tk-ai",
+              title="Open this full ticket on the interactive DANDORI board in your chosen AI app and check only new Asana/Slack replies (Option-click copies context)",
+          )}
           {keep_in}
         </div>
       </header>

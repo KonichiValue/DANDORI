@@ -210,7 +210,7 @@ def fetch(timeout: int = 240) -> dict:
         # Everything but the one search is taken away, so the run cannot write
         # to the calendar or reach anything else even if it wanted to.
         db = settings.database_mcp()
-        for gone in ("mcp__asana__*", "mcp__slack__*", "mcp__notion__*",
+        for gone in ("mcp__dandori__*", "mcp__asana__*", "mcp__slack__*", "mcp__notion__*",
                      *((f"mcp__{db}__*",) if db else ()), "mcp__glean*", "mcp__google__gmail_*",
                      "mcp__google__drive_*", "mcp__google__sheets_*", "mcp__google__slides_*",
                      "mcp__google__calendar_create*", "mcp__google__calendar_update*",
