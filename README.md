@@ -1,185 +1,101 @@
-# DANDORI
+# DANDORI (段取り)
 
-**Your tickets aren't the problem. Reading them every morning is.**
+**Your tickets aren't the problem. Spending the first hour of every morning playing detective across Asana and Slack is.**
 
-**[Install](#-install) · [Setup](#-setup) · [Chat](#-chat-with-dandori-optional) · [When it breaks](#-when-it-breaks) · [How it works](#-how-it-works-properly)**
+**[Install](#-install) · [Setup](#-setup) · [Cursor & Claude](#-cursor--claude) · [When it sulks](#-when-it-sulks)**
 
-Why a Japanese name? **DANDORI** (段取り) means lining up the work before you
-start it. Ask anyone with a Japanese client and they'll tell you that's most of
-the job.
+**DANDORI** (段取り) is Japanese for lining up the work before you start it. Ask anyone with a Japanese client and they will tell you that is 80% of the job.
 
-I built it because I was losing the first hour of every day to Asana and Slack,
-just to find out what I owed whom. So I made the computer do it.
+It is a self-updating desk for Kraken CDLs. It quietly checks Asana, Slack, Google Calendar, and meeting notes in the background, drafts your replies in your own voice, writes what you say at standup, and keeps every job on one permanent number until it closes.
 
-It's a to-do list for Kraken CDLs that keeps itself. Press **Refresh** and it
-reads Asana, Slack, your calendar and your meeting notes, then tells you only
-what changed. Press **Write prep** and it writes what you'll say at your next
-standup.
+And **it never sends a message**. Every reply waits for your own finger on the keyboard, because "sorry, my robot replied to the client" is not a career milestone.
 
-And it never sends anything. Every reply is a draft you post yourself, because
-the day an AI posts to your client by mistake is not a day you want to have.
+![DANDORI desk: morning brief, weekly strip, and numbered to-do list](.github/DANDORI.png)
 
-![DANDORI: today's jobs on the left, the week along the top, each ticket's path to closing](.github/DANDORI.png)
+### What you actually get
 
-**What you get**
+- **Auto-sync without button mashing.** A cheap Haiku scout checks Asana and Slack every 15 minutes on weekdays (and right after you post a reply), running a delta update only when something moved.
+- **Drafts ready to paste, with instant `✦ Revise`.** Client language for the client, English for Kraken. Need it shorter or softer? Click **`✦ Revise`** right on the draft for a 4-second in-place edit with 1-click **`↺ Undo`**.
+- **Seamless Cursor, Claude Code & Claude Desktop.** Click **`Open in Cursor ↗`** (or hit **`▾`** to switch to **Claude Code** or **Claude Desktop**) and your interactive DANDORI board opens inside chat at that exact ticket, job, and draft.
+- **Your standup script.** Written in your house style before the room, with meeting notes folded back into the board after it ends.
+- **Automatic Asana Status on your tickets.** When a ticket is assigned to you and the work moves forward, DANDORI updates its Asana Status dropdown so you don't forget.
 
-- 📋 **One numbered list.** Every Asana ticket assigned to you, with its Slack
-  threads. "Do 4" means the same job next week, and every job says who holds it.
-- ✍️ **Replies already drafted.** In the client's language for the client, in
-  English for Kraken.
-- 🎤 **Your standup script.** Written before the meeting, and the notes folded
-  back in after it.
-- 💬 **An Ask box on every job.** "Why is this waiting", "rewrite this more
-  plainly", "this is with Sam now". It does what you say.
+![Ticket card with Check replies, numbered Draft 1, inline Revise bar, and Open in Cursor / Claude split button](.github/card.png)
 
 ---
 
 ## 🚀 Install
 
-**Before you start**, check you have:
+Check three things first:
+- [ ] Kraken Mac with **Zscaler** connected
+- [ ] **1Password** app signed in
+- [ ] Access to **[hub.ai.ktl.net](https://hub.ai.ktl.net)**
 
-- [ ] A Kraken Mac with **Zscaler** on
-- [ ] **1Password**, signed in
-- [ ] Access to the **Kraken AI Hub** ([hub.ai.ktl.net](https://hub.ai.ktl.net) opens)
+Grab a coffee (~15 minutes, mostly clicking "Approve" in browser tabs).
 
-Set aside about 20 minutes. Most of it is approving logins ☕
+### Option A: Drag-and-drop Mac App (zero Terminal)
 
-### Option A: Open the Mac App (`.dmg` or `.pkg`) — no Terminal needed
-
-1. Download **`DANDORI.dmg`** (or **`DANDORI.pkg`**) from [Releases](https://github.com/KonichiValue/DANDORI/releases) or your team's Slack channel.
-2. Open `DANDORI.dmg` and drag **DANDORI** into **Applications** (or double-click `DANDORI.pkg`).
-3. Open **DANDORI** from Applications or your Dock. It sets up `~/Projects/DANDORI` automatically and opens the setup page in your browser.
+1. Download **`DANDORI.dmg`** (or **`DANDORI.pkg`**) from [Releases](https://github.com/KonichiValue/DANDORI/releases) or Slack.
+2. Drag **DANDORI** into **Applications** and open it.
+3. It sets up `~/Projects/DANDORI`, wires up Cursor and Claude automatically, and opens the setup page in your browser.
 
 ### Option B: One line in Terminal
 
-If you'd rather skip the download:
-
-1. Press `⌘ Space`, type *Terminal*, press Enter.
-2. Paste this line and press Enter:
-
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/KonichiValue/DANDORI/main/bootstrap.sh | zsh
-   ```
-
-3. Wait for the setup page to open in your browser. A **DANDORI** app is now in your Applications folder too, so drag it to your Dock.
+```bash
+curl -fsSL https://raw.githubusercontent.com/KonichiValue/DANDORI/main/bootstrap.sh | zsh
+```
 
 ---
 
 ## ✅ Setup
 
-The setup page walks you through everything with one button per step, and each step turns green automatically when it's done.
+One page, seven green ticks, zero guesswork.
 
-![The setup page: each step turns green as it is done](.github/setup.png)
+![DANDORI setup wizard](.github/setup.png)
 
-1. **Install Claude Code.** Press the button. Claude Code is the AI that does the reading and writing on your Mac.
-2. **Connect it to Kraken's model gateway.** Create a key at [litellm.kraken.tech](https://litellm.kraken.tech) and save it in 1Password (`Employee` vault, item named `LiteLLM API Key`, field `credential`). Press the button and answer what the Terminal window asks; the setup page updates itself when Terminal finishes.
-3. **Connect Asana, Slack, Google and Notion.** Turn all four on at [hub.ai.ktl.net](https://hub.ai.ktl.net) under **MCP gateway, My servers**. Press the button and approve each browser tab that opens.
-4. **Answer the setup questions.** Your name, email, timezone and model region are pre-filled from your Mac. Type your **Client name** (which auto-fills the short name, terminal command and standup name), paste your Asana project link, and press **Save my answers**.
-5. **Teach it your house style** *(optional, but worth it)*. Claude interviews you for ten minutes so your drafts sound like you.
-6. **Install the app.** Already green if you used `DANDORI.dmg` or `install.sh`.
-7. **Build your board.** Press **Run the first refresh**. It reads everything assigned to you in Asana and Slack (5 to 10 minutes — go grab that coffee).
+1. **Install Claude Code.** Click the button.
+2. **Connect Kraken's model gateway.** Turn on **Integrate with 1Password CLI** in `1Password -> Settings -> Developer`. Create a key at [litellm.kraken.tech](https://litellm.kraken.tech), save it in your `Employee` vault as `LiteLLM API Key` (field `credential`), and click **Connect gateway**.
+3. **Connect Asana, Slack, Google & Notion.** Enable all four at [hub.ai.ktl.net](https://hub.ai.ktl.net) (**MCP gateway -> My servers**), then click **Connect them** and approve each browser tab.
+4. **Answer the setup questions.** Type your client's name, paste your Asana project link, and click **Save my answers**.
+5. **Teach it your house style.** Edit your playbook right on the page (and click **Auto-fill Asana & Slack IDs**).
+6. **Install the app.** Already green if you used the `.dmg` or `install.sh`.
+7. **Build your board.** Click **Run the first refresh** (5 to 10 minutes while it reads your open world).
 
-**You're done 🎉** From now on, DANDORI keeps itself current in the background:
-
-1. Every 15 minutes on weekdays (and whenever you return after copying a draft or opening an Asana/Slack link), a fast Haiku scout checks every ticket and thread and runs a delta refresh only when something moved.
-2. Before your standup, DANDORI builds your speaking script automatically (and keeps it synced in the 90 minutes before the room if a ticket moves), or press **Write prep** any time.
-3. Work down the list. When you've posted a reply, press **Posted it** (or just come back to DANDORI and let the scout spot your post).
-
-To change an answer later: **Settings, Open the setup page**. Everything specific to your client lives in `clients/<client>/` (`config.json`, `profile.md`, `scripts/`, `docs/`, `state/`), which git never uploads 🔒
-
-**Stuck on a step?** Ask in **#claudecode-help** for Claude Code, **#litellm** for the gateway key, **#team-ai-foundations-requests** for a server missing from the AI Hub.
+Your client settings, house style, scripts, and board live in `clients/<client>/`, which git ignores completely.
 
 ---
 
-## 🗂️ How the folder is structured (`core/` + `clients/`)
+## ⚡ Cursor & Claude
 
-DANDORI is split like Kraken into a shared **Core** (`core/`) and a gitignored **Client workspace** (`clients/<client>/`):
+`install.sh` registers DANDORI's **MCP App** (`ui://dandori/board`) and the **`/dandori`** slash command across **Cursor**, **Claude Code**, and **Claude Desktop** automatically.
 
-- **`core/`** holds the engine, local page server, renderers, agent runner, security guards and prompts. Every CDL runs the same `core/`.
-- **`clients/<client>/`** holds everything specific to your client and workflow:
-  - `config.json` and `profile.md`: your settings and house-style playbook.
-  - `plugin.py`: optional Python hooks for client-specific board and audit checks.
-  - `scripts/`: your client workflow scripts (`DANDORI scripts` lists them, `DANDORI run <name>` runs one).
-  - `docs/`: client documents, handovers, sheets and PDFs.
-  - `state/`, `output/`, `logs/`: your board, asks, calendar and rendered pages.
+- **From DANDORI:** Click **`Check replies in Cursor ↗`** on any ticket or **`Open in Cursor ↗`** on any draft. Click **`▾`** to switch your default to **Claude Code** or **Claude Desktop** anytime.
+- **From any chat:** Type **`/dandori`** (or **`/dandori 42`**) to pop open your live interactive board inside the conversation, pin context with one click, and tick steps or drafts in place.
 
 ---
 
-## 💬 Chat with DANDORI (optional)
-
-A chat lets you talk to your whole board at once, which is handy when the Ask box on one job isn't enough: planning across three jobs, arguing with a draft, pasting in a client's email, or reading code together. You don't need it for the daily routine above.
-
-**The easy way: Claude Desktop.** You probably have it already. If not, [download it](https://claude.ai/download) and sign in.
-
-1. Open the **Code** tab and press **Select folder**.
-2. Pick `~/Projects/DANDORI`.
-3. Type `refresh`, `prep`, `do 4` or `draft the reply to 12`.
-
-**Prefer a terminal?** `cd ~/Projects/DANDORI && claude` (or `DANDORI chat`) does the same.
-
-Either way it's the same board and the same rules as the buttons. **Copy for a chat** on any Ask box hands that job over with your question.
-
-> **One catch.** The buttons on the DANDORI page run Claude Code in the background, with its own logins, separate from Desktop's. So do setup steps 1 and 3 even if Desktop already has Asana. If a *button* says a login lapsed, press **Connect them** on the setup page.
-
-## 🔧 When it breaks
+## 🔧 When it sulks
 
 | You see | Do this |
 |---|---|
-| `Permission denied (publickey)` when you paste the install line | Use `DANDORI.dmg` instead. |
-| *Asana* or *Slack* "needs authentication" | Open the setup page and press **Connect them** again. |
-| A credential or 1Password error | Unlock 1Password and press **Refresh** again. Still failing? Redo setup step 2. |
-| `UNKNOWN_CERTIFICATE_VERIFICATION_ERROR` | Zscaler signing in again. Give it a minute. |
-| The model is not found | Your LiteLLM region is probably wrong (eu, us or apac). Check it in the setup questions against [hub.ai.ktl.net/models](https://hub.ai.ktl.net/models). |
-| The app won't open | Run `~/Projects/DANDORI/install.sh` in Terminal (or if macOS blocks a downloaded `.dmg` app, right-click **DANDORI** -> **Open**, or run `xattr -cr /Applications/DANDORI.app`). |
-| Anything else | Run `~/Projects/DANDORI/core/check.py` (or `DANDORI check`). It tells you what's wrong. Then ask in **#claudecode-help**. |
+| `Permission denied (publickey)` on `git clone` | Use `DANDORI.dmg` instead, or use the HTTPS `bootstrap.sh` command above. |
+| *Asana* or *Slack* needs sign-in | Click the sync pill in the header and press **Sign in** next to Asana & Slack. |
+| Database replica expired | Click the sync pill and press **Log in** next to Database replica. |
+| 1Password / credential error | Unlock 1Password and try again. Still stuck? Check step 2 on `/setup` (**#litellm**). |
+| `UNKNOWN_CERTIFICATE_VERIFICATION_ERROR` | Zscaler is doing yoga. Give it 60 seconds to reconnect. |
+| Anything else | Run `DANDORI check` (or `./core/check.py`). Ask in **#claudecode-help** or **#team-ai-foundations-requests**. |
 
-## 📦 Packaging for another Mac
+### Updating & Packaging
 
-To build a standalone `.dmg` disk image, `.pkg` installer and `.zip` archive in `dist/` that another CDL can install on their Mac like any downloaded app:
-
-```bash
-DANDORI package
-```
-
-It runs `./core/check.py` first and verifies that zero personal files or client workspaces (`clients/<client>/`) are included in the bundle.
-
-## 🔄 Getting the latest
-
-```bash
-~/Projects/DANDORI/bootstrap.sh
-```
-
-It pulls the newest version and reinstalls. Your answers, board, profile and client scripts in `clients/` are never touched. `DANDORI version` prints which release you are on.
-
-<details>
-<summary><b>🧰 The whole setup by hand</b>, in case a button sulks</summary>
-
-Run these inside `~/Projects/DANDORI`.
-
-1. **Claude Code:** `curl -fsSL https://claude.ai/install.sh | bash`, open a new Terminal window, check with `claude --version`.
-2. **The model gateway:**
-   1. In 1Password, open **Settings, Developer** and turn on **Integrate with 1Password CLI**.
-   2. Create a key at [litellm.kraken.tech](https://litellm.kraken.tech) and save it in your **Employee** vault, in an item called exactly `LiteLLM API Key`, in its **credential** field.
-   3. No Kraken command line yet? `brew install octoenergy/tap/kraken-cli`.
-   4. `kraken ext install ai-harness`, then `kraken ai-harness setup-claude-code`.
-   5. `claude --print hello` should answer.
-3. **Asana, Slack, Google and Notion:** turn them on at [hub.ai.ktl.net](https://hub.ai.ktl.net), run `./core/scripts/setup-mcp.sh`, approve each browser tab.
-4. **The questions:** `./core/setup.py`. [core/setup/QUESTIONS.md](core/setup/QUESTIONS.md) explains each one.
-5. **Your house style:** `claude 'follow core/setup/INTERVIEW.md'`, or edit `clients/<client>/profile.md` yourself from [core/setup/profile.example.md](core/setup/profile.example.md).
-6. **The app:** `./install.sh`.
-7. **The first refresh:** `bin/DANDORI refresh`.
-
-</details>
+- **Update to latest:** `~/Projects/DANDORI/bootstrap.sh` (updates `core/`, never touches `clients/`).
+- **Build `.dmg` / `.pkg` / `.zip` for another CDL:** `DANDORI package` (verifies zero personal data before bundling).
+- **Deep dive:** Read [GUIDE.md](GUIDE.md) for the architecture and [AGENTS.md](AGENTS.md) for the AI rulebook.
 
 ---
 
-## 🧠 How it works, properly
+## 📜 The four laws
 
-[GUIDE.md](GUIDE.md) goes through the board, the script, the standup fold-in, the Ask box and every piece of the code. [AGENTS.md](AGENTS.md) is the rulebook every AI in this folder has to follow.
-
-## 📜 The rules it never breaks
-
-- **It never sends anything.** Slack, Asana, Notion and email are read only.
-- **Your board is yours.** A ticket shows up only because Asana assigns it to you, and a job keeps its number until you close it.
-- **Nothing internal reaches the client.** Story points, build-queue position, internal links and engineer names stay out of anything addressed to them. Ask me how I know.
-- **Nothing personal is ever committed.** Your answers, profile, scripts and board live in `clients/<client>/`, which git ignores.
+1. **Never sends external messages.** Slack, Asana, Notion, and email are strictly draft-only. (Only your own Asana ticket's `Status` dropdown moves automatically if you leave that on.)
+2. **Your board is yours.** Tickets appear because Asana assigns them to you, not because someone shouted in Slack.
+3. **Nothing internal reaches the client.** Story points, queue positions, internal KT links, and engineer names are blocked by automated checks. Ask me how I know.
+4. **Zero personal data in git.** Everything about you and your client stays inside gitignored `clients/<client>/`.

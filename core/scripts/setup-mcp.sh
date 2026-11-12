@@ -77,6 +77,10 @@ for name in asana slack google notion; do
   add "$name" --transport http --scope user "$name" "$HUB/$name"
 done
 
+# Register the local DANDORI MCP server + MCP App (`ui://dandori/board`) too.
+PY3="$(command -v python3 || print -r -- /usr/bin/python3)"
+add "dandori" --scope user "dandori" -- "$PY3" "$REPO/core/mcp_server.py"
+
 # A read-only production replica, when config.json `database` names one. It is
 # a local process rather than an OAuth grant, so it is only ever missing on a
 # fresh machine. `database.command` is the binary that serves it and

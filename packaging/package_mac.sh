@@ -112,7 +112,7 @@ if [[ ! -d "$TARGET/core" ]]; then
   chmod +x "$TARGET/install.sh" "$TARGET/bootstrap.sh" "$TARGET/bin/DANDORI" "$TARGET/core/"*.py "$TARGET/core/scripts/"*.sh
   exec "$TARGET/install.sh"
 elif [[ -f "$RUNTIME/core/.bundle-version" ]] && [[ "$(cat "$RUNTIME/core/.bundle-version" 2>/dev/null)" != "$(cat "$TARGET/core/.bundle-version" 2>/dev/null)" ]]; then
-  for item in core bin packaging tests .claude install.sh bootstrap.sh AGENTS.md CLAUDE.md GEMINI.md GUIDE.md README.md; do
+  for item in core bin packaging tests .claude .github install.sh bootstrap.sh AGENTS.md CLAUDE.md GEMINI.md GUIDE.md README.md; do
     [[ -e "$RUNTIME/$item" ]] && cp -R "$RUNTIME/$item" "$TARGET/"
   done
   mkdir -p "$TARGET/clients"
@@ -147,6 +147,7 @@ mkdir -p "$PKG_ROOT/Applications" "$PKG_SCRIPTS"
 cp -R "$APP_BUNDLE" "$PKG_ROOT/Applications/$APP_NAME.app"
 cat >"$PKG_SCRIPTS/postinstall" <<'POST'
 #!/bin/zsh
+xattr -dr com.apple.quarantine "/Applications/DANDORI.app" 2>/dev/null || true
 USER_NAME="$(stat -f '%Su' /dev/console 2>/dev/null || true)"
 if [[ -n "$USER_NAME" && "$USER_NAME" != "root" ]]; then
   USER_HOME="$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
@@ -154,6 +155,8 @@ if [[ -n "$USER_NAME" && "$USER_NAME" != "root" ]]; then
     TARGET="$USER_HOME/Projects/DANDORI"
     if [[ ! -d "$TARGET/core" ]]; then
       su -l "$USER_NAME" -c "mkdir -p '$USER_HOME/Projects' && cp -R '/Applications/DANDORI.app/Contents/Resources/runtime' '$TARGET' && chmod +x '$TARGET/install.sh' '$TARGET/bootstrap.sh' '$TARGET/bin/DANDORI' '$TARGET/core/'*.py '$TARGET/core/scripts/'*.sh && '$TARGET/install.sh'" >/dev/null 2>&1 || true
+    else
+      su -l "$USER_NAME" -c "for item in core bin packaging tests .claude .github install.sh bootstrap.sh AGENTS.md CLAUDE.md GEMINI.md GUIDE.md README.md; do [ -e '/Applications/DANDORI.app/Contents/Resources/runtime/'\$item ] && cp -R '/Applications/DANDORI.app/Contents/Resources/runtime/'\$item '$TARGET/'; done && chmod +x '$TARGET/install.sh' '$TARGET/bootstrap.sh' '$TARGET/bin/DANDORI' '$TARGET/core/'*.py '$TARGET/core/scripts/'*.sh && DANDORI_NO_OPEN=1 '$TARGET/install.sh'" >/dev/null 2>&1 || true
     fi
   fi
 fi

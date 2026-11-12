@@ -39,14 +39,20 @@ chmod +x "$DIR/bin/DANDORI" "$DIR/core/"*.py "$DIR/core/scripts/"*.sh "$DIR/pack
 
 # Wire the local DANDORI MCP server + MCP App (`ui://dandori/board`) and `/dandori`
 # slash command into Cursor, Claude Code (`~/.claude.json`), and Claude Desktop
-# so `/dandori [job] [draft]` and 1-click Open buttons work everywhere.
+# so `/dandori [job] [draft]` and 1-click Open buttons work everywhere out of the box.
 python3 - <<PY
 import json
 import shutil
 from pathlib import Path
 
 repo_dir = Path("$DIR")
-entry = {"command": "python3", "args": [str(repo_dir / "core/mcp_server.py")]}
+py_cmd = shutil.which("python3") or "/usr/bin/python3"
+mcp_path_env = f"{Path.home() / '.local/bin'}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+entry = {
+    "command": py_cmd,
+    "args": [str(repo_dir / "core/mcp_server.py")],
+    "env": {"PATH": mcp_path_env},
+}
 targets = [
     repo_dir / ".cursor/mcp.json",
     Path.home() / ".cursor/mcp.json",
@@ -82,16 +88,23 @@ if cmd_src.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(cmd_src, dest)
 
-local_claude = repo_dir / ".claude/settings.local.json"
-local_claude.parent.mkdir(parents=True, exist_ok=True)
-try:
-    lc = json.loads(local_claude.read_text(encoding="utf-8")) if local_claude.exists() else {}
-except Exception:
-    lc = {}
-allow = lc.setdefault("permissions", {}).setdefault("allow", [])
-if isinstance(allow, list) and "mcp__dandori__*" not in allow:
-    allow.append("mcp__dandori__*")
-    local_claude.write_text(json.dumps(lc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+for claude_cfg in (
+    repo_dir / ".claude/settings.local.json",
+    Path.home() / ".claude/settings.json",
+):
+    if claude_cfg.name == "settings.json" and not claude_cfg.exists():
+        continue
+    claude_cfg.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lc = json.loads(claude_cfg.read_text(encoding="utf-8")) if claude_cfg.exists() else {}
+    except Exception:
+        lc = {}
+    if not isinstance(lc, dict):
+        continue
+    allow = lc.setdefault("permissions", {}).setdefault("allow", [])
+    if isinstance(allow, list) and "mcp__dandori__*" not in allow:
+        allow.append("mcp__dandori__*")
+        claude_cfg.write_text(json.dumps(lc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 
 # `DANDORI` always, and the owner's own word for it as well when they chose one.
@@ -134,11 +147,13 @@ done
 # Skip creating a duplicate in ~/Applications when /Applications/$NAME.app was
 # already installed from the .dmg or .pkg.
 if [[ -d "/Applications/$NAME.app" && ! -d "$APP" ]]; then
+  xattr -dr com.apple.quarantine "/Applications/$NAME.app" 2>/dev/null || true
   print -r -- "using /Applications/$NAME.app ($VER)"
 else
   rm -rf "$APP"
   osacompile -o "$APP" -e "do shell script \"'$DIR/bin/DANDORI' open\""
   [[ -f "$DIR/packaging/icon.icns" ]] && cp "$DIR/packaging/icon.icns" "$APP/Contents/Resources/applet.icns"
+  xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
   touch "$APP"
   print -r -- "built $APP ($VER)"
 fi

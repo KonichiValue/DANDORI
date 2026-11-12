@@ -26,6 +26,7 @@ import contextlib
 import io
 import json
 import os
+import pty
 import re
 import shlex
 import shutil
@@ -250,35 +251,91 @@ def note(line: str) -> None:
 
 
 def _stream(action: str, cmd: list[str], said: str, done_said: str,
-            timeout: int = 900) -> None:
-    """Run one command, showing its last lines and any link it prints."""
+            timeout: int = 900, use_pty: bool = False) -> None:
+    """Run one command, showing its last lines and any link it prints.
+
+    `use_pty=True` runs the child on a pseudo-terminal, which `claude mcp login`
+    inside `setup-mcp.sh` requires in order to open the browser and print its
+    OAuth approval link rather than refusing non-interactive stdin.
+    """
     set_work("running", action, said)
     note(f"$ {' '.join(cmd)}")
-    try:
-        proc = subprocess.Popen(
-            cmd, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, bufsize=1,
-            env=agent.Claude()._base_env(),
-        )
-    except OSError as exc:
-        set_work("failed", action, f"Could not start: {exc}")
-        return
-    timer = threading.Timer(timeout, proc.kill)
-    timer.start()
-    try:
-        for raw in proc.stdout:
-            line = ANSI.sub("", raw).rstrip()
-            if not line.strip():
-                continue
-            note(line)
-            found = URL_IN.search(line)
-            if found and action == "connect":
-                set_work("running", action,
-                         "Approve the connection in your browser, then come back here.",
-                         found.group(0).rstrip(".,)"))
-    finally:
-        timer.cancel()
-    code = proc.wait()
+    env = agent.Claude()._base_env()
+    if use_pty:
+        master, slave = pty.openpty()
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=ROOT, stdin=slave, stdout=slave, stderr=slave,
+                env=env, start_new_session=True,
+            )
+        except OSError as exc:
+            os.close(master)
+            set_work("failed", action, f"Could not start: {exc}")
+            return
+        finally:
+            os.close(slave)
+
+        timer = threading.Timer(timeout, proc.kill)
+        timer.start()
+        buf = ""
+        try:
+            while True:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf += chunk.decode("utf-8", "replace")
+                while "\n" in buf or "\r" in buf:
+                    sep_pos = min(x for x in (buf.find("\n"), buf.find("\r")) if x >= 0)
+                    raw_line = buf[:sep_pos]
+                    buf = buf[sep_pos + 1 :]
+                    line = ANSI.sub("", raw_line).strip()
+                    if not line:
+                        continue
+                    note(line)
+                    found = URL_IN.search(line)
+                    if found and action == "connect":
+                        set_work(
+                            "running",
+                            action,
+                            "Approve the connection in your browser, then come back here.",
+                            found.group(0).rstrip('.,")'),
+                        )
+        finally:
+            timer.cancel()
+            try:
+                os.close(master)
+            except OSError:
+                pass
+        code = proc.wait()
+    else:
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, bufsize=1, env=env,
+            )
+        except OSError as exc:
+            set_work("failed", action, f"Could not start: {exc}")
+            return
+        timer = threading.Timer(timeout, proc.kill)
+        timer.start()
+        try:
+            for raw in proc.stdout:
+                line = ANSI.sub("", raw).rstrip()
+                if not line.strip():
+                    continue
+                note(line)
+                found = URL_IN.search(line)
+                if found and action == "connect":
+                    set_work("running", action,
+                             "Approve the connection in your browser, then come back here.",
+                             found.group(0).rstrip(".,)"))
+        finally:
+            timer.cancel()
+        code = proc.wait()
+
     if code == 0:
         set_work("done", action, done_said)
     else:
@@ -453,7 +510,15 @@ def connect_gateway(body: dict) -> tuple[int, dict]:
         note("1Password returned the API key. Verifying connection to litellm.kraken.tech…")
         if shutil.which(kind.binary):
             out = subprocess.run(
-                [kind.binary, "--print", "--model", f"claude-low-carbon-{reg}-haiku", "Reply with the single word: connected"],
+                [
+                    kind.binary, "--print", "--model", f"claude-low-carbon-{reg}-haiku",
+                    "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                    "--settings", json.dumps({
+                        "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
+                        "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},
+                    }),
+                    "Reply with the single word: connected",
+                ],
                 cwd=ROOT,
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
@@ -538,8 +603,12 @@ def _discover_ids() -> None:
         "--allowedTools", "mcp__asana__search_tasks",
         "--allowedTools", "mcp__asana__get_task",
         "--allowedTools", "mcp__slack__slack_search_users",
+        "--disallowedTools", "mcp__dandori__*",
         "--setting-sources", "user",
-        "--settings", json.dumps({"apiKeyHelper": "printenv ANTHROPIC_API_KEY"}),
+        "--settings", json.dumps({
+            "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
+            "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},
+        }),
     ]
     try:
         ran = subprocess.run(
@@ -612,7 +681,8 @@ def run(action: str) -> tuple[int, dict]:
     elif action == "connect":
         target = lambda: _stream(  # noqa: E731
             action, ["/bin/zsh", str(settings.SCRIPTS / "setup-mcp.sh")],
-            "Adding the connections.", "Connections done. Checking them now.")
+            "Adding the connections.", "Connections done. Checking them now.",
+            use_pty=True)
     elif action == "discover":
         target = _discover_ids
     elif action == "gateway":

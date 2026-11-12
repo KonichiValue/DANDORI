@@ -27,10 +27,15 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+for _extra in (str(Path.home() / ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin"):
+    if _extra not in os.environ.get("PATH", "").split(os.pathsep):
+        os.environ["PATH"] = f"{_extra}{os.pathsep}{os.environ.get('PATH', '')}"
 
 CORE = Path(__file__).resolve().parent
 sys.path.insert(0, str(CORE))
