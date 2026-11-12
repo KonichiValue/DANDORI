@@ -417,6 +417,33 @@ async function run() {
       "fetched: " + page.sandbox.fetched.join(", "));
   }
 
+  // 17. A 10h+ stale board shows an amber warning dot (never green "Up to date")
+  //     and automatically triggers /api/scout on first weekday morning open.
+  {
+    function FakeDate() {
+      return { getDay: () => 4, getHours: () => 9 }; // Thursday 09:00
+    }
+    FakeDate.now = () => 1794442000000;
+    const page = makePage({ stamp: "AAA" });
+    page.sandbox.Date = FakeDate;
+    page.sandbox.reply = {
+      state: "idle",
+      message: "Stale · checked 11 Nov 19:23",
+      sync_tone: "warn",
+      auto_mins: 15,
+      checked_epoch: 1794392580,
+      asks: {},
+      stamp: "AAA",
+    };
+    await settle();
+    check("a stale board wears an amber warning dot",
+      page.ids["sync-dot"].className.indexOf("warn") > -1,
+      `dot class was "${page.ids["sync-dot"].className}"`);
+    check("opening a stale board on a weekday morning triggers /api/scout automatically",
+      page.sandbox.fetched.some((u) => u.indexOf("/api/scout") === 0),
+      "fetched: " + page.sandbox.fetched.join(", "));
+  }
+
   const bad = results.filter((r) => !r.pass);
   for (const r of results) {
     console.log(`  ${r.pass ? "ok  " : "FAIL"}  ${r.name}${r.pass ? "" : "\n          " + r.detail}`);

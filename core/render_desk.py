@@ -32,6 +32,7 @@ import render_prioritize
 import render_dialogs
 import render_path
 import render_week
+import scout
 import settings
 from render import (
     stamp,
@@ -866,7 +867,7 @@ def prefs_json() -> str:
 
 # The buttons only appear when serve.py is behind the page, because a file://
 # page has nothing to send the click to. serve.py swaps the key in as it serves.
-def controls(prep_label: str, needs_prep: bool = False, initial_sync: str = "") -> str:
+def controls(prep_label: str, needs_prep: bool = False, initial_sync: str = "", initial_tone: str = "ok") -> str:
     prep_cls = "refresh primary" if needs_prep else "refresh"
     return f"""
   <button id="prep" class="{prep_cls}" hidden data-run="/api/prep"
@@ -877,7 +878,7 @@ def controls(prep_label: str, needs_prep: bool = False, initial_sync: str = "") 
   <div class="sync-wrap">
     <button id="sync-btn" class="sync-btn" type="button" hidden aria-expanded="false"
             aria-controls="sync-pop" title="Sync status and recent updates">
-      <span id="sync-dot" class="sync-dot ok" aria-hidden="true"></span>
+      <span id="sync-dot" class="sync-dot {esc(initial_tone)}" aria-hidden="true"></span>
       <span id="refresh-note" class="refresh-note">{esc(initial_sync)}</span>
       <span class="sync-chev" aria-hidden="true"></span>
     </button>
@@ -942,26 +943,24 @@ def meets_today() -> str:
     ]
     return script_json(rows)
 
-def checked_line(stamp: str) -> str:
-    """How long ago the board was last brought up to date, in plain words.
-
-    Short, because it shares the header with the tabs and the buttons, and a
-    wrapped header pushes the page around every time it changes.
-    """
+def checked_status(data: dict) -> tuple[str, str]:
+    """Initial `(label, tone)` drawn on `#sync-btn` before the first `/api/status` poll."""
+    stamp = scout.last_checked_at(data)
     if not stamp:
-        return "never checked"
+        return "Never checked", "warn"
     try:
         then = datetime.fromisoformat(stamp)
     except ValueError:
-        return esc(stamp)
-    mins = int((datetime.now().astimezone() - then).total_seconds() // 60)
-    if mins < 2:
-        return "checked just now"
-    if mins < 60:
-        return f"checked {mins}m ago"
-    if mins < 24 * 60:
-        return f"checked {mins // 60}h ago"
-    return f"checked {then:%-d %b}"
+        return esc(stamp), "warn"
+    now = datetime.now(then.tzinfo) if then.tzinfo else datetime.now()
+    mins = max(0.0, (now - then).total_seconds() / 60.0)
+    same_day = then.date() == now.date()
+    when = then.strftime("%H:%M") if same_day else then.strftime("%-d %b %H:%M")
+    if mins >= 240 or (not same_day and mins >= 60):
+        return f"Stale · checked {when}", "warn"
+    if mins >= 45:
+        return (f"Checked {int(mins)}m ago · {when}" if same_day and mins < 90 else f"Checked {when}"), "warn"
+    return f"Up to date · checked {when}", "ok"
 
 
 def _hhmm_mins(text: str) -> int | None:
@@ -1308,7 +1307,7 @@ def render(data: dict) -> str:
         f'{today_iso}T{soon.get("at")}:00{settings.offset(date.today())}' if on_today else ""
     )
     meeting_label = soon.get("name", "standup").lower() if on_today else ""
-    initial_sync = checked_line(data.get("checked_at", ""))
+    initial_sync, initial_tone = checked_status(data)
 
     body = f"""
 <header class="top"><div class="top-in">
@@ -1320,7 +1319,7 @@ def render(data: dict) -> str:
     <span class="date">{esc(pretty)}</span>
     <span id="countdown"></span>
     <button class="toggle" id="scriptonly">{esc(render_standup.script_only_words().capitalize())}</button>
-    {controls(prep_label, needs_prep=needs_prep, initial_sync=initial_sync)}
+    {controls(prep_label, needs_prep=needs_prep, initial_sync=initial_sync, initial_tone=initial_tone)}
     <button class="toggle chat-go" data-chat-toggle type="button" aria-controls="chat" hidden
             title="Ask in the side panel (a)">{SPARK}Ask</button>
     <button class="toggle icon-btn" data-settings type="button" aria-label="Settings"

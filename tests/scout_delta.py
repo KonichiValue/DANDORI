@@ -45,6 +45,9 @@ SAMPLE_CFG = {
             {"name": "Weekly Review", "kind": "weekly", "time_local": "13:00", "days": ["Wed"], "record": ""},
         ],
     },
+    "slack": {
+        "channel_hints": ["#ext-client-billing"],
+    },
     "prioritization": {
         "who": "Sam Lead",
         "slack_user_id": "U00000088",
@@ -315,6 +318,71 @@ def run_tests() -> list[str]:
                 A.apply(b_stamp, {"swept": True})
             expect("apply.py stamps scout-checked thread watermark",
                    b_stamp["tickets"][0]["threads"][0]["checked"] != "2026-11-01T00:00:00+09:00")
+
+        # 6. slack.channel_hints catches unlinked posts naming a ticket/KT/account
+        #    while ignoring unrelated channel chatter.
+        expect("channel_hints query built", "slack_hint:ext-client-billing" in q_by_tag)
+        hint_noise = list(quiet_paired) + [
+            (
+                q_by_tag["slack_hint:ext-client-billing"],
+                json.dumps({
+                    "results": (
+                        "### Result 1 of 1\n"
+                        "Channel: #ext-client-billing (ID: C00000033)\n"
+                        "From: Other Person (ID: U00000077)\n"
+                        "Time: 2026-11-11 09:44:00 JST\n"
+                        "Message_ts: 1794357840.000111\n"
+                        "Permalink: [link](https://kraken.enterprise.slack.com/archives/C00000033/p1794357840000111)\n"
+                        "Text:\nUnrelated question on another workstream\n---\n"
+                    )
+                }),
+            )
+        ]
+        res_hint_noise = scout.analyze_results(b, copy.deepcopy(seen), meta, hint_noise, now=now_afternoon)
+        expect("unrelated channel_hints chatter stays quiet", res_hint_noise["changed"] is False)
+
+        hint_match = list(quiet_paired) + [
+            (
+                q_by_tag["slack_hint:ext-client-billing"],
+                json.dumps({
+                    "results": (
+                        "### Result 1 of 1\n"
+                        "Channel: #ext-client-billing (ID: C00000033)\n"
+                        "From: Client Ops (ID: U00000078)\n"
+                        "Time: 2026-11-11 09:45:00 JST\n"
+                        "Message_ts: 1794357900.000222\n"
+                        "Permalink: [link](https://kraken.enterprise.slack.com/archives/C00000033/p1794357900000222)\n"
+                        "Text:\nChecking status on HOLD-REL without tagging anyone\n---\n"
+                    )
+                }),
+            )
+        ]
+        res_hint_match = scout.analyze_results(b, copy.deepcopy(seen), meta, hint_match, now=now_afternoon)
+        expect("unlinked channel_hints post mentioning ticket ref caught",
+               res_hint_match["changed"] is True and len(res_hint_match["slack_messages"]) == 1)
+
+        # 7. Guaranteed once-per-workday Full Refresh (daily_full_refresh_due).
+        with tempfile.TemporaryDirectory() as tmpd:
+            tmp_path = Path(tmpd)
+            fake_seen = tmp_path / "scout-seen.json"
+            fake_board = tmp_path / "board.json"
+            fake_board.write_text(json.dumps(b), encoding="utf-8")
+            thu_morning = datetime(2026, 11, 12, 9, 7, tzinfo=tz)  # Thu 09:07 after missed 08:15 boot
+            with (
+                mock.patch.object(scout, "SEEN", fake_seen),
+                mock.patch.object(scout.B, "BOARD", fake_board),
+                mock.patch.object(settings, "LOGS_DIR", tmp_path),
+                mock.patch.object(settings, "auto_sweep_mins", return_value=15),
+            ):
+                scout.record_full_refresh("2026-11-11T17:01:00+09:00")
+                expect("daily full refresh is due on weekday boot after 08:15",
+                       scout.daily_full_refresh_due(thu_morning) is True)
+                scout.record_full_attempt("2026-11-12T09:07:05+09:00")
+                expect("30m cooldown prevents duplicate trigger while running",
+                       scout.daily_full_refresh_due(thu_morning) is False)
+                scout.record_full_refresh("2026-11-12T09:10:00+09:00")
+                expect("daily full refresh satisfied for rest of day once completed",
+                       scout.daily_full_refresh_due(datetime(2026, 11, 12, 14, 0, tzinfo=tz)) is False)
 
     return failures
 

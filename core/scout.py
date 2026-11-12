@@ -54,6 +54,7 @@ sys.path.insert(0, str(ROOT))
 import audit  # noqa: E402
 import board as B  # noqa: E402
 import calendar_sync  # noqa: E402
+import plugins  # noqa: E402
 import prioritize  # noqa: E402
 import settings  # noqa: E402
 
@@ -480,6 +481,35 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
                 "query": f"in:<#{ch}> after:{after_day}",
                 "sort": "timestamp",
                 "include_context": False,
+                "include_bots": False,
+                "response_format": "detailed",
+            },
+        })
+
+    # Also scan configured client/ops channels (`slack.channel_hints`) for any new
+    # unlinked thread mentioning one of the owner's active ticket tags, GIDs, KT
+    # builds, or tracked account IDs, without requiring an `@` mention.
+    seen_hints: set[str] = set()
+    for raw_ch in settings.section("slack").get("channel_hints") or []:
+        clean_ch = re.sub(r"^#+", "", str(raw_ch or "").strip())
+        if not clean_ch or clean_ch.lower() in seen_hints:
+            continue
+        if re.fullmatch(r"[CDG][A-Z0-9]{8,}", clean_ch):
+            if clean_ch in old_channels:
+                continue
+            seen_hints.add(clean_ch.lower())
+            q_in = f"in:<#{clean_ch}>"
+        else:
+            seen_hints.add(clean_ch.lower())
+            q_in = f"in:#{clean_ch}"
+        queries.append({
+            "tag": f"slack_hint:{clean_ch}",
+            "tool": "mcp__slack__slack_search_public_and_private",
+            "args": {
+                "query": f"{q_in} after:{after_day}",
+                "sort": "timestamp",
+                "include_context": False,
+                "include_bots": False,
                 "response_format": "detailed",
             },
         })
@@ -797,6 +827,7 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
     tickets_by_gid: dict[str, dict] = {}
     internal_gid_to_ref: dict[str, str] = {}
     board_needles: set[str] = set()
+    acct_rx = plugins.account_pattern()
     for t in b.get("tickets") or []:
         tid = str(t.get("id") or "")
         ref = str(t.get("ref") or "")
@@ -814,6 +845,17 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
             kt = str(((t.get("internal_ticket") or {}).get("build") or {}).get("kt") or "").strip()
             if kt:
                 board_needles.add(kt.lower())
+            blob_parts = [str(t.get("title_en") or ""), str(t.get("title_ja") or ""), str(t.get("where_it_stands") or "")]
+            for it in t.get("items") or []:
+                if B.is_open(it):
+                    blob_parts.extend([
+                        str(it.get("title") or ""),
+                        str(it.get("where_it_stands") or ""),
+                        " ".join(str(s) for s in (it.get("steps") or [])),
+                    ])
+            for acct in acct_rx.findall(" ".join(blob_parts)):
+                if len(acct) >= 5:
+                    board_needles.add(acct.lower())
 
     milestone_gids: dict[str, str] = {}
     for ms in b.get("milestones") or []:
@@ -1065,7 +1107,7 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                     "messages": msg_text[:3000],
                 })
 
-        elif tag in ("slack_from_me", "slack_mentions") or tag.startswith("slack_chan:"):
+        elif tag in ("slack_from_me", "slack_mentions") or tag.startswith(("slack_chan:", "slack_hint:")):
             res_str = str(obj.get("results") if isinstance(obj, dict) else raw_text)
             hits = _parse_slack_search_blocks(res_str)
             prio_cfg = prioritize.config() if settings.prioritization() else {}
@@ -1082,7 +1124,7 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                     ts_f = 0.0
                 if floor_epoch and ts_f and ts_f < floor_epoch:
                     continue
-                if tag.startswith("slack_chan:"):
+                if tag.startswith(("slack_chan:", "slack_hint:")):
                     sender = h["from"].lower()
                     if sender in BOT_NAMES:
                         swept_slack.add(h["key"])
@@ -1437,14 +1479,79 @@ def check(
         LOCK.unlink(missing_ok=True)
 
 
+def record_full_refresh(when_iso: str = "") -> None:
+    """Record a completed Full Refresh so `daily_full_refresh_due` knows today is covered."""
+    seen = load_seen()
+    seen["last_full_refresh_at"] = when_iso or settings.now().isoformat(timespec="seconds")
+    seen.pop("last_full_attempt_at", None)
+    save_seen(seen)
+
+
+def record_full_attempt(when_iso: str = "") -> None:
+    """Record an automatic Full Refresh start so transient errors retry no faster than 30m."""
+    seen = load_seen()
+    seen["last_full_attempt_at"] = when_iso or settings.now().isoformat(timespec="seconds")
+    save_seen(seen)
+
+
+def last_full_refresh_at() -> str:
+    """ISO timestamp of the newest completed Full Refresh (`refresh`), falling back
+    to `logs/refresh-YYYY-MM-DD.log` modification time when upgrading."""
+    seen = load_seen()
+    stamp = str(seen.get("last_full_refresh_at") or "").strip()
+    if stamp:
+        return stamp
+    logs_dir = settings.LOGS_DIR
+    if logs_dir.exists():
+        files = sorted(logs_dir.glob("refresh-20*.log"))
+        if files:
+            try:
+                mtime = files[-1].stat().st_mtime
+                return datetime.fromtimestamp(mtime, tz=settings.tz()).isoformat(timespec="seconds")
+            except OSError:
+                pass
+    return ""
+
+
+def daily_full_refresh_due(now: datetime | None = None) -> bool:
+    """True when a weekday morning has arrived (or >=22h have passed) without a
+    completed Full Refresh today.
+
+    A Delta Refresh collapses unchanged tickets to one line, so time-driven
+    checks (7-day client status comments, stalled CE builds, stale news pruning)
+    depend on one Full Refresh per workday even when the Mac was powered off at
+    `08:15` and booted later in the morning.
+    """
+    if settings.auto_sweep_mins() <= 0 or not B.BOARD.exists():
+        return False
+    now = now or settings.now()
+    if now.weekday() >= 5 or not (8 <= now.hour < 20):
+        return False
+    m_mins = _hhmm_mins(settings.morning_sweep() or "08:15")
+    if m_mins is None:
+        m_mins = 8 * 60 + 15
+    now_mins = now.hour * 60 + now.minute
+    last_dt = _parse_iso(last_full_refresh_at())
+    needs_today = now_mins >= m_mins and (last_dt is None or last_dt.date() < now.date())
+    needs_22h = last_dt is not None and (now - last_dt) >= timedelta(hours=22)
+    if not (needs_today or needs_22h):
+        return False
+    attempt_dt = _parse_iso(str(load_seen().get("last_full_attempt_at") or ""))
+    if attempt_dt is not None and (now - attempt_dt) < timedelta(minutes=30):
+        return False
+    return True
+
+
 def due(now: datetime | None = None) -> bool:
-    """Whether the background server loop should run a scout check now."""
+    """Whether the background server loop should run a scout or daily full refresh now."""
     mins = settings.auto_sweep_mins()
     if mins <= 0 or not B.BOARD.exists():
         return False
     now = now or settings.now()
     if now.weekday() >= 5 or not (8 <= now.hour < 20):
         return False
+    if daily_full_refresh_due(now):
+        return True
     last_dt = _parse_iso(last_checked_at())
     if last_dt is None:
         return True
@@ -1467,6 +1574,8 @@ def main(argv: list[str] | None = None) -> int:
         out = {
             "auto_sweep_mins": settings.auto_sweep_mins(),
             "board_checked_at": b.get("checked_at", ""),
+            "last_full_refresh_at": last_full_refresh_at(),
+            "daily_full_refresh_due": daily_full_refresh_due(),
             "scout_checked_at": seen.get("checked_at", ""),
             "verified_clean_at": seen.get("verified_clean_at", ""),
             "last_stats": seen.get("last_stats") or {},
@@ -1475,6 +1584,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(out, ensure_ascii=False, indent=2))
         else:
             print(f"Auto-delta interval: {out['auto_sweep_mins'] or 'off'} min")
+            print(f"Last full refresh:   {out['last_full_refresh_at'] or 'never'} (due today: {out['daily_full_refresh_due']})")
             print(f"Board last swept:    {out['board_checked_at'] or 'never'}")
             print(f"Scout last checked:  {out['scout_checked_at'] or 'never'}")
             if out["last_stats"]:

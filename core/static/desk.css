@@ -1167,6 +1167,7 @@ transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast)
 .sync-btn:hover,.sync-btn[aria-expanded="true"]{background:rgba(255,255,255,.14);
 border-color:rgba(255,255,255,.28);color:#fff}
 .sync-btn.busy{background:rgba(56,130,246,.18);border-color:rgba(99,163,255,.45);color:#eef4ff}
+.sync-btn.warn{background:rgba(244,185,86,.15);border-color:rgba(244,185,86,.42);color:#fde8bf}
 .sync-btn.bad{background:rgba(224,72,59,.18);border-color:rgba(248,130,120,.45);color:#ffe4e1}
 .sync-dot{flex:none;width:7px;height:7px;border-radius:50%;background:#4fd195;
 box-shadow:0 0 0 2px rgba(79,209,149,.18)}

@@ -48,6 +48,7 @@ import calendar_sync  # noqa: E402
 import doctor  # noqa: E402
 import prioritize  # noqa: E402
 import remind  # noqa: E402
+import scout  # noqa: E402
 import settings  # noqa: E402
 
 SEEN_FILE = settings.STATE_DIR / "notify-seen.json"
@@ -347,6 +348,15 @@ def check_and_notify() -> list[str]:
 
     # 2. Auto-prep before today's rooms.
     fired.extend(auto_prep_for_rooms(b, now))
+
+    # 2b. Guaranteed once-per-workday Full Refresh (even when the Mac was shut
+    # down at 08:15 and booted later in the morning).
+    if not fired and scout.daily_full_refresh_due(now) and not _sweep_busy():
+        slot_key = f"auto-daily-refresh:{today}:{now.hour}:{now.minute // 45}"
+        if _mark_done(slot_key):
+            scout.record_full_attempt()
+            if _trigger_desk_job("refresh", "Running today's daily full refresh."):
+                fired.append(slot_key)
 
     # 3. Auto-fold Gemini notes after meetings end.
     fired.extend(auto_fold_meeting_notes(b, now))

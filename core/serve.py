@@ -303,12 +303,12 @@ def rebuild() -> str:
         return html.read_text(encoding="utf-8")
 
 
-def last_refreshed() -> str:
-    """When the board was last swept or verified up to date by the scout.
+def sync_status_info() -> tuple[str, str]:
+    """Return `(label, tone)` for the header sync pill, with honest staleness thresholds.
 
-    The job's own time only knows runs this server started; a sweep from a chat
-    or a terminal writes `checked_at` on the board, and the background scout
-    writes `scout-seen.json` when it verified Asana and Slack with zero changes.
+    - `< 45m`: green (`ok`), `"Up to date · checked HH:MM"` / `"Up to date · refreshed HH:MM"`
+    - `45m .. 4h` (same day): amber (`warn`), `"Checked Xm ago · HH:MM"`
+    - `>= 4h` (or previous day `>= 60m`): amber (`warn`), `"Stale · checked ..."`
     """
     b_raw = ""
     try:
@@ -329,15 +329,30 @@ def last_refreshed() -> str:
         s_at = datetime.fromisoformat(s_raw) if s_raw else None
     except ValueError:
         s_at = None
+
+    candidates = [dt for dt in (b_at, s_at) if dt is not None]
+    if not candidates:
+        return "Never checked", "warn"
+    latest = max(candidates)
+    now = datetime.now(latest.tzinfo) if latest.tzinfo else datetime.now()
+    age_mins = max(0.0, (now - latest).total_seconds() / 60.0)
+    same_day = latest.date() == now.date()
+    when = latest.strftime("%H:%M") if same_day else latest.strftime("%-d %b %H:%M")
+
+    if age_mins >= 240 or (not same_day and age_mins >= 60):
+        return f"Stale · checked {when}", "warn"
+    if age_mins >= 45:
+        if same_day and age_mins < 90:
+            return f"Checked {int(age_mins)}m ago · {when}", "warn"
+        return f"Checked {when}", "warn"
     if s_at and (b_at is None or s_at > b_at):
-        now = datetime.now(s_at.tzinfo) if s_at.tzinfo else datetime.now()
-        s_when = s_at.strftime("%H:%M") if s_at.date() == now.date() else s_at.strftime("%-d %b %H:%M")
-        return f"Up to date · checked {s_when}"
-    if b_at is None:
-        return ""
-    now = datetime.now(b_at.tzinfo) if b_at.tzinfo else datetime.now()
-    when = b_at.strftime("%H:%M") if b_at.date() == now.date() else b_at.strftime("%-d %b %H:%M")
-    return f"Last refreshed {when}"
+        return f"Up to date · checked {when}", "ok"
+    return f"Up to date · refreshed {when}", "ok"
+
+
+def last_refreshed() -> str:
+    """Header sync pill text, reflecting true freshness."""
+    return sync_status_info()[0]
 
 
 def set_job(state: str, message: str = "", url: str = "", kind: str = "sweep") -> None:
@@ -942,7 +957,8 @@ def _credential_ready_quiet(kind: agent.Kind | None, allow_fetch: bool = False) 
 
 
 def run_scout(force: bool = False, interactive: bool = False) -> None:
-    """Run Stage 1 Haiku scout and launch Stage 2 delta refresh only if something moved."""
+    """Run Stage 1 Haiku scout and launch Stage 2 delta refresh only if something moved,
+    or promote directly to a Full Refresh when today's daily full sweep has not run yet."""
     if not BOARD.exists():
         return
     with job_lock:
@@ -952,6 +968,16 @@ def run_scout(force: bool = False, interactive: bool = False) -> None:
         return
     kind = agent.pick()
     if not _credential_ready_quiet(kind, allow_fetch=interactive):
+        return
+    if calendar_sync.due():
+        threading.Thread(target=read_calendar, daemon=True).start()
+    if scout.daily_full_refresh_due():
+        scout.record_full_attempt()
+        set_job("running", "Running daily full refresh…")
+        threading.Thread(
+            target=guarded(lambda: run_agent("refresh"), "daily full refresh"),
+            daemon=True,
+        ).start()
         return
     with scout_lock:
         if scout_state["state"] == "running":
@@ -2499,6 +2525,8 @@ def run_agent(kind: str) -> None:
                     return
                 # The run writes the board and nothing else; desk.md, which a
                 # chat reads, is redrawn here so a run never spends a turn on it.
+                if kind == "refresh":
+                    scout.record_full_refresh()
                 subprocess.run([sys.executable, str(settings.CORE / "tick.py"), "--rebuild"],
                                cwd=ROOT, capture_output=True, timeout=60)
                 notify.sync_reminders_bg()
@@ -2731,8 +2759,14 @@ class Handler(BaseHTTPRequestHandler):
                 # page never offers Refresh over one it would refuse with a 409.
                 if state.get("state") not in ("running", "done", "failed"):
                     state["state"] = "running"
-            if state.get("state") == "idle" and (state.get("message") or "Last refreshed").startswith(("Last refreshed", "Up to date")):
-                state["message"] = last_refreshed() or state["message"]
+            sync_lbl, sync_tone = sync_status_info()
+            if state.get("state") == "idle" and (state.get("message") or "Last refreshed").startswith(
+                ("Last refreshed", "Up to date", "Checked ", "Stale ", "Never checked")
+            ):
+                state["message"] = sync_lbl or state["message"]
+            state["sync_tone"] = sync_tone
+            seen_cal = calendar_sync.seen_at()
+            state["cal_ago"] = calendar_sync.ago(seen_cal) if seen_cal else ""
             # Each question's own progress, so two cards thinking at once each
             # say what they are doing rather than sharing one line.
             state["live"] = runs
@@ -2760,12 +2794,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/activity":
             seen_cal = calendar_sync.seen_at()
+            last_full = scout.last_full_refresh_at()
+            full_dt = scout._parse_iso(last_full)
+            full_lbl = ""
+            if full_dt is not None:
+                now_dt = settings.now()
+                full_lbl = full_dt.strftime("today %H:%M") if full_dt.date() == now_dt.date() else full_dt.strftime("%-d %b %H:%M")
             with db_lock:
                 dbc = dict(db_state)
             self.json_out(
                 200,
                 {
                     "runs": recent_activity(5),
+                    "last_full": full_lbl,
                     "db": dbc,
                     "cal_ago": calendar_sync.ago(seen_cal) if seen_cal else "not read yet",
                     "auto_mins": settings.auto_sweep_mins(),

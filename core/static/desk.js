@@ -15,14 +15,16 @@
   function setSyncTone(tone) {
     if (syncDot) syncDot.className = "sync-dot " + (tone || "ok");
     if (syncBtn) {
-      syncBtn.className = "sync-btn" + (tone === "run" ? " busy" : tone === "bad" ? " bad" : "");
+      syncBtn.className = "sync-btn" + (tone === "run" ? " busy" : tone === "bad" ? " bad" : tone === "warn" ? " warn" : "");
     }
   }
 
   function say(text, tone) {
     note.textContent = text || "";
-    note.className = "refresh-note" + (tone ? " " + tone : "");
-    setSyncTone(tone === "bad" ? "bad" : (typeof autoMins === "number" && autoMins <= 0 ? "warn" : "ok"));
+    note.className = "refresh-note" + (tone === "bad" ? " bad" : "");
+    var dotTone = tone === "bad" ? "bad" : tone === "warn" ? "warn"
+      : (typeof autoMins === "number" && autoMins <= 0 ? "warn" : "ok");
+    setSyncTone(dotTone);
   }
 
   // A run in progress, as a chip rather than a sentence: which button, how
@@ -96,6 +98,7 @@
   var mine = {};
   // This page started a refresh or a prep, so a "done" belongs to us.
   var started = false;
+  var bootChecked = false;
   var lastCheckedEpoch = 0;
   var autoMins = 15;
   var outboundAt = 0;
@@ -322,18 +325,37 @@
       ready();
       if (typeof s.auto_mins === "number") autoMins = s.auto_mins;
       if (s.checked_epoch) lastCheckedEpoch = s.checked_epoch;
+      if (s.cal_ago && document.querySelectorAll) {
+        [].forEach.call(document.querySelectorAll("[data-cal-sync]"), function (cb) {
+          cb.textContent = "Calendar " + s.cal_ago;
+        });
+      }
       syncPopoverConnections(s);
       // Idle, which is where the page spends nearly all of its life and where it
       // used to stop looking. Keep a slow heartbeat so a change made anywhere
       // else arrives on its own.
       if (boardMoved(s)) return;
       if (s.scout && s.scout.state === "running") {
+        bootChecked = true;
         chip("Checking", s.scout.said || "Checking Asana and Slack\u2026",
           [["rn-doing", "Asana & Slack\u2026"]]);
         later(1800);
         return;
       }
-      say(s.message || "Up to date");
+      if (!bootChecked) {
+        bootChecked = true;
+        var isStale = s.sync_tone === "warn"
+          || (lastCheckedEpoch > 0 && autoMins > 0 && (Date.now() / 1000 - lastCheckedEpoch) >= autoMins * 60);
+        if (isStale && autoMins > 0) {
+          var nowD = new Date(), wd0 = nowD.getDay(), hr0 = nowD.getHours();
+          if (wd0 >= 1 && wd0 <= 5 && hr0 >= 8 && hr0 < 20) {
+            say(s.message || "Stale", "warn");
+            triggerScout();
+            return;
+          }
+        }
+      }
+      say(s.message || "Up to date", s.sync_tone === "warn" ? "warn" : "");
       later(2500);
     }).catch(function () {
       // One dropped poll is not a finished job. This used to have no catch at
@@ -440,6 +462,8 @@
     var listEl = document.getElementById("sp-runs");
     if (!listEl) return;
     fetch("/api/activity").then(function (r) { return r.json(); }).then(function (j) {
+      var spLast = document.getElementById("sp-last");
+      if (spLast) spLast.textContent = j.last_full ? "Full sweep " + j.last_full : "No full sweep yet today";
       if (j.cal_ago) {
         var calSaid = document.getElementById("sp-cal-said");
         if (calSaid) calSaid.textContent = j.cal_ago;
