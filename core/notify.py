@@ -377,18 +377,22 @@ def check_and_notify() -> list[str]:
             if notify_once(key, f"{desk}: {ev.get('title')}", msg, subtitle=room_tag):
                 fired.append(key)
 
-    # 5. Prioritization Eve alert (when ask_days is 0 or 1 and builds need raising/fixing).
-    if settings.prioritization() and 11 <= now.hour <= 18:
+    # 5. Prioritization alert (round morning from 08:30, or the day before when ask_days == 1).
+    if settings.prioritization() and 8 <= now.hour <= 18:
         ps = prioritize.summary(b)
         nxt = ps.get("next") or {}
         to_raise = ps.get("raise") or []
         to_fix = ps.get("fixes") or []
-        if nxt and nxt.get("ask_days", 99) in (0, 1) and (to_raise or to_fix):
-            key = f"prio-eve:{nxt.get('date')}"
+        ask_days = nxt.get("ask_days", 99) if nxt else 99
+        ready_now = (ask_days == 0 and (now.hour, now.minute) >= (8, 30)) or (ask_days == 1 and now.hour >= 11)
+        if nxt and ready_now and (to_raise or to_fix):
+            key = f"prio-eve:{nxt.get('date')}:{ask_days}"
             kts = ", ".join(str(r.get("kt") or "?") for r in to_raise[:3])
+            cutoff = nxt.get("cutoff_at") or nxt.get("at") or ""
+            by_str = f"{nxt.get('ask_by')} {cutoff}".strip() if nxt.get("ask_by") == nxt.get("date") else str(nxt.get("ask_by") or "")
             msg = (
                 f"{len(to_raise)} build(s) to raise ({kts}) and {len(to_fix)} Asana fix(es) "
-                f"due by {nxt.get('ask_by')} for the {nxt.get('date')} round."
+                f"due by {by_str} for the {nxt.get('date')} round."
             )
             if notify_once(key, f"{desk}: Prioritization deadline", msg):
                 fired.append(key)

@@ -44,6 +44,7 @@ import apply as A  # noqa: E402
 import asana_status  # noqa: E402
 import board as B  # noqa: E402
 import plugins  # noqa: E402
+import render as R  # noqa: E402
 import settings  # noqa: E402
 import tick as T  # noqa: E402
 
@@ -81,13 +82,27 @@ def build_ui_board_snapshot() -> dict:
             flags = [s in done_map for s in steps]
             drafts_out = []
             for idx, dr in enumerate(B.drafts(it), 1):
+                is_ja = dr.get("language") == "ja" or bool(dr.get("body_ruby"))
+                raw_body = str(
+                    (dr.get("body_ruby") or dr.get("body_ja") or dr.get("body") or "")
+                    if is_ja
+                    else (dr.get("body_en") or dr.get("body_ruby") or dr.get("body") or "")
+                )
+                link_url = str(dr.get("link") or "")
+                keep_links = (
+                    "canvas" in str(dr.get("target") or "").lower()
+                    or "/docs/" in link_url
+                    or (not is_ja and "slack.com" in link_url)
+                )
                 drafts_out.append({
                     "num": idx,
                     "target": str(dr.get("target") or f"Draft {idx}"),
-                    "link": str(dr.get("link") or ""),
+                    "link": link_url,
                     "sent": not B.unsent(dr),
                     "body_ruby": str(dr.get("body_ruby") or ""),
                     "body_en": str(dr.get("body_en") or dr.get("body") or ""),
+                    "copy_plain": R.draft_plain(raw_body),
+                    "copy_html": R.draft_html(raw_body, ruby=False, keep_links=keep_links),
                 })
             open_items.append({
                 "id": it.get("id"),

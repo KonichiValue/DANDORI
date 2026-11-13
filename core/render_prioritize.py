@@ -83,17 +83,24 @@ def render(board: dict, refs: dict[str, str]) -> str:
     cfg = s["config"]
     who = lead(cfg)
     ask_days = nxt["ask_days"]
+    cutoff = nxt.get("cutoff_at") or nxt.get("at") or "13:30"
+    same_day = nxt.get("ask_by") == nxt.get("date")
+    by_clock = f" before {cutoff}" if same_day else ""
     raise_n, raised_n, fix_n = len(s["raise"]), len(s.get("raised") or []), len(s["fixes"])
     if not raise_n and raised_n:
         due, tone = f"Raised for {when(nxt['date'])}", "green"
     elif ask_days < 0:
-        due, tone = f"Ask-by day passed ({when(nxt['ask_by'])}); raise it first thing", "red"
+        due, tone = f"Ask-by day passed ({when(nxt['ask_by'])}); raise before {when(nxt['date'])} {cutoff}", "red"
     elif ask_days == 0:
-        due, tone = "Raise anything today", "red"
+        due, tone = f"Raise today{by_clock}" + (" (off on round day)" if nxt.get("pto_shifted") else ""), "red"
     elif ask_days == 1:
-        due, tone = "Raise anything by tomorrow", "amber"
+        due, tone = f"Raise tomorrow{by_clock}", "amber"
     else:
-        due, tone = f"Raise anything by {when(nxt['ask_by'])}", "grey"
+        due, tone = (
+            f"Raise on {when(nxt['ask_by'])}{by_clock}"
+            if same_day
+            else f"Raise by {when(nxt['ask_by'])} (off {when(nxt['date'])})"
+        ), "grey"
     moved = f' <span class="pr-moved">(moved: {esc(nxt["moved"])})</span>' if nxt.get("moved") else ""
     counts = []
     if raise_n:
@@ -111,7 +118,7 @@ def render(board: dict, refs: dict[str, str]) -> str:
         note = f"""
       <div class="draft pr-note">
         <div class="draft-head">
-          <span>To {esc(lead_first(cfg))}, in {esc(cfg.get("channel") or "Slack")}, before {esc(when(nxt["date"]))} {esc(nxt["at"])}</span>
+          <span>To {esc(lead_first(cfg))}, in {esc(cfg.get("channel") or "Slack")}, {f"on {esc(when(nxt['date']))} before {esc(cutoff)}" if same_day else f"by {esc(when(nxt['ask_by']))} (before {esc(when(nxt['date']))} {esc(cutoff)})"}</span>
           {link_btn(cfg.get("example_thread", ""), "Last round's thread")}
           <button class="copy" data-copy="{esc(draft_plain(text))}" data-copy-html="{esc(draft_html(text, ruby=False))}">copy</button>
         </div>
@@ -159,9 +166,16 @@ def markdown(board: dict) -> str:
         return ""
     who = lead(s["config"])
     out = ["## Prioritization", ""]
+    cutoff = nxt.get("cutoff_at") or nxt.get("at") or "13:30"
+    same_day = nxt.get("ask_by") == nxt.get("date")
+    raise_txt = (
+        f"Raise in the thread before {cutoff}"
+        if same_day
+        else f"Raise by {nxt['ask_by']} (off on {nxt['date']}; closes {cutoff})"
+    )
     out.append(
         f"Next round {nxt['date']} {nxt['at']} ({who}'s thread in "
-        f"{s['config'].get('channel') or 'Slack'}). Raise anything by {nxt['ask_by']}."
+        f"{s['config'].get('channel') or 'Slack'}). {raise_txt}."
         + (f" Moved: {nxt['moved']}." if nxt.get("moved") else "")
     )
     if s["stale"]:

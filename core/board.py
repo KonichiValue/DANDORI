@@ -821,6 +821,14 @@ URGENCIES = frozenset({"today", "this-week", "monitor"})
 # A chase date, and nothing else. A sentence in this field is a job with no day.
 ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+# A URL truncated by a chat or Asana UI (`https://.../foo…bar` or `domain.com/foo…/?…`),
+# which pastes as a dead, unclickable string if ever saved into an unsent draft.
+TRUNCATED_URL_RE = re.compile(
+    r"(?:https?://[^\s<>()\"'`]*?(?:…|\.\.\.)[^\s<>()\"'`]*"
+    r"|\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\.(?:com|jp|energy|systems|tech|io|so|org|net)/[^\s<>()\"'`]*?(?:…|\.\.\.)[^\s<>()\"'`]*)",
+    re.I,
+)
+
 MILESTONE_STATUS = ("on-track", "at-risk", "off-track", "done")
 PHASE_STATES = ("done", "now", "next", "blocked")
 
@@ -967,6 +975,18 @@ def check(board: dict) -> list[str]:
                         f"so the card shows an empty box. Put the text in {home}"
                         + (" (a ja draft carries any readings as {word|reading})." if is_ja else ".")
                     )
+                if (
+                    k in readable
+                    and item.get("state", "todo") in OPEN_STATES
+                    and unsent(draft)
+                    and isinstance(v, str)
+                ):
+                    m_trunc = TRUNCATED_URL_RE.search(v)
+                    if m_trunc:
+                        bad.append(
+                            f"{where}: unsent draft ({k}) contains truncated/unclickable URL "
+                            f"{m_trunc.group(0)!r}. Write the full https://... URL with no '…' or '...'."
+                        )
 
         state = item.get("state", "todo")
         if state not in OPEN_STATES + CLOSED_STATES:

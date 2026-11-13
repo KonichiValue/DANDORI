@@ -594,10 +594,26 @@ html, body {
     if (cpBtn && cur.item) {
       var dnum = parseInt(cpBtn.dataset.copyDraft, 10);
       var dr = (cur.item.drafts || []).find(function (x) { return x.num === dnum; });
-      if (dr && navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(stripRuby(dr.body_ruby || dr.body_en || "")).then(function () {
-          flash("Copied Draft " + dnum);
-        }).catch(function () {});
+      if (dr) {
+        var plainText = dr.copy_plain || stripRuby(dr.body_ruby || dr.body_en || "");
+        var htmlText = dr.copy_html || "";
+        if (htmlText && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+          var clipItems = {
+            "text/plain": new Blob([plainText], { type: "text/plain" }),
+            "text/html": new Blob([htmlText], { type: "text/html" })
+          };
+          navigator.clipboard.write([new ClipboardItem(clipItems)]).then(function () {
+            flash("Copied Draft " + dnum);
+          }).catch(function () {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(plainText).then(function () { flash("Copied Draft " + dnum); }).catch(function () {});
+            }
+          });
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(plainText).then(function () {
+            flash("Copied Draft " + dnum);
+          }).catch(function () {});
+        }
       }
       return;
     }
@@ -607,7 +623,8 @@ html, body {
       sendRequest("tools/call", {
         name: "dandori_tick",
         arguments: { item_id: cur.item.id, verb: "step", number: sk }
-      }).then(function () { flash("Step " + sk + " updated"); reloadBoard(); }).catch(function () {});
+      }).then(function () { flash("Step " + sk + " updated"); reloadBoard(); })
+        .catch(function (err) { flash("Tick failed: " + ((err && err.message) || "host blocked")); });
       return;
     }
     var postBtn = e.target.closest("[data-posted-draft]");
@@ -616,21 +633,23 @@ html, body {
       sendRequest("tools/call", {
         name: "dandori_tick",
         arguments: { item_id: cur.item.id, verb: "draft", number: pk }
-      }).then(function () { flash("Marked Draft " + pk + " posted"); reloadBoard(); }).catch(function () {});
+      }).then(function () { flash("Marked Draft " + pk + " posted"); reloadBoard(); })
+        .catch(function (err) { flash("Tick failed: " + ((err && err.message) || "host blocked")); });
       return;
     }
     if (e.target.closest("[data-done-job]") && cur.item) {
       sendRequest("tools/call", {
         name: "dandori_tick",
         arguments: { item_id: cur.item.id, verb: "done" }
-      }).then(function () { flash("Job " + cur.item.id + " done!"); reloadBoard(); }).catch(function () {});
+      }).then(function () { flash("Job " + cur.item.id + " done!"); reloadBoard(); })
+        .catch(function (err) { flash("Tick failed: " + ((err && err.message) || "host blocked")); });
     }
   });
 
   // Boot the MCP Apps lifecycle handshake, then load the live board if tool-result hasn't arrived yet.
   sendRequest("ui/initialize", {
     protocolVersion: "2026-01-26",
-    appInfo: { name: "DANDORI Desk", version: "1.3.0" },
+    appInfo: { name: "DANDORI Desk", version: "1.3.4" },
     appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] }
   }).then(function (initRes) {
     if (initRes && initRes.hostContext) applyHostContext(initRes.hostContext);
@@ -644,6 +663,9 @@ html, body {
         }).catch(function () {});
       }
     }, 650);
+    setInterval(function () {
+      if (!document.hidden && state.board) reloadBoard();
+    }, 15000);
   }).catch(function () {});
 })();
 </script>

@@ -130,7 +130,9 @@ lead ready to copy. Without it, nothing about rounds appears.
 |---|---|
 | `who`, `slack_user_id` | The lead who posts the order. |
 | `channel`, `channel_id` | Where it is posted. |
-| `anchor`, `every_days`, `thread_at` | One round's date, the cycle length, and the time it is posted. |
+| `anchor`, `every_days`, `thread_at` | One round's date, the cycle length, and the time the thread opens. |
+| `cutoff_at`, `holiday_cutoff_at` | When raising closes on normal round days (e.g. `13:30`) vs holiday-shifted days (e.g. `10:00`). |
+| `off_days` | Optional ISO dates you are off on a round day, shifting `ask_by` to the previous working day (Google Calendar OOO/PTO all-day events are also picked up automatically). |
 | `ce_projects`, `cdl_owner_field` | The Asana projects builds live in, and the custom field that names their CDL owner, so only your builds are listed. |
 | `holidays`, `moved` | Days a round moves off, and any one-off moves. |
 

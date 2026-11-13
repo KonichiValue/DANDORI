@@ -3,13 +3,15 @@
 
 The round is optional. If `config.json` has a `prioritization` block, the
 prioritization lead it names (`who`) runs a build prioritization every
-`every_days` days and, at `thread_at` on the round's morning, posts the result
-in `channel`: the builds that got a client order for the next cycle, in order,
-and the ones that were not pushed. The lead's standing ask to the CDLs is to
-keep their build tickets' dates and status current, and to say which of theirs
-should be prioritized or adjusted. After the thread is out it is too late to
-say, so the day that matters is the working day before it. With no block there
-is no round: every function here answers "none" and the desk draws no card.
+`every_days` days and, at `thread_at` on the round's morning, opens the
+prioritization confirmation thread in `channel` where CDLs reply with the builds
+they want prioritized or adjusted before `cutoff_at` (for example, the afternoon
+CDL prioritization meeting on normal Mondays, or earlier on a holiday Tuesday
+right before CE's Tuesday commitment meeting). On a normal round day the owner
+raises builds in that morning's thread; if the owner is off / PTO on the round
+day, `ask_by` shifts back to the previous working day so they post beforehand.
+With no block there is no round: every function here answers "none" and the desk
+draws no card.
 
 The dates come from that block, not the board: a round is `anchor` plus a
 multiple of `every_days`, moved to the next working day when it lands on a
@@ -39,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+import calendar_sync  # noqa: E402
 import settings  # noqa: E402
 
 # Done builds are not in the round at all.
@@ -108,6 +111,24 @@ def actual(planned: date, cfg: dict) -> date:
     return shift(planned, cfg)
 
 
+def owner_off(day: date, cfg: dict) -> bool:
+    """Whether the owner is on PTO / off on `day` (from config `off_days` or Google Calendar)."""
+    off = {str(d)[:10] for d in cfg.get("off_days") or [] if d} | calendar_sync.owner_off_days()
+    return day.isoformat() in off
+
+
+def cutoff_for(round_day: date, planned: date, cfg: dict) -> str:
+    """When raising closes on `round_day`.
+
+    Normal Monday rounds stay open until `cutoff_at` (e.g. 13:30 CDL meeting).
+    When a Monday holiday pushes the round to Tuesday morning, CE's Tuesday 11:00
+    finalization meeting runs the same morning, so raising closes earlier (`holiday_cutoff_at`).
+    """
+    if round_day != planned:
+        return str(cfg.get("holiday_cutoff_at") or "10:00")
+    return str(cfg.get("cutoff_at") or cfg.get("thread_at") or "13:30")
+
+
 def rounds(cfg: dict | None = None, start: date | None = None, count: int = 6) -> list[dict]:
     """The rounds from `start` on, planned and actual date, soonest first.
 
@@ -132,12 +153,15 @@ def rounds(cfg: dict | None = None, start: date | None = None, count: int = 6) -
                 (r.get("why", "") for r in cfg.get("moved") or []
                  if r.get("from") == planned.isoformat()), "")
             if not moved and day != planned:
-                moved = "the planned day is not a working day"
+                moved = "Monday holiday: runs Tuesday morning before 10:00 (ahead of CE's 11:00 meeting)"
+            ask_day = ask_by(day, cfg)
             out.append({
                 "planned": planned.isoformat(),
                 "date": day.isoformat(),
                 "at": cfg.get("thread_at", "08:30"),
-                "ask_by": ask_by(day, cfg).isoformat(),
+                "cutoff_at": cutoff_for(day, planned, cfg),
+                "ask_by": ask_day.isoformat(),
+                "pto_shifted": ask_day != day,
                 "moved": moved,
             })
         planned += timedelta(days=every)
@@ -145,7 +169,7 @@ def rounds(cfg: dict | None = None, start: date | None = None, count: int = 6) -
 
 
 def previous(cfg: dict | None = None, today: date | None = None) -> dict:
-    """The last round that has already run, or {} when there is none."""
+    """The last round that has already closed, or {} when there is none."""
     cfg = config() if cfg is None else cfg
     if not _iso(cfg.get("anchor")):
         return {}
@@ -154,26 +178,29 @@ def previous(cfg: dict | None = None, today: date | None = None) -> dict:
     now = clock() if today == today_local() else "23:59"
     past = [r for r in rounds(cfg, today - timedelta(days=every + 7), 3)
             if r["date"] < today.isoformat()
-            or (r["date"] == today.isoformat() and now >= r["at"])]
+            or (r["date"] == today.isoformat() and now >= r["cutoff_at"])]
     return past[-1] if past else {}
 
 
 def ask_by(round_day: date, cfg: dict) -> date:
-    """The last working day before the thread goes out.
+    """The day the owner raises builds for `round_day`.
 
-    The thread is posted first thing on the round's own morning, so anything
-    worth raising has to reach the prioritization lead the working day before.
+    Normally the morning of `round_day` itself, once the prioritization thread
+    goes out. If the owner is on PTO / off on `round_day` (or `before_thread` is
+    explicitly enabled), step back to the previous working day they are in.
     """
+    if not cfg.get("before_thread") and not owner_off(round_day, cfg):
+        return round_day
     day = round_day - timedelta(days=1)
-    while not working(day, cfg):
+    while not working(day, cfg) or owner_off(day, cfg):
         day -= timedelta(days=1)
     return day
 
 
 def next_round(cfg: dict | None = None, today: date | None = None) -> dict:
-    """The next round whose thread has not gone out, with the days left.
+    """The next round whose raising window has not closed yet, with days left.
 
-    On the round's own day, before the thread time, it is still the next one.
+    On the round's own day, before `cutoff_at`, it is still the active round.
     {} when there is no round.
     """
     cfg = config() if cfg is None else cfg
@@ -182,7 +209,7 @@ def next_round(cfg: dict | None = None, today: date | None = None) -> dict:
     today = today or today_local()
     now = clock() if today == today_local() else "00:00"
     for r in rounds(cfg, today, 3):
-        if r["date"] == today.isoformat() and now >= r["at"]:
+        if r["date"] == today.isoformat() and now >= r["cutoff_at"]:
             continue
         r["days"] = (_iso(r["date"]) - today).days
         r["ask_days"] = (_iso(r["ask_by"]) - today).days
@@ -214,22 +241,14 @@ def kind(build: dict, raised_kts: set[str] | None = None, nxt_date: str = "") ->
 
 
 def fixes(build: dict) -> list[str]:
-    """What is out of date or missing on a build, in the words of the fix.
+    """What is out of date on a build, in the words of the fix.
 
-    The lead's first ask is that the ticket's own dates and status are current,
-    so these are the edits to make in Asana before the round, not things to
-    say in the thread.
+    CE engineers own Status, Wave, and `due_on` on CE build tickets (`due_on` stays
+    empty on normal Wave-ordered tickets, which carry `Wave` and `Committed Date`
+    instead). Only flag an explicit `due_on` that has already passed.
     """
     out = []
     k = kind(build)
-    order = f"{settings.client_short()} Order"
-    if k == "ordered":
-        if not build.get("due_on"):
-            out.append(f"no due date, though it has a {order}")
-        if not build.get("wave"):
-            out.append(f"{order} but no wave")
-    # A CE build's Status after refinement is the refining engineer's to set,
-    # not the owner's, so a 🟢 build still reading New is not a fix for them.
     due = _iso(build.get("due_on"))
     if due and due < today_local() and k != "done":
         out.append(f"due date {build['due_on']} has passed")
@@ -342,13 +361,19 @@ def main() -> int:
     if args.dates:
         for r in rounds():
             note = f"  (planned {r['planned']}, {r['moved']})" if r["moved"] else ""
-            print(f"{r['date']} {r['at']}  ask {who} by {r['ask_by']}{note}")
+            by_txt = f"before {r['cutoff_at']}" if r["ask_by"] == r["date"] else f"by {r['ask_by']} (off {r['date']})"
+            print(f"{r['date']} {r['at']}  ask {who} {by_txt}{note}")
         return 0
     s = summary(B.load())
     nxt = s["next"]
     if nxt:
+        by_txt = (
+            f"on {nxt['date']} before {nxt.get('cutoff_at') or nxt['at']}"
+            if nxt["ask_by"] == nxt["date"]
+            else f"by {nxt['ask_by']} (off {nxt['date']})"
+        )
         print(f"Next round {nxt['date']} {nxt['at']} ({nxt['days']} days). "
-              f"Ask {who} by {nxt['ask_by']}.")
+              f"Ask {who} {by_txt}.")
     if s["stale"]:
         print(f"  {s['stale']}")
     short_name = settings.client_short()

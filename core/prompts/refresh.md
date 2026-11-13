@@ -482,7 +482,13 @@ changes what they do.
   conversation they are already in.
 - The thing an item was held for has happened: drop the `hold`, set `todo`.
 - The owner sent something and the board did not know: `state` becomes `waiting`
-  with `waits_on` filled in, or `sent` when nothing comes back.
+  with `waits_on` filled in, or `sent` when nothing comes back. **Never keep an
+  item in `todo` with speculative post-reply steps after the owner sends a
+  message that asks someone a question or awaits their sign-off**, and never
+  bundle downstream execution steps ("Post draft 4 asking X, then rewrite the 3
+  guides") into an item before X has answered. While a decision or answer is
+  owed by X, the item is `waiting` on X; downstream steps only become `todo`
+  once X replies (or if they do not depend on X's answer at all).
 - The owner marked it sent from the page (the digest's sweep plan, step 4): their
   press stands. Find the message in the thread. An answer after it moves the item
   as above; no message found is a `"note"` on the item saying so, and nothing
@@ -582,7 +588,7 @@ the step does not name the draft's recipient or say "draft N" itself.
 work view is only worth trusting if nothing on it is left over, so read every
 `draft` still on the ticket against what you have just found. If the thread
 moved, rewrite the draft into the message they would send this minute and say in
-`progress_note` what changed and why. Format every draft so it pastes cleanly into Slack and Asana (the Copy button copies both rich HTML and plain text): use `- ` on its own line for bullets (never `•`), `1. ` `2. ` on its own line for numbered lists, `**bold**` for bold (never `*single asterisks*`), and full uncompressed `https://...` URLs (never `[label](url)` or truncated links). If the reason for the message has gone,
+`progress_note` what changed and why. Format every draft so it pastes cleanly into Slack and Asana (the Copy button copies both rich HTML and plain text): use `- ` (or `・` in Japanese) on its own line for each bullet (never `•`, and never multiple `・` items on one line, which Asana collapses into a run-on line), `1. ` `2. ` on its own line for numbered lists, `**bold**` with a blank line above for section headings (never `*single asterisks*`), full uncompressed `https://...` URLs labelled before the URL when Asana's `...` truncation would hide the query tail, and zero `(paste image here)` notes inside draft text (Asana stacks pasted images at the bottom). Never imply immediate unilateral PROD deployment when sharing TEST results; ask the client to review TEST and align on PROD timing. If the reason for the message has gone,
 delete the draft and the step that asked for it. A draft written yesterday
 morning is the most dangerous thing on the page, because it reads as ready to
 paste and it is addressed to the client.

@@ -45,7 +45,7 @@ STATIC = CORE / "static"
 SETUP_DIR = CORE / "setup"
 SCRIPTS = CORE / "scripts"
 
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 VERSION_NAME = "Shigure"
 
 _cache: dict = {"stamp": None, "data": {}}

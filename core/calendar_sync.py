@@ -91,6 +91,51 @@ def window(today: date | None = None) -> tuple[date, date]:
     return monday - timedelta(weeks=1), monday + timedelta(weeks=2, days=5)
 
 
+# Words in an all-day calendar event that mark the owner out of office / PTO.
+OFF_RX = re.compile(
+    r"\b(?:pto|ooo|out\s+of\s+office|vacation|annual\s+leave|paid\s+leave|holiday|day\s+off|leave)\b"
+    r"|\boff\b|休暇|有給|有休|不在|休み",
+    re.I,
+)
+# All-day working-location / company notice events that do not mean the owner is off.
+NOT_OFF_RX = re.compile(r"^\s*(?:home|office|wfh|remote|hybrid|in\s+office)\s*$|office\s+close", re.I)
+
+
+def off_days(raw: dict, me: str) -> list[str]:
+    """ISO date strings if `raw` is an all-day or OOO event saying the owner is off."""
+    if raw.get("status") == "cancelled":
+        return []
+    is_ooo = raw.get("event_type") == "outOfOffice"
+    if not is_ooo and not raw.get("all_day"):
+        return []
+    people = raw.get("attendees") or []
+    if people:
+        mine = next((a for a in people if str(a.get("email", "")).lower() == me), None)
+        if not mine or mine.get("response_status") == "declined":
+            return []
+    title = str(raw.get("summary") or "").strip()
+    if not is_ooo and (not title or NOT_OFF_RX.search(title) or not OFF_RX.search(title)):
+        return []
+    start_iso = str(raw.get("start") or "")[:10]
+    end_iso = str(raw.get("end") or "")[:10]
+    try:
+        cur = date.fromisoformat(start_iso)
+    except ValueError:
+        return []
+    try:
+        stop = date.fromisoformat(end_iso)
+    except ValueError:
+        stop = cur + timedelta(days=1)
+    # Google Calendar all-day end is exclusive; an OOO event ending at 18:00 on the same day has stop == cur.
+    if stop <= cur:
+        stop = cur + timedelta(days=1)
+    days = []
+    while cur < stop and len(days) < 31:
+        days.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return days
+
+
 def tidy(raw: dict, me: str, work: re.Pattern | None = None) -> dict | None:
     """One event the way the page uses it, or None for one it never draws.
 
@@ -237,14 +282,18 @@ def fetch(timeout: int = 240) -> dict:
         me = settings.owner_email()
         work = work_rx()
         seen: dict[str, dict] = {}
+        off_set: set[str] = set()
         for r in raw:
+            off_set.update(off_days(r, me))
             e = tidy(r, me, work)
             if e and e["id"] not in seen:
                 seen[e["id"]] = e
         events = sorted(seen.values(), key=lambda e: (e["start"], e["title"]))
+        off = sorted(off_set)
         now = settings.now().isoformat(timespec="minutes")
-        data = {"from": first.isoformat(), "to": last.isoformat(), "events": events}
-        if load_raw().get("events") != events or load_raw().get("from") != data["from"]:
+        data = {"from": first.isoformat(), "to": last.isoformat(), "events": events, "off_days": off}
+        prev = load_raw()
+        if prev.get("events") != events or prev.get("off_days") != off or prev.get("from") != data["from"]:
             data["fetched_at"] = now
             tmp = STORE.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -272,6 +321,11 @@ def seen_at() -> str:
 
 def events_on(day: str) -> list[dict]:
     return [e for e in load_raw().get("events") or [] if e.get("date") == day]
+
+
+def owner_off_days() -> set[str]:
+    """ISO dates where the owner's calendar marks them out of office / PTO."""
+    return {str(d)[:10] for d in load_raw().get("off_days") or [] if d}
 
 
 def due(now: datetime | None = None) -> bool:

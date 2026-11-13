@@ -646,6 +646,17 @@ def draft_html(raw: str, ruby: bool = False, keep_links: bool = False) -> str:
             continue
 
         flush_quote()
+        if list_items and not (line.startswith(("■", "▼", "◆", "【", "＜", "#")) or line.lstrip().startswith("**")):
+            # A bare URL or continuation line right under a bullet stays inside that <li>
+            # so Asana/Slack never close and reopen the list around it.
+            prev_head, prev_sub_tag, prev_subs = list_items[-1]
+            cont = _inline_html(line, ruby=ruby, keep_links=keep_links)
+            if prev_subs:
+                prev_subs[-1] = f"{prev_subs[-1]}<br>{cont}"
+            else:
+                prev_head = f"{prev_head}<br>{cont}"
+            list_items[-1] = (prev_head, prev_sub_tag, prev_subs)
+            continue
         flush_list()
         para.append(_inline_html(line, ruby=ruby, keep_links=keep_links))
 

@@ -716,6 +716,35 @@ def background_drawer(t: dict, ident: str) -> str:
       </details>"""
 
 
+def non_asana_btns(t: dict) -> str:
+    """Primary links in Go to for work that has no Asana ticket (`no_ticket_yet`)."""
+    if t.get("asana_url"):
+        return ""
+    open_items = [i for i in t.get("items", []) if not state_of(i)["closed"]]
+    thread_url = next((str(i.get("link") or "") for i in open_items if i.get("link")), "")
+    if not thread_url:
+        for th in reversed(t.get("threads") or []):
+            if th.get("url"):
+                thread_url = str(th["url"])
+                break
+    canvas_url = ""
+    for i in open_items:
+        for src in ((i.get("prepared") or {}).get("sources") or []):
+            u = str(src.get("url") or "")
+            if "/docs/" in u:
+                canvas_url = u
+                break
+        if canvas_url:
+            break
+    btns = []
+    if thread_url:
+        lbl = "Open Slack thread" if "slack.com" in thread_url else "Open where this happens"
+        btns.append(link_btn(thread_url, lbl))
+    if canvas_url and canvas_url != thread_url:
+        btns.append(link_btn(canvas_url, "Open Canvas"))
+    return " ".join(b for b in btns if b)
+
+
 def internal_btn(internal: dict) -> str:
     """The Kraken-side ticket, named on hover rather than in the row.
 
@@ -784,6 +813,7 @@ def render_ticket(
         <div class="tk-links">
           <span class="lab">Go to</span>
           {link_btn(t.get("asana_url", ""), "Open in Asana")}
+          {non_asana_btns(t)}
           {say_link}
           {internal_btn(internal)}
           {ai_split_btn(

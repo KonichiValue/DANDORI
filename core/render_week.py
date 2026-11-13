@@ -378,9 +378,16 @@ def render(
     nxt_round = (ps.get("next") or {}).get("date")
     need_raise = bool(ps.get("raise"))
     for r in prioritize.rounds(start=days[0], count=2):
-        flags.setdefault(r["date"], []).append((r["at"], "Prioritization"))
-        if r["date"] != nxt_round or need_raise:
-            flags.setdefault(r["ask_by"], []).append(("by", "Raise builds"))
+        same_day = r["ask_by"] == r["date"]
+        cutoff = r.get("cutoff_at") or r.get("at") or ""
+        if same_day and (r["date"] != nxt_round or need_raise):
+            flags.setdefault(r["date"], []).append(
+                (r["at"], f"Prioritization · raise by {cutoff}" if cutoff else "Prioritization · raise builds")
+            )
+        else:
+            flags.setdefault(r["date"], []).append((r["at"], "Prioritization"))
+            if r["date"] != nxt_round or need_raise:
+                flags.setdefault(r["ask_by"], []).append(("by", "Raise builds (off round day)"))
 
     cells = []
     for n, d in enumerate(days):

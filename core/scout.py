@@ -431,10 +431,18 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
 
     for t in b.get("tickets") or []:
         open_items = [i for i in t.get("items") or [] if B.is_open(i)]
-        if not open_items:
+        b_stage = str(((t.get("internal_ticket") or {}).get("build") or {}).get("stage") or "").strip().lower()
+        in_refinement = b_stage == "refining" and not (t.get("asana") or {}).get("completed")
+        if not open_items and not in_refinement:
             continue
         ref = str(t.get("ref") or "")
-        links = [str(th.get("url") or "") for th in t.get("threads") or []]
+        links = [
+            str(th.get("url") or "")
+            for th in (t.get("threads") or [])
+            if open_items
+            or "refinement" in str(th.get("where") or "").lower()
+            or "refinement" in str(th.get("label") or "").lower()
+        ]
         for i in open_items:
             for d in B.drafts(i):
                 if d.get("link"):

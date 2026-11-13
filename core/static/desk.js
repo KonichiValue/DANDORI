@@ -909,21 +909,38 @@
     if (window.deskPref) window.deskPref.set("desk-ask-model", sel.value);
   });
 
-  function copyTextToClipboard(s) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(s).catch(function () { fallbackCopyText(s); });
+  function copyTextToClipboard(s, h) {
+    if (h && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+      var items = {
+        "text/plain": new Blob([s], { type: "text/plain" }),
+        "text/html": new Blob([h], { type: "text/html" })
+      };
+      return navigator.clipboard.write([new ClipboardItem(items)]).catch(function () { fallbackCopyText(s, h); });
     }
-    fallbackCopyText(s);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(s).catch(function () { fallbackCopyText(s, h); });
+    }
+    fallbackCopyText(s, h);
     return Promise.resolve();
   }
-  function fallbackCopyText(s) {
+  function fallbackCopyText(s, h) {
+    function onCopy(e) {
+      if (!e.clipboardData) return;
+      e.clipboardData.setData("text/plain", s);
+      if (h) e.clipboardData.setData("text/html", h);
+      e.preventDefault();
+    }
+    document.addEventListener("copy", onCopy, true);
     var a = document.createElement("textarea");
     a.value = s;
     a.setAttribute("readonly", "");
     a.style.cssText = "position:fixed;top:-1000px";
     document.body.appendChild(a);
     a.select();
-    try { document.execCommand("copy"); } finally { document.body.removeChild(a); }
+    try { document.execCommand("copy"); } finally {
+      document.removeEventListener("copy", onCopy, true);
+      document.body.removeChild(a);
+    }
   }
 
   function panelImages(panel) {
@@ -1059,7 +1076,7 @@
       if (b._wired) return;
       b._wired = true;
       b.addEventListener("click", function () {
-        copyTextToClipboard(b.dataset.copy || "");
+        copyTextToClipboard(b.dataset.copy || "", b.dataset.copyHtml || "");
         var o = b.textContent;
         b.textContent = "copied";
         setTimeout(function () { b.textContent = o; }, 1200);

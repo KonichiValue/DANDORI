@@ -364,9 +364,18 @@ def _slack_plan(b: dict, checked: str) -> None:
     seen: set = set()
     old: set[str] = set()
     for t in b.get("tickets", []):
-        if not any(B.is_open(i) for i in t.get("items") or []):
+        has_open = any(B.is_open(i) for i in t.get("items") or [])
+        b_stage = str(((t.get("internal_ticket") or {}).get("build") or {}).get("stage") or "").strip().lower()
+        in_refinement = b_stage == "refining" and not (t.get("asana") or {}).get("completed")
+        if not has_open and not in_refinement:
             continue
-        links = [th.get("url", "") for th in t.get("threads") or []]
+        links = [
+            th.get("url", "")
+            for th in (t.get("threads") or [])
+            if has_open
+            or "refinement" in str(th.get("where") or "").lower()
+            or "refinement" in str(th.get("label") or "").lower()
+        ]
         links += [d.get("link", "") for i in t.get("items") or [] if B.is_open(i) for d in B.drafts(i)]
         for url in links:
             key = _slack_ts(url)

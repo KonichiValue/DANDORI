@@ -96,7 +96,13 @@ because the context is in the file:
 
 - **"Draft the reply to X"**: find the matching item, check whether it already
   has a `draft`, and improve it rather than starting over. Show the draft in chat
-  and wait for approval. Never post it.
+  and wait for approval. Never post it. **Whenever a draft shown in chat contains
+  any URL (`https://...`), wrap it in a fenced ```` ```text ```` code block rather than a
+  blockquote (`> ...`)**: chat UIs visually truncate bare URLs in rendered
+  markdown (`domain/path…/?…` without `https://`), turning them into dead,
+  unclickable text if copied from chat. Point the owner to the DANDORI page's
+  **copy** button (or the code block's Copy button) so full clickable links are
+  always preserved.
 - **"Do 3"**: item numbers are permanent and unique across the board, so resolve
   the number from `state/board.json` and confirm which one you mean before doing
   work. Then do the part of it that does not need them, put the product in the
@@ -360,15 +366,18 @@ after a status was moved. `tests/reload.js` is what keeps that true, and
 `./check.py` runs it.
 
 **A prioritization round comes from `prioritize.py`, if there is one.** Some
-programmes have a lead who posts the build order on a fixed cycle. When
-`config.json` has a `prioritization` block, the round falls every
-`prioritization.every_days` from `anchor`, posted by `who` in `channel` at
-`thread_at`; a round on a holiday runs the next working day, and `moved` records
-any other move. The day that matters is the working day before, the last chance
-to raise a build. The board's `prioritization` block is the owner's CE builds by
+programmes have a lead who opens a build-prioritization confirmation thread on a
+fixed cycle. When `config.json` has a `prioritization` block, the round falls
+every `prioritization.every_days` from `anchor` in `channel` at `thread_at`; a
+round on a holiday runs the next working day (closing earlier at
+`holiday_cutoff_at` when CE finalize that same morning), and `moved` records any
+other move. Normally the owner raises builds on the morning of the round itself
+before `cutoff_at`; if the owner is off / PTO on the round day (from Google
+Calendar or `prioritization.off_days`), `ask_by` shifts back to the previous
+working day. The board's `prioritization` block is the owner's CE builds by
 CDL-Owner, nobody else's, and a sweep rewrites it at step P. The desk draws it
 as a card under the milestone with the note to the lead ready to copy, and the
-week strip marks both days. `./prioritize.py` prints the same; `--dates` lists
+week strip marks the round. `./prioritize.py` prints the same; `--dates` lists
 the rounds ahead. With no block, none of this appears and step P is skipped.
 
 **Meetings come from `calendar_sync.py`, not the board.** It reads Google
