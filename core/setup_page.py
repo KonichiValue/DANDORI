@@ -496,7 +496,7 @@ def connect_gateway(body: dict) -> tuple[int, dict]:
         note(f"Updated ~/.claude/settings.json ({reg_up} gateway, {op_ref})")
 
         kind = agent.Claude()
-        agent.Claude._credential = ""
+        kind.forget_credential()
         agent.forget_readiness()
         key = kind.credential()
         if not key:

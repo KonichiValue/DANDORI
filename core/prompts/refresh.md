@@ -43,11 +43,12 @@ this shape, and a sweep that keeps it finishes in a few minutes:
    PLAN and a WRITE block. Never re-run it, never send it to a file and read it
    back, never open `board.json`.
 2. **Turn 2: every independent source call, in one message.** The census, the
-   gate and the milestone search do not depend on each other, so they go out
-   together as parallel tool calls in a single message. Then every
-   `get_task`/`get_task_stories` the gate earns, together in the next message.
-   The plan's Slack reads (step S) go out with the first message. One call per turn is the slow shape:
-   each turn re-reads the whole context.
+   gate, the milestone search, the Slack reads (step S), any client-email check
+   (step E), and any unread Gemini or Notion meeting-note checks (steps D, N, R)
+   do not depend on each other, so they go out together as parallel tool calls
+   in a single message. Then every `get_task`/`get_task_stories`/`gmail_get_message`
+   they earn goes out together in the next message. One call per turn is the slow
+   shape: each turn re-reads the whole context.
 3. **Then write once.** Put every finding of the sweep into one JSON patch with
    the Write tool at `tmp/patch.json`, and apply it with one `./core/apply.py
    tmp/patch.json`. The WRITE block at the end of the digest has every key. If
@@ -60,7 +61,8 @@ this shape, and a sweep that keeps it finishes in a few minutes:
 When a note at the end of this prompt says **Delta refresh**, Stage 1
 (`./core/scout.py`) has just checked the unfiltered Asana census, the
 `modified_at_after` gates, every live Slack thread, your own sends, your
-mentions, and any open Slack canvases, and wrote only what moved to
+mentions, channel hints, active Slack canvases, client-domain emails, and
+post-call Gemini/Notion meeting notes, and wrote only what moved to
 `tmp/delta.json`:
 
 1. **Turn 1: `./core/digest.py --delta`, once.** Never run plain `./core/digest.py`
@@ -69,31 +71,36 @@ mentions, and any open Slack canvases, and wrote only what moved to
    of every unchanged ticket.
 2. **Turn 2: fetch only `TO FETCH IN ONE PARALLEL TURN`.** Do **not** re-run the
    Asana census, the Slack thread reads, or the Slack searches already printed
-   verbatim in `DELTA FINDINGS`. Only call `get_task_stories`, `get_task` or
-   `drive_read_file` on the specific task GIDs and meeting docs listed under
-   `TO FETCH` (plus a `slack_read_thread` only if a new Slack search hit links
-   to a thread whose surrounding replies you need). If `TO FETCH` is absent
-   because every change was a Slack message already printed in full, make zero
-   source calls and write the patch straight away.
+   verbatim in `DELTA FINDINGS`. Only call `get_task_stories`, `get_task`,
+   `drive_read_file`, `notion-fetch`, or `gmail_get_message` on the specific
+   items listed under `TO FETCH` (plus a `slack_read_thread` only if a new Slack
+   search hit links to a thread whose surrounding replies you need). If `TO FETCH`
+   is absent because every change was a Slack message already printed in full,
+   make zero source calls and write the patch straight away.
 3. **Apply every board rule below identically**, write `tmp/patch.json` with
    `"swept": true` (`apply.py` stamps every quiet thread verified by the scout
    automatically), and run `./core/check.py`.
-4. **Pre-room speaking sync (only when `DELTA FINDINGS` shows `!! PRE-ROOM SCRIPT SYNC ACTIVE`).**
+4. **Pre-room speaking sync (when `DELTA FINDINGS` or `SWEEP PLAN` shows `PRE-ROOM SCRIPT SYNC ACTIVE`).**
    When a speaking session is within 90 minutes and today's `script` is already
-   built for it, keep `What I say` aligned with `My work` by also updating
-   `tickets.<ref>.prep` **only on the ticket(s) whose state, timeline or asks
-   changed in this delta** (or setting `"prep": null` if that ticket is now
-   completed or settled with nothing owed in the room):
+   built for it, keep `What I say` aligned with `My work` by updating
+   `tickets.<ref>.prep` on **every ticket whose state, timeline or asks changed
+   in this sweep AND any active cycle/priority ticket listed under `MISSING FROM
+   WHAT I SAY` that lacks `prep.script`** (or setting `"prep": null` if a ticket
+   is now completed or settled with nothing owed in the room):
    - Follow the profile's `## Writing to the client` and `## Never reaches the client`
      rules: register, spoken flow, exact domain vocabulary, zero internal details
      (no KT numbers, story points, queue position or engineer names), and
      `{word|reading}` on whole words when `config.json` `language.readings` is
      true (`./core/check.py` verifies every spoken line).
-   - Keep `prep` to `{order, board_position, issue, why_it_matters, consequences,
-     open_questions, script, client_ask_needed, built_at}` (plus `decisions` /
-     `pushback` only for an onsite or weekly review that uses them; keep the
-     ticket's existing `order` and `board_position`).
-   - Leave unchanged tickets' `prep` blocks completely untouched. Outside this
+   - Keep `prep` to `{order, board_position, gist, issue, why_it_matters, explainer,
+     consequences, open_questions, script, client_ask_needed, built_at}` (plus
+     `decisions` / `pushback` only for an onsite or weekly review that uses them;
+     place `order` in the room's priority order, e.g. `Top Priority -> Priority -> New -> Other`,
+     and include `explainer` on newly added tickets).
+   - If an open item for a newly added ticket card was temporarily created on
+     another ticket before the card existed, re-home it onto its own ticket card
+     with `"items": {"<N>": {"ticket": "<ref>"}}` (its item number never changes).
+   - Leave other unchanged tickets' `prep` blocks completely untouched. Outside this
      90-minute pre-room window, never touch `prep` or `script`.
 
 Banned outright, because each one is a detour a real sweep has taken:
@@ -456,8 +463,11 @@ A doc that will not open is a gap, not a guess.
 - Every Slack read the plan's step S names, all of them, every sweep. Slack has
   no gate: a reply there moves nothing on the board until you read it, so a
   thread is never skipped for looking quiet. The owner's own messages in them
-  are events too ("You"), and so is anything the two searches turn up.
-- New replies in every other thread listed under each ticket's `threads`.
+  are events too ("You"), and so is anything the searches turn up.
+- Any client email check the plan's step E names (`gmail_search_messages`,
+  strictly read-only; read matching threads with `gmail_get_message`).
+- New replies or updates in every other linked thread, Notion page, Google Doc,
+  or Miro board listed under step 2 (`threads`), marking them in `"checked"`.
 - Slack messages that mention the owner and have no reply from them, in the
   channels those threads live in. If one belongs to a ticket on the board, attach
   it as a thread and give it an item. If it belongs to no ticket, still give it
@@ -743,6 +753,14 @@ strip is how they plan, and it gets a job's day from one of two places:
   carries `due_by`, an ISO date. Without it the job reads "Do now" a week early;
   with it the card reads "By 6 Nov", the strip draws it on that day, and it turns
   "Due today" when the day comes. Keep `urgency` on it too.
+- **Rarely, a phone reminder.** `remind: {"on": "YYYY-MM-DD", "at": "HH:MM",
+  "why": "..."}` puts the job in Apple Reminders as well, and that is a ping on
+  the owner's phone, so it is for the job where missing the moment does real
+  harm: a fixed production window the owner runs, a deadline promised to the
+  client, a cut-off nobody else will catch. Never for a status comment, a chase
+  or anything the page already shows in time. Most sweeps add none; the board
+  holds three at most. Set `at` a little before the moment, and remove `remind`
+  (`null`) once it has passed or no longer applies. Closing the job clears it.
 
 A job is therefore either somebody else's with a real `chase_on`, or the owner's
 with an honest `urgency` and, when it has a deadline, a `due_by`. Anything else
@@ -803,19 +821,43 @@ sweep, for **every open ticket assigned to the owner**:
    ticket: a comment by the owner or any Kraken colleague. A status-field change
    is not one, and neither is something said in a meeting. Read the ticket's
    comments if the gate skipped it.
-2. **Seven days or more with nothing visible, or something changed that the
-   client has not been told** (a build started, an engineer assigned or lost, a
-   date moved, an answer arrived, a question of theirs went unanswered): write a
-   status comment for the client ticket. Put it as a `draft` on the ticket's open
-   item, or in a new item, "Post a status update on <ref>", with
-   `urgency: "this-week"`, or `today` when the client asked for it in a meeting.
-   Write it in the client's language and house style, three to five lines: where
-   it stands, what changed since the last comment, what comes next, and when they
-   will hear again. Nothing internal goes in it (AGENTS.md hard rule 3). If the
-   true state is "waiting for an engineer", say exactly that.
-3. **Skip only** a ticket the client commented on and Kraken answered within the
-   week, one completed in Asana, or one whose open item already carries an unsent
-   status draft. Refresh that draft instead of adding a second one.
+2. **Never wait seven days when something moved internally, entered a Wave, got a
+   client reply, or was promised in a meeting.** Raise or update a `todo` item
+   immediately (with `urgency: "today"` when promised in a session or replying
+   to the client, or `"this-week"` for proactive status updates) carrying a
+   ready-to-paste client-language Asana comment draft whenever **any** of these
+   is true:
+   - **Scheduled in a Wave / given a target window**: a linked CE build has a
+     `wave` or `due_on` and no Kraken comment on the client ticket has yet told
+     the client the expected cycle or target date window (where the profile
+     allows sourced estimates, state the cycle/month window as `〜頃目処 / 予定`,
+     never naming internal `Wave` numbers, story points, or `KT-...` IDs).
+   - **Internal stage moved after the last client comment**: refinement finished
+     (`Ready to build`), an engineer picked up the build, or a PR merged after
+     the newest Kraken comment on the client ticket.
+   - **Client commented or agreed**: the client replied on the ticket confirming
+     scope, sharing patrol counts, or asking Kraken to proceed, and Kraken has
+     not posted a short acknowledgment + current status on the ticket.
+   - **Promise at a standup**: the owner said at the meeting they would check
+     and comment on the ticket today.
+   - **Seven days with nothing visible**: even if nothing changed internally,
+     a week of silence still earns a short status comment (`エンジニアアサイン待ち`
+     included).
+   Write the draft in the client's language and house style, conclusion first,
+   three to five lines: where it stands, the expected cycle/window (when sourced
+   and allowed), and what comes next. Nothing internal goes in it (AGENTS.md
+   hard rule 3). The comment is read inside the ticket, under its title and its
+   earlier comments, so it never opens by naming the ticket or what it is about
+   ("〇〇の件ですが", "Regarding the X"), and never retells an earlier comment
+   there; point at one in a few words when you lean on it. Open with the news,
+   under the @mentions of the people who need to act or know (whoever asked,
+   the client-side owner, CC the others on the last exchange).
+   Only a comment you build on that is weeks old earns one clause of context
+   back. `./core/audit.py` flags a draft that opens on the ticket's subject.
+3. **Skip only** a ticket completed in Asana, one whose open `todo`/`hold` item
+   already carries an unsent client Asana comment draft (refresh that draft
+   instead of adding a second), or one that Kraken updated on the ticket within
+   the last few days with no internal or client event since.
 
 **Check every build behind those tickets for a slip in the same pass**, because a
 quiet client ticket usually sits on a quiet build. Read each `internal_ticket` in
@@ -874,6 +916,14 @@ number in its `items`.
 - `status` is `on-track` unless something you can quote puts the target at
   risk (`at-risk`) or past saving (`off-track`). Never mark it `done` until
   every phase is.
+- **Step H (`TEAM HUDDLE TODAY`):** When the digest's `SWEEP PLAN` prints step
+  `H`, today runs the internal team huddle (`meeting.also` `kind: huddle`) and
+  `board.huddle.for_date` is still on a past week. Fetch the huddle's Notion
+  page and query its milestone and blocker databases, then write `"board":
+  {"huddle": {"for_date": "<today>", "at": "<at>", "built_at": "<checked_at>",
+  "milestones": [...], "blockers": [...], "plate": [...]}}` in `tmp/patch.json`
+  (only milestones with `in_huddle` not `false` go in `huddle.milestones`;
+  internal projects with `in_huddle: false` go in `huddle.plate`).
 
 ## 7c. Keep the prioritization current
 
@@ -902,14 +952,24 @@ more about how the round works.
   record per build: `kt`, `gid`, `url`, `name`, `ticket` (the board ref it
   serves, or ""), `status` (Status (Kraken Cust)), `refinement` (🟢 etc.),
   `size` ("3 SP"), `client_order` (the client's own order field on the build, as
-  Asana shows it), `wave`, `squad`, `due_on` (ISO
-  or ""), `engineer`, and `why`. Drop a build that is completed. Keep the order
-  the owner would raise them in: the one with a client customer waiting on it
-  first.
-- `why` is one clause for the prioritization lead on why it matters, in English
-  and from what the ticket says: a customer waiting on a refund, a letter that
-  goes out wrong. Never a story point, a name or a guess. Keep an existing `why` unless
-  the ticket changed.
+  Asana shows it), `wave`, `committed_on` (ISO date from Committed Date /
+  Committed on, or ""), `squad`, `due_on` (ISO or ""), `engineer`, `push`
+  (`true` or `false`), `why`, and optional `hold_why`. Drop a build that is
+  completed. Keep the order the owner would raise them in: the one with a client
+  customer waiting on it first.
+- **Check `wave` first: a build already in a `Wave` (or carrying a `client_order`
+  or assigned `engineer`) is already scheduled into a delivery cycle and never
+  needs raising.** Always copy Asana's `Wave` and `Committed Date` (`committed_on`)
+  onto the row so `prioritize.py` marks it `In Wave` rather than `Raise`.
+- **Every build to raise must earn a short 1-sentence motivation (`why`), or it
+  does not get raised.** Write `why` as **one concise sentence** (under ~150
+  characters) stating the concrete customer or operational pain that justifies
+  pushing this build in a crowded round (never a story point, engineer name or
+  guess). **If you cannot motivate why CE must prioritize it now** (for example,
+  a defensive retry follow-up sequenced after an unbuilt primary fix, or a minor
+  cleanup already covered cleanly by operations), set `"push": false`, leave
+  `"why": ""`, and put a one-line explanation in `"hold_why"` so the card holds
+  it back instead of padding the prioritization thread.
 - When `P.` says a round has run, read the lead's thread and set
   `prioritization.last_round` to `{date, url, ordered: [KT...], not_pushed:
   [KT...]}`, the owner's builds only. A build ordered there gets its client order
@@ -936,69 +996,31 @@ the day anywhere.
 
 ## 8b. Write the morning brief
 
-`brief` is the last thing you write and the first thing the owner reads: the five
-things a good secretary would tell them before the day starts. It is the one
-place on this board where a written sentence about the day is wanted, and it is
-bounded precisely so it cannot become the summary section 8 forbids.
+`brief` feeds the `This morning` radar card at the top of the work view. The
+renderer already computes live external replies since the last working day,
+unblocked `todo` items, due chases, Asana Status drift, today's upcoming room
+readiness, approaching 7-day client-comment windows, imminent milestone phases,
+and prioritization cutoffs straight off the board.
 
-**Five lines maximum, and fewer is the normal answer.** Three good lines beat five
-padded ones. The cap is the point: everything on this board is already on a card,
-so a sixth line means one of the five had not earned its place. Never write a
-line to fill a slot, and never write one whose content is "nothing has changed":
-leave the slot out.
+So **never write prose that merely repeats a card, a meeting time, an old `news`
+row, or an item already in `To do`.** Only write 1 to 3 lines that add context
+the deterministic renderer cannot read off a status field:
 
-The test for every line: **would the owner be worse off not knowing this before
-the working day starts?** If the answer is no, it stays on its card and out of
-here.
+- `watch`: a human or external clock the owner should keep in mind today, such
+  as a key client or colleague being out of office (`不在` / OOO in Slack or a
+  thread), a release freeze window, or a dependency about to land.
+- `do`: **only when two or more `todo` items are open with the owner**, one
+  short sentence naming which item number to start on first and why that order
+  matters. Leave `do` out when zero or one `todo` item is open.
+- `big`: only when something genuinely new (today or yesterday) across the
+  client or sister programme is bigger than any single ticket. Never copy a
+  multi-day-old `news` row into `big`.
 
-Each line is `{"kind", "what", "items", "ref", "source_url", "at"}`. `what` is
-one or two plain sentences that make sense to someone who has read nothing else,
-with no internal shorthand and no Asana ids they would have to look up. `items`
-are the numbers the line is about, so the page can link them; `ref` is the ticket
-tag.
-
-The five kinds, in the order they are drawn. **Two of them you normally leave
-alone**, because the page writes them off the board and a written copy would go
-stale beside a live one:
-
-- `room`: the next session and what the owner owes it. **The page writes this
-  from `sessions`**, so only write one yourself if you know something about
-  today's room that `sessions` does not, and then it replaces the drawn one.
-- `big`: **the page writes this from the newest `news` row.** Write one yourself
-  only when something is bigger than anything in `news`, and then also put it in
-  `news` if it has a route to one of the owner's tickets.
-
-  This is the one line on the board that does not need that route. Something
-  moving across the client or the wider programme with enough people and enough
-  consequence behind it that not knowing would be worse than any of the owner's
-  own jobs: a platform decision, a migration-wide freeze, a top-priority build,
-  an incident heading for the workstream. If you picked it up in any channel, any
-  meeting note, any thread, and it is genuinely big, it belongs here even with no
-  ticket to hang it on. Most days the newest `news` row is the right answer and
-  you write nothing.
-
-The three you do write, every sweep:
-
-- `moved`: something that actually changed since the previous `brief.built_at`:
-  a reply landed, the client closed or moved a ticket, a flag went on, a ticket
-  was assigned to the owner. Not a restatement of where things stand. Read the
-  previous brief's `built_at` and only report what is newer than it.
-- `do`: the one thing to start on, by number, and why it is that one. One line.
-- `watch`: a clock the owner cannot act on: a hold window, someone away, a
-  release going out. One line at most.
-
-So a normal sweep writes two or three lines and the page makes five. Writing all
-five is the sign you have copied something the page already knew.
-
-Set `for_date` to today and `built_at` to now, and rewrite the whole
-block every sweep rather than appending to it. The page refuses to draw a brief
-whose `for_date` has passed, so a stale one disappears rather than being read as
-this morning's.
-
-Two things this may never be. It is not a summary of the board: "four items need
-you, 60 minutes in total" is counted by the renderer and already on the page. And
-it is not where work goes. If a line describes something the owner has to do,
-that thing is an item with a number, and the line points at the number.
+Each line is `{"kind", "what", "items", "ref", "source_url", "at"}`, one plain
+sentence under 20 words, active voice, zero internal shorthand. Set `for_date`
+to today and `built_at` to now, and rewrite `brief` whole every sweep (an empty
+`lines: []` is completely fine on a quiet morning because the live radar rows
+still draw from the board).
 
 ## 9. Keep the shorthand current
 

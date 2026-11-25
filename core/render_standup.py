@@ -20,15 +20,16 @@ from __future__ import annotations
 
 import re
 from datetime import date, timedelta
+from pathlib import Path
 
 import render_milestone
 import settings
 from render import (
-    asset,
     ASKED,
     SPARK,
     ai_split_btn,
     ask_block,
+    asset,
     day_words,
     esc,
     furi,
@@ -49,12 +50,80 @@ from render import (
 )
 
 
-
 # The script block that holds the spoken questions. `質問` is the convention
 # prompts/prep.md gives a Japanese-speaking client; the English names let a desk
 # in any other language mark the same block by its `heading_en`.
 QUESTION_HEADINGS = {"質問"}
 QUESTION_HEADINGS_EN = {"question", "questions", "what i need answered", "what we need answered"}
+
+JOURNEY_WORDS = {
+    "done": ("Done", "done"),
+    "now": ("Now", "now"),
+    "blocked": ("Blocked", "blocked"),
+    "next": ("Next", "next"),
+}
+
+BOARD_SLOT_RE = re.compile(r"^(\d+)\s+of\s+(\d+)")
+IMG_EXT_RE = re.compile(r"\.(png|jpe?g|webp|gif)$", re.I)
+
+
+def _visual_urls(raw_path: str) -> tuple[str, str]:
+    raw = str(raw_path or "").strip()
+    if raw.startswith(("http://", "https://")):
+        return raw, raw
+    rel = re.sub(r"^(?:clients/[^/]+/)?(?:docs|scripts)/", "", raw).lstrip("/")
+    name = rel or Path(raw).name
+    return f"/doc/{name}", f"../docs/{name}"
+
+
+def _explainer_visuals_html(t: dict) -> str:
+    """Compact visual screenshot/diagram strip inside `Understand this ticket`."""
+    exp = ((t.get("prep") or {}).get("explainer") or {})
+    candidates: list[dict] = [v for v in (exp.get("visuals") or []) if isinstance(v, dict)]
+    for item in reversed(t.get("items") or []):
+        for f in ((item.get("prepared") or {}).get("files") or []):
+            if isinstance(f, dict):
+                candidates.append(f)
+
+    seen: set[str] = set()
+    cards: list[str] = []
+    for f in candidates:
+        raw = str(f.get("path") or f.get("url") or "").strip()
+        if not raw or not IMG_EXT_RE.search(raw) or raw in seen:
+            continue
+        seen.add(raw)
+        href, fallback = _visual_urls(raw)
+        label = str(f.get("label") or Path(raw).name)
+        caption = str(f.get("caption") or f.get("where") or "")
+        fb_attr = (
+            f' onerror="if(this.dataset.fb&&this.src!==this.dataset.fb){{this.src=this.dataset.fb;'
+            f'var a=this.closest(\'a\');if(a)a.href=this.dataset.fb}}"'
+            f' data-fb="{esc_attr(fallback)}"'
+            if fallback != href
+            else ""
+        )
+        cards.append(
+            f'<a class="exp-shot" href="{esc(href)}" data-lightbox="{esc(label)}" '
+            f'data-caption="{esc(caption)}" target="_blank" rel="noopener">'
+            f'<span class="exp-shot-img"><img src="{esc(href)}" alt="{esc(label)}" loading="lazy"{fb_attr}></span>'
+            f'<span class="exp-shot-cap"><b>{esc(label)}</b>'
+            f'{f"<i>{esc(caption)}</i>" if caption else ""}</span></a>'
+        )
+        if len(cards) >= 4:
+            break
+
+    if not cards:
+        return ""
+    return (
+        '<div class="exp-vis">'
+        '<span class="exp-vis-h">Visual reference <i>click any screenshot to enlarge</i></span>'
+        f'<div class="exp-shots">{"".join(cards)}</div>'
+        "</div>"
+    )
+
+
+def esc_attr(val: object) -> str:
+    return esc(val)
 
 
 def is_question_block(block: dict) -> bool:
@@ -79,12 +148,7 @@ def owed_by_client(who: object) -> bool:
 
 
 def also_room(kinds: tuple[str, ...], default: str) -> str:
-    """The name of a room from `config.json` `meeting.also`, found by its `kind`.
-
-    The programme rollup and the team huddle are not sessions, so nothing else
-    names them. An owner who has one lists it in `meeting.also` with a `kind`
-    of `rollup` or `huddle`, and the card takes its name from there.
-    """
+    """The name of a room from `config.json` `meeting.also`, found by its `kind`."""
     room = room_of(kinds)
     name = str(room.get("tab") or room.get("name") or "").strip()
     return name or default
@@ -99,8 +163,7 @@ def room_of(kinds: tuple[str, ...]) -> dict:
 
 
 def room_link(kinds: tuple[str, ...]) -> str:
-    """The room's own page (`link` on its `meeting.also` entry), if it has one:
-    the Notion page the huddle walks, say. Only an http(s) address is drawn."""
+    """The room's own page (`link` on its `meeting.also` entry), if it has one."""
     url = str(room_of(kinds).get("link") or "").strip()
     return url if url.startswith(("https://", "http://")) else ""
 
@@ -124,6 +187,48 @@ def anchor(ident: str) -> str:
     """Standup anchors mirror the desk's, with an s- prefix, so a ticket can
     link to its own other half."""
     return "s-" + ident.removeprefix("t-")
+
+
+def _one_line(text: str, limit: int = 128) -> str:
+    clean = " ".join(str(text or "").split())
+    if not clean:
+        return ""
+    for stop in (". ", "。"):
+        if stop in clean:
+            clean = clean.split(stop)[0] + ("." if stop == ". " else "。")
+            break
+    if len(clean) > limit:
+        clean = clean[: limit - 1].rsplit(" ", 1)[0] + "…"
+    return clean
+
+
+def has_explainer(prep: dict) -> bool:
+    exp = prep.get("explainer")
+    return isinstance(exp, dict) and any(
+        exp.get(k) for k in ("summary", "flow", "journey", "facts", "if_asked")
+    )
+
+
+def ticket_gist(t: dict) -> str:
+    """One crisp English line summarizing what the owner says or asks on this ticket."""
+    prep = t.get("prep") or {}
+    if prep.get("gist"):
+        return _one_line(str(prep["gist"]), 136)
+    blocks = prep.get("script") or []
+    # Prefer the ask/request block when the ticket needs something from the client,
+    # otherwise lead with the status line.
+    if prep.get("client_ask_needed") is not False and len(blocks) > 1:
+        last_lines = blocks[-1].get("lines") or []
+        if last_lines and last_lines[0].get("en"):
+            return _one_line(str(last_lines[0]["en"]), 136)
+    for b in blocks:
+        for ln in b.get("lines") or []:
+            if ln.get("en"):
+                return _one_line(str(ln["en"]), 136)
+    issue = prep.get("issue") or []
+    if issue:
+        return _one_line(str(issue[0]), 136)
+    return _one_line(str(t.get("where_it_stands") or ""), 136)
 
 
 def raise_rows(t: dict, desk_id: str) -> str:
@@ -151,13 +256,7 @@ def raise_rows(t: dict, desk_id: str) -> str:
 
 
 def render_session(sess: dict, big: bool) -> str:
-    """What this room has to produce, and what the owner has to walk in holding.
-
-    The agenda that used to sit here was a second copy of every ticket's asks,
-    one screen above them. What survives is the sentence saying what the room is
-    for, and the things they promised to bring, because forgetting one of those is
-    the only failure this block can actually prevent.
-    """
+    """What this room has to produce, and what the owner has to walk in holding."""
     if not sess.get("date") and not sess.get("focus"):
         return ""
     bring = sess.get("bring", [])
@@ -173,14 +272,12 @@ def render_session(sess: dict, big: bool) -> str:
         if sess.get("focus")
         else ""
     )
-    # With nothing but the bring list in it, the frame is a box drawn round a
-    # box. Drop it and let the list stand on its own.
+    if not focus and not bring_block:
+        return ""
     return f"""
   <section class="sess {"big" if big else ""} {"" if focus else "bare"}">
     {focus}{bring_block}
   </section>"""
-
-
 
 
 def render_pushback(rows: list[dict]) -> str:
@@ -224,30 +321,14 @@ def move_li(e: dict) -> str:
         </li>"""
 
 
-def since_last(t: dict, since: str) -> str:
-    """What moved on this ticket since the last meeting, and the days before it.
-
-    Reading the ticket cold an hour before the meeting is the hard part of the
-    morning, harder than speaking the client's language. This is the paragraph that answers "what happened since
-    I last talked about this", which is also the first thing anyone in the room
-    asks.
-
-    It used to stop there, at six moves since the last session, and the room does
-    not. "When did you first tell us about this" and "what did we agree in
-    August" are asked of the same card, and the answer was a tab away on the work
-    view. The whole history is here now, one fold per earlier day, so nothing
-    asked in the room needs the other tab.
-    """
+def _moves_markup(t: dict, since: str) -> tuple[str, str, int]:
+    """Return `(body_html, tally_words, new_count)` for a ticket's timeline moves."""
     rows = sorted(t.get("events", []), key=lambda e: (e.get("on", ""), e.get("at", "")))
     if not rows:
-        return ""
+        return "", "", 0
     new = [e for e in rows if (e.get("on") or "") >= since]
     old = [e for e in rows if (e.get("on") or "") < since]
 
-    # One fold per day, counting back, because the question in the room is "when
-    # did that happen". The newest day is open, since that is the day being asked
-    # about, and a line says where the owner last spoke so the days above it are the
-    # answer to "what has changed since".
     days: dict[str, list[dict]] = {}
     for e in rows:
         days.setdefault(e.get("on", ""), []).append(e)
@@ -278,6 +359,14 @@ def since_last(t: dict, since: str) -> str:
         tally = f"{len(new)} since {day_words(since)}"
     else:
         tally = f"{len(old)} {'move' if len(old) == 1 else 'moves'}, none since you spoke"
+    return body, tally, len(new)
+
+
+def since_last(t: dict, since: str) -> str:
+    """What moved on this ticket since the last meeting, and the days before it."""
+    body, tally, _ = _moves_markup(t, since)
+    if not body:
+        return ""
     return section(
         "What moved on this ticket",
         body,
@@ -289,14 +378,182 @@ def since_last(t: dict, since: str) -> str:
     )
 
 
-def needs(t: dict, spoken: bool) -> str:
-    """Everything the owner has to come out of the room with, in one list.
+def render_explainer(t: dict, ident: str, desk_id: str, since: str) -> str:
+    """Pedagogical explanation drawer on the speaking card.
 
-    A decision to land, a question to get answered and a thing somebody already
-    owes them were three blocks under the script, which meant reading three lists
-    to answer one question. They are all the same question, so they are one
-    list, and each row says which kind it is and who has to move.
+    For ordinary, familiar tickets, keeps the light one-fold summary.
+    For complex, new, or newly-assigned tickets carrying `prep.explainer`,
+    renders a compact segmented walkthrough (How it works / Done & next /
+    Pocket facts & Q&A / Moves) so the owner grasps the whole mental model,
+    prior history, and speaking rationale in seconds without bloating the page.
     """
+    prep = t.get("prep") or {}
+    t_ref = str(t.get("ref") or "")
+    issue_items = "".join(f"<li>{esc(b)}</li>" for b in (prep.get("issue") or []))
+    raised = raise_rows(t, desk_id)
+    ask_btn = (
+        f'<button class="qe-btn exp-ask-btn" type="button" data-qe-kind="ticket" '
+        f'data-qe-ref="ticket:{esc(t_ref)}" data-qe-lang="en" aria-expanded="false" '
+        f'title="Ask Opus anything about this ticket, or clarify how it works">{SPARK}Ask AI</button>'
+    )
+
+    if not has_explainer(prep):
+        preview = _one_line(
+            (prep.get("issue") or [""])[0] or str(t.get("where_it_stands") or ""),
+            125,
+        )
+        return f"""
+      <details class="sub key st-brief" data-remember="brief-{esc(ident)}">
+        <summary><h3>If they ask what this is
+          <span class="hint">the issue, where it stands, what moved</span></h3>
+          {ask_btn}
+          <span class="fold-hint"></span>
+          {f'<span class="exp-closed-sum">{esc(preview)}</span>' if preview else ""}</summary>
+        <div class="st-brief-in">
+          <div class="qe-slot exp-qe-slot" data-qe-slot hidden></div>
+          {f'<ul class="st-issue">{issue_items}</ul>' if issue_items else ""}
+          {f'<p class="matters">{esc(prep.get("why_it_matters"))}</p>' if prep.get("why_it_matters") else ""}
+          <p class="st-stands">{esc(t.get("where_it_stands"))}</p>
+          {raised}
+          {since_last(t, since)}
+        </div>
+      </details>"""
+
+    exp = prep["explainer"]
+    is_new = bool(exp.get("new_to_you"))
+    badge_text = str(exp.get("badge") or ("New to you · Walkthrough" if is_new else "Walkthrough"))
+    summary_text = str(exp.get("summary") or (prep.get("issue") or [""])[0] or "")
+    why_say = str(exp.get("why_say") or "")
+
+    # Tab 1: Mental model + visual step-by-step flow + screenshots + why your script says what it says
+    flow_rows = exp.get("flow") or []
+    flow_html = ""
+    if flow_rows:
+        cards = []
+        for idx, f in enumerate(flow_rows, 1):
+            step_lbl = str(f.get("step") or f.get("label") or f"Step {idx}")
+            step_body = str(f.get("detail") or f.get("what") or "")
+            who_str = str(f.get("who") or "").strip()
+            where_str = str(f.get("where") or "").strip()
+            meta_bits = [x for x in (f"<b>{esc(who_str)}</b>" if who_str else "", esc(where_str) if where_str else "") if x]
+            meta_html = f'<span class="ef-meta">{" &middot; ".join(meta_bits)}</span>' if meta_bits else ""
+            cards.append(
+                f'<li class="ef-card"><div class="ef-top"><span class="ef-step">{esc(step_lbl)}</span>{meta_html}</div>'
+                f'<p class="ef-body">{esc(step_body)}</p></li>'
+            )
+        flow_html = f'<ol class="exp-flow">{"".join(cards)}</ol>'
+
+    vis_html = _explainer_visuals_html(t)
+
+    pane_how = f"""
+          {f'<p class="exp-sum">{esc(summary_text)}</p>' if summary_text else (f'<ul class="st-issue">{issue_items}</ul>' if issue_items else "")}
+          {f'<p class="exp-impact"><b>Why it matters</b> {esc(prep.get("why_it_matters"))}</p>' if prep.get("why_it_matters") else ""}
+          {flow_html}
+          {vis_html}
+          {f'<div class="exp-why"><b>Why you say this today</b><p>{esc(why_say)}</p></div>' if why_say else ""}"""
+
+    panes: list[tuple[str, str, str]] = [("how", "1. How it works", pane_how)]
+
+    # Tab 2: Done so far -> Where we stand -> What comes next
+    journey_rows = exp.get("journey") or []
+    if journey_rows or t.get("where_it_stands") or raised:
+        j_items = []
+        for j in journey_rows:
+            st_raw = str(j.get("state") or "done").lower()
+            word, cls = JOURNEY_WORDS.get(st_raw, ("Done", "done"))
+            lbl = str(j.get("label") or j.get("what") or "")
+            det = str(j.get("detail") or j.get("note") or "")
+            j_items.append(
+                f'<li class="ej {cls}"><span class="ej-pill">{esc(word)}</span>'
+                f'<div class="ej-b"><b>{esc(lbl)}</b>'
+                f'{f"<span>{esc(det)}</span>" if det else ""}</div></li>'
+            )
+        j_list = f'<ol class="exp-journey">{"".join(j_items)}</ol>' if j_items else ""
+        stands_line = (
+            f'<p class="exp-stands"><b>Right now on your desk</b> {esc(t.get("where_it_stands"))}</p>'
+            if t.get("where_it_stands")
+            else ""
+        )
+        panes.append(("journey", "2. Done & next", f"{j_list}{stands_line}{raised}"))
+
+    # Tab 3: Pocket facts & ready answers if asked
+    facts_rows = exp.get("facts") or []
+    qna_rows = exp.get("if_asked") or []
+    if facts_rows or qna_rows:
+        facts_html = ""
+        if facts_rows:
+            cells = "".join(
+                f'<div class="ef-kv"><dt>{esc(r.get("label"))}</dt><dd>{esc(r.get("value"))}</dd></div>'
+                for r in facts_rows
+                if r.get("label") or r.get("value")
+            )
+            facts_html = f'<dl class="exp-facts">{cells}</dl>' if cells else ""
+        qna_html = ""
+        if qna_rows:
+            qs = []
+            for r in qna_rows:
+                raw_ja = plain(r.get("say_ja", ""))
+                say_part = (
+                    f'<div class="eq-ja"><p class="jp">{furi(r.get("say_ja", ""))}</p>'
+                    f'{f"""<button class="copy" data-copy="{esc(raw_ja)}">copy</button>""" if raw_ja else ""}</div>'
+                    if r.get("say_ja")
+                    else ""
+                )
+                qs.append(
+                    f'<li><p class="eq-q"><b>If asked:</b> {esc(r.get("q"))}</p>'
+                    f'<p class="eq-a">{esc(r.get("a"))}</p>{say_part}</li>'
+                )
+            qna_html = f'<ul class="exp-qna">{"".join(qs)}</ul>'
+        tab_num = len(panes) + 1
+        panes.append(("facts", f"{tab_num}. Key facts & Q&A", f"{facts_html}{qna_html}"))
+
+    # Tab 4: Timeline moves (kept one click away, zero default vertical height)
+    moves_body, moves_tally, new_cnt = _moves_markup(t, since)
+    if moves_body:
+        mv_label = f"Timeline ({new_cnt} new)" if new_cnt else f"Timeline ({len(t.get('events') or [])})"
+        panes.append(
+            ("moves", mv_label, f'<p class="exp-mv-sum">{esc(moves_tally)}</p>{moves_body}')
+        )
+
+    tabs_bar = ""
+    if len(panes) > 1:
+        btns = "".join(
+            f'<button type="button" class="exp-tab" role="tab" '
+            f'data-exp-tab="{esc(key)}" aria-selected="{"true" if idx == 0 else "false"}">'
+            f"{esc(label)}</button>"
+            for idx, (key, label, _) in enumerate(panes)
+        )
+        tabs_bar = f'<div class="exp-tabs" role="tablist" aria-label="Ticket explanation">{btns}</div>'
+
+    pane_divs = "".join(
+        f'<div class="exp-pane" data-exp-pane="{esc(key)}"{"" if idx == 0 else " hidden"}>{html}</div>'
+        for idx, (key, _, html) in enumerate(panes)
+    )
+
+    closed_preview = _one_line(summary_text, 128)
+    rem_key = f"expnew-{ident}" if is_new else f"exp-{ident}"
+    return f"""
+      <details class="sub key st-brief has-exp{" is-new" if is_new else ""}"
+               data-remember="{esc(rem_key)}"{" open" if is_new else ""}>
+        <summary>
+          <h3>Understand this ticket
+            <span class="exp-badge{" new" if is_new else ""}">{esc(badge_text)}</span>
+            <span class="hint">mental model, progress, pocket facts</span>
+          </h3>
+          {ask_btn}
+          <span class="fold-hint"></span>
+          {f'<span class="exp-closed-sum">{esc(closed_preview)}</span>' if closed_preview else ""}
+        </summary>
+        <div class="st-brief-in exp-shell" data-exp-group="{esc(ident)}">
+          <div class="qe-slot exp-qe-slot" data-qe-slot hidden></div>
+          {tabs_bar}
+          {pane_divs}
+        </div>
+      </details>"""
+
+
+def needs(t: dict, spoken: bool) -> str:
+    """Everything the owner has to come out of the room with, in one list."""
     prep = t.get("prep") or {}
     rows, hardest = [], 0
     for d in prep.get("decisions", []):
@@ -315,8 +572,6 @@ def needs(t: dict, spoken: bool) -> str:
 
     asks = list(prep.get("open_questions", []))
     if spoken:
-        # The script already says the client's questions out loud, so only the
-        # ones owed by someone else stay on this list.
         asks = [q for q in asks if not owed_by_client(q.get("who"))]
     for q in asks:
         hardest = max(hardest, 1)
@@ -366,10 +621,7 @@ def needs(t: dict, spoken: bool) -> str:
 
 def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
     prep = t.get("prep") or {}
-    # A ticket carrying a decision into the room is not a ticket with nothing to
-    # ask, whatever the flag says.
     no_ask = prep.get("client_ask_needed") is False and not prep.get("decisions")
-    issue = "".join(f"<li>{esc(b)}</li>" for b in prep.get("issue", []))
     unknowns = prep.get("unknowns", [])
     warn = ""
     if unknowns:
@@ -387,8 +639,6 @@ def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
         if internal.get("name")
         else ""
     )
-    # The one line about the build that may be said out loud. It sits with the
-    # warning because that is the moment the owner needs it: asked when, in the room.
     safe = (internal.get("build") or {}).get("safe_to_say")
     if safe:
         secret += f'<p class="st-safe">If they ask when: {furi(safe)}</p>'
@@ -408,6 +658,7 @@ def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
       <header class="st-head">
         <div class="tk-id">
           <span class="tag">{esc(ticket_tag(t))}</span>
+          {f'<span class="run-prio {esc(_prio_cls((t.get("asana") or {}).get("priority")))}">{esc(str((t.get("asana") or {}).get("priority")).strip())}</span>' if (t.get("asana") or {}).get("priority") else ""}
           <span class="tk-kind">{"Work in hand" if t.get("no_ticket_yet") else "Asana ticket"}</span>
           {pill("Nothing to ask", "green") if no_ask else pill("You need an answer", "amber")}
         </div>
@@ -428,7 +679,7 @@ def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
         <h3>Say this<span class="hint">out loud, as written</span>
           <button class="qe-btn" type="button" data-qe-kind="script" data-qe-ref="ticket:{esc(t.get("ref"))}"
                   data-qe-lang="{"ja" if settings.language().get("client") == "ja" else "en"}" aria-expanded="false"
-                  title="Quick AI revision on these speaking lines">{SPARK}Revise</button>
+                  title="Ask Opus what a line means, check accuracy, or revise these speaking lines">{SPARK}Ask / Revise</button>
           {ai_split_btn(
               f'ticket:{t.get("ref")}',
               tpl="Edit in {app}",
@@ -443,51 +694,201 @@ def render_ticket(t: dict, ident: str, desk_id: str, since: str) -> str:
       {warn}
       {render_pushback(prep.get("pushback", []))}
       {needs(t, spoken)}
-
-      {f'''<details class="sub key st-brief" data-remember="brief-{esc(ident)}">
-        <summary><h3>If they ask what this is
-          <span class="hint">the issue, where it stands, what moved</span></h3>
-          <span class="fold-hint"></span></summary>
-        <div class="st-brief-in">
-          {f'<ul class="st-issue">{issue}</ul>' if issue else ""}
-          {f'<p class="matters">{esc(prep.get("why_it_matters"))}</p>' if prep.get("why_it_matters") else ""}
-          <p class="st-stands">{esc(t.get("where_it_stands"))}</p>
-          {raise_rows(t, desk_id)}
-          {since_last(t, since)}
-        </div>
-      </details>'''}
+      {render_explainer(t, ident, desk_id, since)}
 
       <div class="st-cons">{render_consequences(prep.get("consequences", {}), t.get("ref", ""))}</div>
       {secret}
     </article>"""
 
 
-def running_order(tickets: list[dict], ids: dict[str, str]) -> str:
-    """The order the meeting reaches the owner's tickets, and what each one needs.
+def _prio_cls(raw: object) -> str:
+    p = str(raw or "").strip().lower()
+    if "top" in p or p == "high":
+        return "top"
+    if p == "priority":
+        return "prio"
+    return "other"
 
-    The number is the card's place on the client's board, which is the order they
-    work down, so 2 then 11 then 15 is right and is not a count of anything.
-    """
+
+def _slot_badge(prep: dict, fallback: int) -> tuple[str, str]:
+    pos = str(prep.get("board_position") or "").strip()
+    m = BOARD_SLOT_RE.match(pos)
+    if m:
+        return m.group(1), f"/{m.group(2)}"
+    return str(prep.get("order", fallback)), ""
+
+
+def running_order(tickets: list[dict], ids: dict[str, str]) -> str:
+    """The order the meeting reaches the owner's tickets, with Priority group,
+    1-line status gist, and posture badge on each row."""
+    client = settings.client_short()
     rows = []
     for n, t in enumerate(tickets, 1):
         prep = t.get("prep") or {}
-        blocks = len(prep.get("script", []))
+        asana = t.get("asana") or {}
+        prio_txt = str(asana.get("priority") or "").strip()
+        prio_badge = (
+            f'<span class="run-prio {_prio_cls(prio_txt)}">{esc(prio_txt)}</span>'
+            if prio_txt
+            else ""
+        )
         decisions = len(prep.get("decisions", []))
-        note = (
-            f"{decisions} to settle today" if decisions
-            else "status only, nothing to ask" if prep.get("client_ask_needed") is False
-            else f"{blocks} thing{'s' if blocks != 1 else ''} to say" if blocks
-            else "nothing written yet"
+        no_ask = prep.get("client_ask_needed") is False and not decisions
+        slot, denom = _slot_badge(prep, n)
+        gist = ticket_gist(t)
+        if decisions:
+            posture_lbl, posture_cls = f"{decisions} to settle", "settle"
+        elif no_ask:
+            posture_lbl, posture_cls = "Status only", "status"
+        else:
+            posture_lbl, posture_cls = f"Ask {client}", "ask"
+        exp_chip = (
+            '<span class="run-exp" title="Includes pedagogical walkthrough below">Walkthrough</span>'
+            if has_explainer(prep)
+            else ""
         )
         rows.append(
             f"""
       <li>
-        <span class="n">{prep.get("order", n)}</span>
-        <a href="#{esc(ids[t.get("ref", "")])}">{esc(ticket_tag(t))} &middot; {esc(t.get("title_en"))}</a>
-        <span class="say">{esc(note)}</span>
+        <span class="n" title="{esc(prep.get("board_position") or f"Speaking order {slot}")}">{esc(slot)}{f'<i>{esc(denom)}</i>' if denom else ""}</span>
+        <div class="run-main">
+          <a href="#{esc(ids[t.get("ref", "")])}">{prio_badge}<b>{esc(t.get("ref", ""))}</b> &middot; {esc(t.get("title_en"))}</a>
+          {f'<span class="run-ja">{esc(t["title_ja"])}</span>' if t.get("title_ja") else ""}
+          {f'<span class="run-gist">{esc(gist)}</span>' if gist else ""}
+        </div>
+        <div class="run-tags">
+          {exp_chip}
+          <span class="run-pill {posture_cls}">{esc(posture_lbl)}</span>
+        </div>
       </li>"""
         )
     return f'<ul class="st-run">{"".join(rows)}</ul>'
+
+
+def before_start_box(
+    board: dict,
+    tickets: list[dict],
+    ids: dict[str, str],
+    since: str,
+) -> str:
+    """Compact pre-session briefing inside the standup card: what shifted since the
+    last session, where the client's answer is needed, and any room context."""
+    meta = script_meta(board)
+    explicit = meta.get("before_start") or []
+    rows: list[tuple[str, str, str]] = []
+
+    if explicit:
+        for entry in explicit[:4]:
+            if isinstance(entry, str):
+                rows.append(("Note", entry, ""))
+            elif isinstance(entry, dict) and entry.get("what"):
+                rows.append((
+                    str(entry.get("label") or "Status"),
+                    str(entry.get("what") or ""),
+                    str(entry.get("ref") or ""),
+                ))
+    else:
+        # Synthesize concise pre-meeting bullets straight from the board if none were written.
+        ask_refs = [
+            str(t.get("ref") or "")
+            for t in tickets
+            if (t.get("prep") or {}).get("client_ask_needed") is not False
+            or (t.get("prep") or {}).get("decisions")
+        ]
+        if ask_refs:
+            rows.append((
+                "Your asks",
+                f"Need {settings.client_short()}'s input on {', '.join(ask_refs)}; "
+                f"the remaining {max(0, len(tickets) - len(ask_refs))} ticket(s) are status-only.",
+                ask_refs[0] if len(ask_refs) == 1 else "",
+            ))
+        else:
+            rows.append((
+                "Posture",
+                f"All {len(tickets)} spoken tickets today are status updates; nothing owed back in the room.",
+                "",
+            ))
+
+        moved_bits = []
+        for t in tickets:
+            evs = [
+                e for e in (t.get("events") or [])
+                if (e.get("on") or "") >= since
+                and str(e.get("who") or "").strip().lower() not in ({"you"} | settings.owner_aliases())
+            ]
+            if evs:
+                last = evs[-1]
+                moved_bits.append(f"{t.get('ref')}: {_one_line(str(last.get('so_what') or last.get('what') or ''), 76)}")
+        if moved_bits:
+            rows.append((
+                f"Since {day_words(since)}",
+                " · ".join(moved_bits[:2]),
+                "",
+            ))
+
+    if not rows:
+        return ""
+
+    items_html = []
+    for label, text, ref in rows:
+        chip = (
+            f'<a class="nk-pre-ref" href="#{esc(ids[ref])}">{esc(ref)}</a>'
+            if ref and ref in ids
+            else (f'<span class="nk-pre-ref">{esc(ref)}</span>' if ref else "")
+        )
+        items_html.append(
+            f'<li><span class="nk-pre-k">{esc(label)}</span>'
+            f'<span class="nk-pre-w">{esc(text)} {chip}</span></li>'
+        )
+    return (
+        '<div class="nk-pre">'
+        '<div class="nk-pre-h">Main status before it starts</div>'
+        f'<ul class="nk-pre-list">{"".join(items_html)}</ul>'
+        "</div>"
+    )
+
+
+def quiet_on_board(board: dict, desk_ids: dict[str, str]) -> str:
+    """Open client tickets assigned to the owner that need no speaking slot today.
+
+    Shown as one quiet strip at the foot of the standup card so the owner is
+    never caught cold if the client pauses on one while scrolling the board.
+    """
+    owners = settings.owner_aliases()
+    quiet = []
+    for t in board.get("tickets") or []:
+        asana = t.get("asana") or {}
+        if asana.get("completed") or t.get("closed") or t.get("no_ticket_yet"):
+            continue
+        if not (asana.get("section") or asana.get("status")):
+            continue
+        assignee = str(asana.get("assignee") or "").strip().lower()
+        if not assignee or (owners and not any(o in assignee for o in owners)):
+            continue
+        if (t.get("prep") or {}).get("script"):
+            continue
+        quiet.append(t)
+
+    if not quiet:
+        return ""
+
+    chips = []
+    for t in quiet:
+        ref = str(t.get("ref") or "")
+        st = str((t.get("asana") or {}).get("status") or "open")
+        tip = _one_line(str(t.get("where_it_stands") or ""), 150)
+        desk_id = desk_ids.get(ref, "")
+        chips.append(
+            f'<a class="nk-q-chip" href="#{esc(desk_id)}" data-goto="desk" '
+            f'title="{esc(tip)}"><b>{esc(ref)}</b><span>{esc(st)}</span></a>'
+        )
+    return (
+        '<div class="nk-quiet">'
+        '<span class="nk-q-k">Quiet on board</span>'
+        '<span class="nk-q-sub">already covered, speak only if asked:</span>'
+        f'<div class="nk-q-chips">{"".join(chips)}</div>'
+        "</div>"
+    )
 
 
 def prep_jump(
@@ -498,7 +899,7 @@ def prep_jump(
     has_huddle: bool = False,
 ) -> str:
     """The same jump bar as the work view, in the order the meeting walks."""
-    chips = ['<a href="#prep-need">Need to know</a>']
+    chips = ['<a href="#prep-need">Before call</a>']
     if has_huddle:
         chips.append('<a href="#prep-huddle">Huddle</a>')
     if has_xws:
@@ -508,9 +909,10 @@ def prep_jump(
     for n, t in enumerate(tickets, 1):
         ref = t.get("ref", "")
         prep = t.get("prep") or {}
+        slot, _ = _slot_badge(prep, n)
         chips.append(
             f'<a class="tkt" href="#{esc(ids[ref])}">{esc(ticket_tag(t))}'
-            f'<span class="ord">no. {prep.get("order", n)}</span></a>'
+            f'<span class="ord">#{esc(slot)}</span></a>'
         )
     return f"""
   <nav class="jump">
@@ -522,8 +924,7 @@ def prep_jump(
 
 def whole_day(sess: dict) -> str:
     """The rest of the meeting, folded, for a long session with other people's
-    topics in it. Useful to know where the owner's parts sit in the day, and not
-    worth a single line of vertical space until they ask for it."""
+    topics in it."""
     rows = sess.get("agenda", [])
     if not rows:
         return ""
@@ -546,15 +947,7 @@ def whole_day(sess: dict) -> str:
 
 
 def render_also(board: dict, focused: dict, ids: dict[str, str]) -> str:
-    """The other rooms the owner still has to speak in the same span, folded small.
-
-    The page focuses on the soonest session, because that is the one they walk
-    into next. But a second meeting the same day carries things they have to have
-    thought about before they sit down, and losing them off the bottom of the
-    board is how they walk in cold. So every other live session sits here as a
-    short list of must-think notes: one fold, closed until they want it, out of
-    the way of the script they are actually rehearsing.
-    """
+    """The other rooms the owner still has to speak in the same span, folded small."""
     others = [
         s
         for s in all_sessions(board)
@@ -623,20 +1016,7 @@ def render_also(board: dict, focused: dict, ids: dict[str, str]) -> str:
 
 
 def render_xws(board: dict, ids: dict[str, str]) -> str:
-    """The programme-wide rollup, one folded card pinned at the top.
-
-    The board field is `xws`, for cross-workstream; the card takes its name from `meeting.also` (see `rollup_name`). The
-    standup is the room the owner walks ticket by ticket, and it stays the full
-    view. The rollup is the whole programme in one room, where only the biggest
-    items from the owner's workstream are ever taken up, so it is not one of the
-    sessions and does not drive the walk. It sits here as a shortlist they show
-    with a button when the rollup comes round and leave shut the rest of the
-    week, without pushing the standup they are actually rehearsing down the page.
-
-    An empty `raised` still draws, on its headline alone: walking in knowing
-    nothing from the workstream needs the room is worth the one line it takes to
-    say.
-    """
+    """The programme-wide rollup, one folded card pinned at the top."""
     xws = board.get("xws") or {}
     if not xws.get("for_date") and not xws.get("headline") and not xws.get("raised"):
         return ""
@@ -705,8 +1085,6 @@ def render_xws(board: dict, ids: dict[str, str]) -> str:
   </details>"""
 
 
-# The huddle's own words for a status, as the Notion milestone and blocker
-# databases spell them, so a copied line pastes into the column it belongs in.
 MS_WORDS = {"on-track": "🟢 On track", "at-risk": "🟠 At risk", "off-track": "🔴 Off track",
             "not-started": "⚪ Not started", "done": "✅ Done"}
 BLOCK_WORDS = {"blocked": "🔴 Blocked", "waiting": "🟡 Waiting", "resolved": "✅ Resolved"}
@@ -714,24 +1092,26 @@ BLOCK_WORDS = {"blocked": "🔴 Blocked", "waiting": "🟡 Waiting", "resolved":
 
 def huddle_milestones(board: dict) -> list[dict]:
     """Every open milestone the huddle talks about, merged with what the prep
-    wrote for it (`huddle.milestones`, keyed by `id`). A milestone the prep has not
-    reached still shows, with its status and target and no update line, so the
-    card never drops one the owner leads."""
+    wrote for it (`huddle.milestones`, keyed by `id`). Board milestones with
+    `in_huddle: false` (internal projects outside the huddle database) stay out."""
     h = board.get("huddle") or {}
     said = {m.get("id"): m for m in h.get("milestones") or [] if isinstance(m, dict)}
     out = []
     for ms in board.get("milestones") or []:
-        if not isinstance(ms, dict) or (ms.get("status") == "done" and ms.get("id") not in said):
+        if not isinstance(ms, dict):
+            continue
+        if ms.get("in_huddle") is False:
+            said.pop(ms.get("id"), None)
+            continue
+        if ms.get("status") == "done" and ms.get("id") not in said:
             continue
         out.append(dict(ms, **{k: v for k, v in said.pop(ms.get("id"), {}).items() if v}))
-    # One the prep named that the board does not hold is still worth its line.
     out += [m for m in said.values() if m.get("name") or m.get("update")]
     return out
 
 
 def huddle_blockers(h: dict) -> list[dict]:
-    """`blockers` as rows. A plain string is the older shape, and "No blockers"
-    written as a row is the absence of one rather than a blocker."""
+    """`blockers` as rows."""
     rows = []
     for b in h.get("blockers") or []:
         row = b if isinstance(b, dict) else {"blocker": str(b)}
@@ -742,20 +1122,17 @@ def huddle_blockers(h: dict) -> list[dict]:
 
 
 def render_huddle(board: dict) -> str:
-    """The team huddle card: milestones first, then blockers, which is what the
-    huddle now walks (a Notion page with a milestones database and a blockers
-    database). Kraken-side and English, not a client room, so it is not one of the
-    sessions. Each milestone carries the one-line Latest update and each blocker
-    its row, ready to copy into the database it goes in. What is on the owner's
-    plate is still kept, folded, for the week they are asked.
-    """
+    """The team huddle card: milestones first, then blockers."""
     h = board.get("huddle") or {}
     mss = huddle_milestones(board)
     blockers = huddle_blockers(h)
     plate = h.get("plate") or []
     if not h.get("for_date") and not mss and not blockers:
         return ""
-    when = when_words(h.get("for_date", ""), h.get("at", ""))
+    for_date = str(h.get("for_date") or "")
+    today_iso = settings.now().date().isoformat()
+    is_stale = bool(for_date and for_date < today_iso)
+    when = when_words(for_date, h.get("at", ""))
 
     def copy(text: str) -> str:
         return f'<button class="copy" data-copy="{esc(text)}">copy</button>' if text else ""
@@ -814,14 +1191,23 @@ def render_huddle(board: dict) -> str:
     link = room_link(("huddle",))
     link_line = (f'<p class="xws-link"><a href="{esc(link)}" target="_blank" rel="noopener">'
                  f'Open the huddle page</a></p>' if link else "")
+    stale_pill = (f'<span class="xws-stale">Out of date &middot; {esc(day_words(for_date))}</span>'
+                  if is_stale else "")
+    stale_warn = (
+        f'<p class="xws-warn">Out of date: written for {esc(when)}. '
+        f'Press <b>Write prep</b> or <b>Refresh</b> before copying into Notion.</p>'
+        if is_stale else ""
+    )
     return f"""
-  <details class="xws hd" id="prep-huddle" data-remember="prep-huddle">
+  <details class="xws hd{' is-stale' if is_stale else ''}" id="prep-huddle" data-remember="prep-huddle">
     <summary>
       <span class="xws-tag">{esc(huddle_name())}{f" &middot; {esc(when)}" if when else ""}</span>
+      {stale_pill}
       <span class="xws-sum">{esc(sum_line)}</span>
       <span class="fold-hint"></span>
     </summary>
     <div class="xws-in">
+      {stale_warn}
       {link_line}
       {ms_block}
       {bl_block}
@@ -831,11 +1217,7 @@ def render_huddle(board: dict) -> str:
 
 
 def last_session(board: dict, sess: dict) -> str:
-    """The date of the meeting before this one, for "what moved since".
-
-    The meeting note carries the last standup's date. Without one, a week back
-    is close enough: a ticket that has not moved in a week has nothing to say.
-    """
+    """The date of the meeting before this one, for 'what moved since'."""
     note = (board.get("meeting_note") or {}).get("date")
     if note:
         return note
@@ -846,21 +1228,15 @@ def last_session(board: dict, sess: dict) -> str:
 
 
 def render(board: dict, desk_ids: dict[str, str], built: str, stale: bool) -> str:
-    """The speaking half of the page. `built` is empty when there is no script
-    yet, which is the normal state until the owner presses the button."""
+    """The speaking half of the page."""
     sess = script_session(board)
     onsite = sess.get("kind") != "standup"
-    # The script's own headline and the session's focus are two people answering
-    # "what is this meeting for", and printed together they read as a stutter.
-    # The headline was written for this script, so it wins.
     lead = script_meta(board).get("headline") or ""
-    room = dict(sess, focus="") if lead else sess
-    banner = render_session(room, onsite)
+    room_sess = dict(sess, focus="") if lead else sess
+    banner = render_session(room_sess, onsite)
 
     tickets = [t for t in board.get("tickets", []) if (t.get("prep") or {}).get("script")]
     if not tickets:
-        # The empty state has to say what pressing the button is for, and that
-        # depends entirely on whether the next session is 15 minutes or a day.
         when = when_words(sess.get("date", ""), sess.get("at", ""))
         for_what = f"for {sess.get('name', 'the standup').lower()}" + (
             f" {when}" if when else ""
@@ -910,13 +1286,20 @@ def render(board: dict, desk_ids: dict[str, str], built: str, stale: bool) -> st
         if (t.get("prep") or {}).get("client_ask_needed") is not False
         or (t.get("prep") or {}).get("decisions")
     )
-    # The summary line answers the two questions the owner has walking in: which room,
-    # and how much of it is theirs. Everything else is a click away.
-    room = esc(sess.get("title") or sess.get("name"))
+    status_only_n = len(tickets) - asks
+    room = esc(sess.get("title") or settings.meeting().get("name") or sess.get("name"))
     when = esc(when_words(sess.get("date", ""), sess.get("at", "")))
-    speak = f'{len(tickets)} of your tickets, {asks} needing an answer from them'
+    parts = [f"{len(tickets)} to speak on"]
+    if asks:
+        parts.append(f"{asks} needing {settings.client_short()}'s answer")
+    if status_only_n:
+        parts.append(f"{status_only_n} status-only")
     if settle:
-        speak += f', {settle} to settle in the room'
+        parts.append(f"{settle} to settle today")
+    speak = ", ".join(parts)
+    pre_box = before_start_box(board, tickets, ids, since)
+    quiet_box = quiet_on_board(board, desk_ids)
+
     return f"""
   {prep_jump(tickets, ids, bool(also), bool(xws), bool(huddle))}
   {stale_note}
@@ -925,17 +1308,18 @@ def render(board: dict, desk_ids: dict[str, str], built: str, stale: bool) -> st
   {xws}
   <details class="nk" id="prep-need" data-remember="prep-need" open>
     <summary>
-      <span class="nk-k">Need to know</span>
-      <span class="nk-n">what the room is for, then the order</span>
+      <span class="nk-k">Before {esc(sess.get("tab") or sess.get("name") or "Standup")}</span>
+      <span class="nk-n">main status, goal, and running order</span>
       <span class="fold-hint"></span>
-      <span class="nk-sum"><b>{room}, {when}.</b> You speak on {esc(speak)}.</span>
+      <span class="nk-sum"><b>{room}, {when}.</b> {esc(speak)}.</span>
     </summary>
     <div class="nk-in">
-      {f'<p class="nk-alert plain"><b>What today has to produce</b>{esc(lead)}</p>' if lead else ""}
+      {f'<p class="nk-alert plain"><b>Goal in the room</b>{esc(lead)}</p>' if lead else ""}
+      {pre_box}
       {banner}
-      <h3 class="run-h">The order they reach your tickets<span class="q">the
-      number is the card's place on {esc(settings.client_short())}'s board</span></h3>
+      <h3 class="run-h">The order they reach your tickets<span class="q">card slot on {esc(settings.client_short())}'s board + what you say</span></h3>
       {running_order(tickets, ids)}
+      {quiet_box}
       {whole_day(sess)}
     </div>
   </details>

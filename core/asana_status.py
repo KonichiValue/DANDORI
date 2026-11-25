@@ -119,6 +119,7 @@ def _run_update_tasks(tasks_payload: list[dict], wanted_gids: list[str], timeout
         kind.binary, "--print", "--model", model(),
         "--tools", "ToolSearch", "--allowedTools", TOOL,
         "--setting-sources", "user",
+        *agent.strict_mcp_flags(("asana",)),
         "--settings", json.dumps({
             "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
             "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},

@@ -303,27 +303,35 @@ def scout_delta_holds() -> list[str]:
 
 
 def pages_render() -> list[str]:
-    """Both pages come out of the real board without throwing.
+    """Both pages come out of the real glossed board without throwing or repeating glosses.
 
     A renderer that dies on one field takes the whole page with it, so this is
     the difference between finding out here and finding out in front of the owner.
     On a fresh clone that is the empty board, which must still draw a page.
     """
+    import copy
+
     try:
+        import render
         import render_desk
         import render_desk_md
     except Exception as exc:  # an import error is a real failure here
         return [f"could not import the renderers: {type(exc).__name__}: {exc}"]
     data = board()
+    dup_gloss_re = re.compile(r"(\([^()\n<>]{2,80}\))\s+\1")
     bad = []
     for name, fn in (("output/desk.html", render_desk.render),
                      ("output/desk.md", render_desk_md.render)):
         try:
-            text = fn(data)
+            glossed = render.apply_glossary(copy.deepcopy(data))
+            text = fn(glossed)
             # An empty board legitimately draws a short desk.md: a heading and
             # nothing to list. The floor only means something with tickets in it.
             if len(text) < 1000 and (data.get("tickets") or name.endswith(".html")):
                 bad.append(f"{name} rendered only {len(text)} bytes, which is empty")
+            m_dup = dup_gloss_re.search(text)
+            if m_dup:
+                bad.append(f"{name} contains repeated parenthetical gloss {m_dup.group(0)!r}")
         except Exception as exc:
             bad.append(f"{name} threw {type(exc).__name__}: {exc}")
     # The setup page is the first thing a new owner sees, and it draws from
@@ -513,6 +521,9 @@ def furigana_present() -> list[str]:
             scan(ref, "question", q.get("ja_ruby", ""))
         for p in (prep.get("pushback") or []):
             scan(ref, "pushback", p.get("say_ja", ""))
+        for qa in ((prep.get("explainer") or {}).get("if_asked") or []):
+            if isinstance(qa, dict) and qa.get("say_ja"):
+                scan(ref, "explainer if_asked", qa.get("say_ja", ""))
     # The programme-wide rollup (`xws`, a historical name) is read out to the
     # same room, so it is held to the same rule as the standup script.
     for r in (data.get("xws") or {}).get("raised", []):

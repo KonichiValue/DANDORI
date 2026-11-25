@@ -28,15 +28,20 @@ next week. State lives in `state/board.json` beside the item it describes.
 from __future__ import annotations
 
 import argparse
+import copy
+import os
 import subprocess
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import board as B
 import keep
 import notify
 import people
+import render
+import render_desk
+import render_desk_md
 import settings
 from render import after_posting, item_state
 
@@ -75,16 +80,23 @@ def show(data: dict) -> None:
 
 
 def rebuild() -> None:
-    for script, out in (
-        ("render_desk.py", "desk.html"),
-        ("render_desk_md.py", "desk.md"),
-    ):
-        subprocess.run(
-            [sys.executable, str(settings.CORE / script), str(B.BOARD), str(settings.OUTPUT_DIR / out)],
-            check=True,
-            cwd=ROOT,
-            stdout=subprocess.DEVNULL,
-        )
+    if not B.BOARD.exists():
+        return
+    data = B.load()
+    asks_path = settings.STATE_DIR / "asks.json"
+    settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    render_desk.load_asks(asks_path)
+    html_out = settings.OUTPUT_DIR / "desk.html"
+    tmp_h = html_out.with_name(f"{html_out.name}.{os.getpid()}.tmp")
+    tmp_h.write_text(render_desk.render(render.apply_glossary(copy.deepcopy(data))), encoding="utf-8")
+    os.replace(tmp_h, html_out)
+
+    render_desk_md.load_asks(asks_path)
+    md_out = settings.OUTPUT_DIR / "desk.md"
+    tmp_m = md_out.with_name(f"{md_out.name}.{os.getpid()}.tmp")
+    tmp_m.write_text(render_desk_md.render(render.apply_glossary(copy.deepcopy(data))), encoding="utf-8")
+    os.replace(tmp_m, md_out)
 
 
 def working_days_on(n: int) -> str:

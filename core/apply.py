@@ -258,10 +258,18 @@ def apply(b: dict, patch: dict) -> list[str]:
             said.append(f"stamped {n_stamped} scout-checked thread(s)")
 
     for ident, fields in (patch.get("items") or {}).items():
-        _, item = B.by_id(b, ident)
+        old_ticket, item = B.by_id(b, ident)
         if item is None:
             raise PatchError(f"no item numbered {ident}")
         fields = dict(fields)
+        target_ticket_ref = fields.pop("ticket", None)
+        moved_to = ""
+        if target_ticket_ref:
+            new_ticket = find_ticket(b, str(target_ticket_ref))
+            if old_ticket is not None and new_ticket is not old_ticket:
+                old_ticket["items"] = [x for x in (old_ticket.get("items") or []) if x is not item]
+                new_ticket.setdefault("items", []).append(item)
+                moved_to = f" (moved to {new_ticket.get('ref') or new_ticket.get('id')})"
         state = fields.pop("state", None)
         who = fields.pop("who", "")
         note = fields.pop("note", "")
@@ -280,7 +288,11 @@ def apply(b: dict, patch: dict) -> list[str]:
             if not isinstance(item.get("waits_on"), dict):
                 item["waits_on"] = {}
             item["waits_on"]["chase_on"] = chase
-        said.append(f"item {ident}" + (f" -> {state}" + (f" ({who})" if who else "") if state else ""))
+        said.append(
+            f"item {ident}"
+            + moved_to
+            + (f" -> {state}" + (f" ({who})" if who else "") if state else "")
+        )
 
     for new in patch.get("new_items") or []:
         new = dict(new)

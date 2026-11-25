@@ -102,22 +102,27 @@ IMAGE = re.compile(r"\.(png|jpe?g|gif|webp)$", re.I)
 
 
 def evidence_html(files: list) -> str:
-    """Screenshots that go out with a message, drawn in its box rather than named.
-
-    Evidence is the point of the post it goes with, so a chip reading
-    "prod-dropdown.png" made the owner open it to know whether it said what the
-    words claim. Drawn as a thumbnail it can be checked against the draft at a
-    glance and dragged straight into Asana or Slack from the page.
-    """
+    """Screenshots that go out with a message, drawn in its box rather than named."""
     out = []
     for f in files:
         href = doc_href(f)
+        raw_p = str(f.get("path") or "").strip()
+        fb_attr = ""
+        if raw_p and not raw_p.startswith(("http://", "https://")):
+            rel = re.sub(r"^(?:clients/[^/]+/)?(?:docs|scripts)/", "", raw_p).lstrip("/")
+            fb = f"../docs/{rel or Path(raw_p).name}"
+            fb_attr = (
+                f' data-fb="{esc(fb)}"'
+                f' onerror="if(this.dataset.fb&&this.src!==this.dataset.fb){{this.src=this.dataset.fb;'
+                f'var a=this.closest(\'a\');if(a)a.href=this.dataset.fb}}"'
+            )
         label = f.get("label") or Path(href).name
         where = str(f.get("where") or "").strip()
         where_html = f'<b class="ev-where">Paste: {esc(where)}</b>' if where else ""
         out.append(
-            f'<a class="ev-shot" href="{esc_url(href)}" target="_blank" rel="noopener">'
-            f'<img src="{esc_url(href)}" alt="{esc(label)}" loading="lazy">'
+            f'<a class="ev-shot" href="{esc_url(href)}" data-lightbox="{esc(label)}" '
+            f'data-caption="{esc(where)}" target="_blank" rel="noopener">'
+            f'<img src="{esc_url(href)}" alt="{esc(label)}" loading="lazy"{fb_attr}>'
             f"{where_html}<span>{esc(label)}</span></a>"
         )
     return "".join(out)
@@ -321,7 +326,7 @@ def render_draft(
 
 def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "") -> str:
     """The words of one message, with where they go, copy, and handoff to AI chat."""
-    is_ja = d.get("language") == "ja"
+    is_ja = B.is_ja(d)
     link_url = str(d.get("link") or "")
     keep_links = (
         "canvas" in str(d.get("target") or "").lower()
@@ -343,13 +348,13 @@ def draft_inner(d: dict, sent: bool = False, draft_num: int = 1, job_id: str = "
     rev_btn = "" if (sent or not job_id) else f"""<button class="qe-btn" type="button"
                     data-qe-kind="draft" data-qe-ref="item:{esc(job_id)}" data-qe-draft="{draft_num}"
                     data-qe-lang="{"ja" if is_ja else "en"}" aria-expanded="false"
-                    title="Quick AI revision or question right inside this draft">{SPARK}Revise</button>"""
+                    title="Ask Opus about any line, fact-check, or revise this draft">{SPARK}Ask / Revise</button>"""
     ctx_btn = "" if (sent or not job_id) else ai_split_btn(
         f"item:{job_id}",
         tpl="Open in {app}",
         draft_num=draft_num,
         cls="dr-ai",
-        title="Open this exact draft + ticket + DB X-Ray on the interactive DANDORI board in Cursor, Claude Code, or Claude Desktop (Option-click copies context)",
+        title="Open this exact draft and ticket in Cursor, Claude Code, or Claude Desktop (Option-click copies context)",
     )
     return f"""
           <div class="draft-head">
@@ -629,14 +634,7 @@ def steps_count(r: dict) -> str:
 
 
 def steps_block(r: dict, steps: str, active: bool) -> str:
-    """The steps, first thing inside the item, with somewhere to do them.
-
-    This block used to open with Why, which is the one question the owner never
-    asks of their own list: they know why it is there, they want to know what to
-    type. So
-    the hands-on part comes first, numbered because they are in an order, with
-    the place to do it attached to the last step rather than floating below.
-    """
+    """The steps, first thing inside the item, with an inline Ask / Revise button right at hand."""
     where = esc(r.get("where") or "")
     go = link_btn(r.get("link", ""), "Open where this happens")
     place = (
@@ -644,10 +642,16 @@ def steps_block(r: dict, steps: str, active: bool) -> str:
         if where or go
         else ""
     )
+    done = state_of(r)["closed"]
+    job_id = esc(r.get("id", ""))
+    ask_btn = (
+        f'<button type="button" class="qe-btn steps-qe-btn" data-qe-kind="job" '
+        f'data-qe-ref="item:{job_id}" data-qe-lang="en" aria-expanded="false" '
+        f'title="Ask Opus how to do these steps, or tighten them">{SPARK}Ask / Revise</button>'
+        if not done and job_id
+        else ""
+    )
     if not steps:
-        # A job with no steps is a job the owner has to work out from its title, which
-        # is the failure this block exists to prevent. Say so, rather than
-        # leaving a confident-looking gap.
         if not active:
             return place
         return f"""
@@ -655,7 +659,8 @@ def steps_block(r: dict, steps: str, active: bool) -> str:
             break job {esc(r.get("id", "-"))} down.</p>{place}"""
     return f"""
             <div class="act-do">
-              <p class="act-lab">Do this{steps_count(r)}</p>
+              <p class="act-lab">Do this{steps_count(r)}{ask_btn}</p>
+              {"" if done else '<div class="qe-slot steps-qe-slot" data-qe-slot hidden></div>'}
               <ol class="steps">{steps}</ol>
               {place}
             </div>"""
@@ -770,7 +775,15 @@ def render_items(
             state_pill += pill(raise_label, "amber")
         due, due_kind = when_tag(r, st, sess)
         when_chip = f'<span class="when {due_kind}">{esc(due)}</span>' if due else ""
-        chase = (r.get("waits_on") or {}).get("chase_on", "")
+        rem = r.get("remind") if isinstance(r.get("remind"), dict) else {}
+        if rem.get("on") and not done:
+            # The rare job that also rings in Apple Reminders (`remind.py`).
+            rem_at = f' {rem["at"]}' if rem.get("at") else ""
+            when_chip += (
+                f'<span class="when remind" title="{esc(rem.get("why", ""))}">'
+                f'&#9200; {esc(day_words(rem["on"]))}{esc(rem_at)}</span>'
+            )
+        chase =(r.get("waits_on") or {}).get("chase_on", "")
         # Anything not sitting with the owner folds shut, so the page is only as
         # long as the work they still have. Work queued behind another job folds for the
         # same reason: it is not a decision until the one in front of it closes.
@@ -817,12 +830,13 @@ def render_items(
             {"" if done else f'''<div class="act-cursor-row">
               <button type="button" class="qe-btn bar-qe" data-qe-kind="job" data-qe-ref="item:{esc(r.get("id"))}"
                       data-qe-lang="en" aria-expanded="false"
-                      title="Quick AI question or step edit right on Job {esc(r.get("id"))}">{SPARK}Quick AI</button>
+                      title="Ask Opus anything about Job {esc(r.get("id"))}, or edit its steps">{SPARK}Ask / Revise</button>
               {ai_split_btn(
                   f'item:{r.get("id")}',
-                  tpl=f'Open Job {r.get("id")} in {{app}}',
+                  tpl=(f'Work on Job {r.get("id")} in {{app}}' if st["state"] == "todo" else f'Open Job {r.get("id")} in {{app}}'),
+                  mode=("work" if st["state"] == "todo" else "catchup"),
                   cls="bar-ai",
-                  title=f'Open Job {r.get("id")} on the interactive DANDORI board in Cursor, Claude Code, or Claude Desktop (Option-click copies context)',
+                  title=f'Open Job {r.get("id")} in Cursor, Claude Code, or Claude Desktop with full context, drafts, and evidence to work through remaining steps together (Option-click copies context)',
               )}
             </div>
             <div class="qe-slot job-qe-slot" data-qe-slot hidden></div>'''}

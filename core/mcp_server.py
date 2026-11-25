@@ -53,8 +53,13 @@ UI_RESOURCE_URI = "ui://dandori/board"
 UI_MIME_TYPE = "text/html;profile=mcp-app"
 
 
-def build_ui_board_snapshot() -> dict:
-    """Compact structured board state for the interactive MCP App (`ui://dandori/board`)."""
+def build_ui_board_snapshot(focus_ref: str = "", focus_draft: int = 0) -> dict:
+    """Compact structured board state for the interactive MCP App (`ui://dandori/board`).
+
+    Sent drafts are omitted (unless specifically focused) and unsent drafts carry
+    only `copy_plain` + `copy_html` so the snapshot stays compact instead of
+    repeating four full-text copies of every historical draft on the board.
+    """
     b = B.load()
     checked = str(b.get("checked_at") or "")
     checked_short = checked[11:16] if "T" in checked else (checked[:16] or "never")
@@ -80,9 +85,13 @@ def build_ui_board_snapshot() -> dict:
             steps = [str(s) for s in (it.get("steps") or []) if isinstance(s, str)]
             done_map = it.get("steps_done") if isinstance(it.get("steps_done"), dict) else {}
             flags = [s in done_map for s in steps]
+            is_focused_item = focus_ref == f"item:{it.get('id')}"
             drafts_out = []
             for idx, dr in enumerate(B.drafts(it), 1):
-                is_ja = dr.get("language") == "ja" or bool(dr.get("body_ruby"))
+                is_sent = not B.unsent(dr)
+                if is_sent and not (is_focused_item and focus_draft == idx):
+                    continue
+                is_ja = B.is_ja(dr)
                 raw_body = str(
                     (dr.get("body_ruby") or dr.get("body_ja") or dr.get("body") or "")
                     if is_ja
@@ -98,9 +107,7 @@ def build_ui_board_snapshot() -> dict:
                     "num": idx,
                     "target": str(dr.get("target") or f"Draft {idx}"),
                     "link": link_url,
-                    "sent": not B.unsent(dr),
-                    "body_ruby": str(dr.get("body_ruby") or ""),
-                    "body_en": str(dr.get("body_en") or dr.get("body") or ""),
+                    "sent": is_sent,
                     "copy_plain": R.draft_plain(raw_body),
                     "copy_html": R.draft_html(raw_body, ruby=False, keep_links=keep_links),
                 })
@@ -152,8 +159,97 @@ def build_ui_board_snapshot() -> dict:
     }
 
 
-def build_context_bundle(ref: str, draft_num: int = 0, include_db: bool = True) -> str:
-    """Build a self-contained Markdown handoff bundle for `item:N`, `ticket:REF`, or `board`."""
+def _format_item_work_block(it: dict, t_ref: str, focus_draft: int = 0) -> list[str]:
+    """Render one open DANDORI item with explicit Done-vs-Remaining steps,
+    Separated Sent-vs-Unsent drafts, prepared findings, and local evidence paths."""
+    out: list[str] = []
+    iid = it.get("id")
+    st = str(it.get("state") or "todo")
+    urg = str(it.get("urgency") or "")
+    due = str(it.get("due_by") or "")
+    meta_bits = [f"state=`{st}`"]
+    if urg:
+        meta_bits.append(f"urgency=`{urg}`")
+    if due:
+        meta_bits.append(f"due_by=`{due}`")
+    if st == "waiting" and isinstance(it.get("waits_on"), dict):
+        w = it["waits_on"]
+        meta_bits.append(f"waiting_on=`{w.get('who', '?')}` (chase `{w.get('chase_on', '?')}`)")
+
+    out.append(f"\n### Job {iid} on {t_ref}: {it.get('title', '')}")
+    out.append(f"- Status: {', '.join(meta_bits)}")
+    if it.get("why"):
+        out.append(f"- Why this job exists: {it['why']}")
+    if it.get("where_it_stands"):
+        out.append(f"- Where this job stands: {it['where_it_stands']}")
+    if it.get("progress_note"):
+        out.append(f"- Progress so far: {it['progress_note']}")
+    if it.get("done_when"):
+        out.append(f"- Finished when: {it['done_when']}")
+
+    steps = [str(s) for s in (it.get("steps") or []) if isinstance(s, str)]
+    done_map = it.get("steps_done") if isinstance(it.get("steps_done"), dict) else {}
+    if steps:
+        out.append("\n#### Steps Checklist (Done vs Remaining)")
+        for idx, s in enumerate(steps, 1):
+            mark = "x" if s in done_map else " "
+            stamp = f" *(ticked {done_map[s]})*" if s in done_map and done_map[s] else ""
+            out.append(f"- [{mark}] **Step {idx}**: {s}{stamp}")
+
+    all_drafts = B.drafts(it)
+    has_focus_draft = bool(focus_draft and 1 <= focus_draft <= len(all_drafts))
+    if has_focus_draft:
+        out.append(f"\n#### Focused Draft {focus_draft}")
+        out.append("```json\n" + json.dumps(all_drafts[focus_draft - 1], ensure_ascii=False, indent=2) + "\n```")
+
+    sent_drafts = [(idx, dr) for idx, dr in enumerate(all_drafts, 1) if not B.unsent(dr) and idx != focus_draft]
+    unsent_drafts = [(idx, dr) for idx, dr in enumerate(all_drafts, 1) if B.unsent(dr) and idx != focus_draft]
+    if sent_drafts:
+        out.append("\n#### Already Sent Drafts (already posted - do NOT resend)")
+        for idx, dr in sent_drafts:
+            out.append(
+                f"- [x] **Draft {idx}** ({dr.get('target', '')}) - sent `{dr.get('sent_at', 'earlier')}` "
+                f"({dr.get('link', '')})"
+            )
+    if unsent_drafts:
+        if has_focus_draft:
+            out.append("\n#### Other Unsent Drafts on This Job")
+            for idx, dr in unsent_drafts:
+                out.append(f"- [ ] **Draft {idx}** (for Step {dr.get('step', '?')}): `{dr.get('target', '')}`")
+        else:
+            out.append("\n#### Unsent Drafts Ready to Use / Refine")
+            for idx, dr in unsent_drafts:
+                out.append(f"- [ ] **Draft {idx}** (for Step {dr.get('step', '?')}): `{dr.get('target', '')}`")
+                out.append("```json\n" + json.dumps(dr, ensure_ascii=False, indent=2) + "\n```")
+
+    prep = it.get("prepared") if isinstance(it.get("prepared"), dict) else {}
+    if prep:
+        out.append("\n#### Prepared Research, Exact Values & Local Evidence")
+        if prep.get("conclusion"):
+            out.append(f"- **Conclusion**: {prep['conclusion']}")
+        for fnd in (prep.get("findings") or []):
+            out.append(f"- Finding: {fnd}")
+        for un in (prep.get("unanswered") or []):
+            out.append(f"- Open question / check: {un}")
+        for fl in (prep.get("files") or []):
+            if isinstance(fl, dict):
+                fpath = str(fl.get("path") or "")
+                abs_f = str((settings.REPO / fpath).resolve()) if fpath and not fpath.startswith("/") else fpath
+                where_note = f" ({fl['where']})" if fl.get("where") else ""
+                out.append(f"- Evidence file: **{fl.get('label', fpath)}** -> `{abs_f}`{where_note}")
+        for src in (prep.get("sources") or []):
+            if isinstance(src, dict):
+                out.append(f"- Source: [{src.get('label', src.get('url', ''))}]({src.get('url', '')})")
+    return out
+
+
+def build_context_bundle(
+    ref: str,
+    draft_num: int = 0,
+    include_db: bool = False,
+    include_prep: bool = True,
+) -> str:
+    """Build a self-contained, token-lean Markdown handoff bundle for `item:N`, `ticket:REF`, or `board`."""
     b = B.load()
     raw = str(ref or "board").strip()
     if raw.isdigit():
@@ -161,18 +257,34 @@ def build_context_bundle(ref: str, draft_num: int = 0, include_db: bool = True) 
     elif raw not in ("board", "day", "desk") and ":" not in raw:
         raw = f"ticket:{raw}"
 
+    c_rel = settings.client_rel(settings.CLIENT_DIR)
+    prof_rel = settings.client_rel(settings.PROFILE)
+    cfg_rel = settings.client_rel(settings.CONFIG)
+    scripts_rel = settings.client_rel(settings.CLIENT_SCRIPTS_DIR)
+
     lines = [
-        f"# DANDORI Context ({settings.client_short()} workspace: `{settings.client_rel(settings.CLIENT_DIR)}/`)",
+        f"# DANDORI Context ({settings.client_short()} workspace: `{c_rel}/`)",
         f"- Board checked_at: `{b.get('checked_at', 'never')}`",
+        f"- Client house-style & standing rules: `{prof_rel}` (settings: `{cfg_rel}`)",
     ]
 
     if raw in ("board", "day", "desk"):
+        scripts_list = (
+            sorted(p.name for p in settings.CLIENT_SCRIPTS_DIR.glob("*.py"))
+            if settings.CLIENT_SCRIPTS_DIR.exists()
+            else []
+        )
+        if scripts_list:
+            lines.append(f"- Client workflow scripts (`{scripts_rel}/`): `{', '.join(scripts_list)}`")
         proc = subprocess.run(
             [sys.executable, str(CORE / "digest.py")],
             cwd=settings.REPO, capture_output=True, text=True, timeout=15, check=False,
         )
         lines += ["", proc.stdout.strip()]
         return "\n".join(lines)
+
+    if settings.CLIENT_SCRIPTS_DIR.exists():
+        lines.append(f"- Client workflow scripts dir: `{scripts_rel}/`")
 
     kind, _, ident = raw.partition(":")
     ticket: dict | None = None
@@ -190,60 +302,90 @@ def build_context_bundle(ref: str, draft_num: int = 0, include_db: bool = True) 
 
     t_ref = str(ticket.get("ref") or ticket.get("id") or "?")
     lines += [
-        f"- Ticket: **{t_ref}** — {ticket.get('title_en') or ticket.get('title_ja') or ''}",
-        f"- Japanese title: {ticket.get('title_ja') or '-'}",
+        f"- Ticket: **{t_ref}** - {ticket.get('title_en') or ticket.get('title_ja') or ''}",
+        f"- Original title: {ticket.get('title_ja') or '-'}",
         f"- Asana URL: {ticket.get('asana_url') or 'none'}",
-        f"- Asana status: `{json.dumps(ticket.get('asana') or {}, ensure_ascii=False)}`",
+        f"- Asana metadata: `{json.dumps(ticket.get('asana') or {}, ensure_ascii=False)}`",
         f"- Where ticket stands: {ticket.get('where_it_stands') or '-'}",
     ]
+    prep_issue = (ticket.get("prep") or {}).get("issue")
+    if isinstance(prep_issue, list) and prep_issue:
+        lines.append(f"- Domain context (`prep.issue`): {' '.join(str(x) for x in prep_issue)}")
     if ticket.get("internal_ticket"):
-        lines.append(f"- Internal build: `{json.dumps(ticket['internal_ticket'], ensure_ascii=False)}`")
-    if ticket.get("threads"):
-        lines.append("- Linked threads:")
-        for th in ticket["threads"]:
-            lines.append(f"  - [{th.get('where', '?')}] {th.get('label', '')}: {th.get('url', '')} (last: {th.get('last_at', '?')})")
-    evs = (ticket.get("events") or [])[-8:]
-    if evs:
-        lines.append("- Recent timeline events:")
-        for ev in evs:
-            lines.append(f"  - `{ev.get('on', '')} {ev.get('at', '')}` **{ev.get('who', '')}** ({ev.get('where', '')}): {ev.get('what', '')}")
+        lines.append(f"- Internal build (NEVER cite to client): `{json.dumps(ticket['internal_ticket'], ensure_ascii=False)}`")
+
+    gates = ticket.get("closes_when") or []
+    if gates:
+        lines.append("\n## Path to Closing This Ticket (`closes_when`)")
+        for idx, g in enumerate(gates, 1):
+            gst = str(g.get("state") or ("done" if g.get("done") else "next"))
+            badge = "[x] DONE" if gst == "done" else ("[->] NOW" if gst == "now" else "[ ] NEXT")
+            who = f" *(Owner: {g['who']})*" if g.get("who") else ""
+            note = f" - {g['note']}" if g.get("note") else ""
+            lines.append(f"{idx}. {badge}: {g.get('what', '')}{who}{note}")
+
+    closed_items = [i for i in ticket.get("items", []) if not B.is_open(i)]
+    if closed_items:
+        lines.append(f"\n## Already Completed / Closed Jobs on {t_ref} ({len(closed_items)})")
+        for ci in closed_items[-6:]:
+            cnote = f" ({ci.get('state_note')})" if ci.get("state_note") else ""
+            lines.append(f"- [x] **Job {ci.get('id')}** (`{ci.get('state')}`): {ci.get('title', '')}{cnote}")
 
     scan_parts = [str(ticket.get("title_en") or ""), str(ticket.get("where_it_stands") or "")]
     if item:
-        trimmed = {k: v for k, v in item.items() if k != "history"}
-        if isinstance(trimmed.get("prepared"), dict) and "earlier" in trimmed["prepared"]:
-            trimmed["prepared"] = {k: v for k, v in trimmed["prepared"].items() if k != "earlier"}
-        drafts = B.drafts(item)
-        if draft_num and 1 <= draft_num <= len(drafts):
-            lines.append(f"\n## Focus: Job {item.get('id')} — Draft {draft_num}")
-            lines.append("```json\n" + json.dumps(drafts[draft_num - 1], ensure_ascii=False, indent=2) + "\n```")
-        lines.append(f"\n## Job {item.get('id')} on {t_ref} (edit via `./core/apply.py`, state via `./core/tick.py`)")
-        lines.append("```json\n" + json.dumps(trimmed, ensure_ascii=False, indent=2) + "\n```")
-        scan_parts.append(json.dumps(trimmed, ensure_ascii=False))
+        lines.append(f"\n## Focused Open Job (`item:{item.get('id')}`)")
+        lines.extend(_format_item_work_block(item, t_ref, focus_draft=draft_num))
+        scan_parts.append(json.dumps({k: v for k, v in item.items() if k != "history"}, ensure_ascii=False))
     else:
-        open_items = [
-            {k: v for k, v in i.items() if k != "history"}
-            for i in ticket.get("items", []) if B.is_open(i)
-        ]
-        lines.append(f"\n## Open items on {t_ref} ({len(open_items)})")
-        lines.append("```json\n" + json.dumps(open_items, ensure_ascii=False, indent=2) + "\n```")
+        open_items = [i for i in ticket.get("items", []) if B.is_open(i)]
+        lines.append(f"\n## Open Jobs on {t_ref} ({len(open_items)})")
+        if open_items:
+            for oi in open_items:
+                lines.extend(_format_item_work_block(oi, t_ref))
+                scan_parts.append(json.dumps({k: v for k, v in oi.items() if k != "history"}, ensure_ascii=False))
+        else:
+            lines.append("- No open jobs currently on this ticket.")
         if ticket.get("prep"):
-            lines.append("\n## Current speaking `prep` block")
-            lines.append("```json\n" + json.dumps(ticket["prep"], ensure_ascii=False, indent=2) + "\n```")
-        scan_parts.append(json.dumps(open_items, ensure_ascii=False))
+            if include_prep:
+                lines.append("\n## Current Speaking `prep` Block")
+                lines.append("```json\n" + json.dumps(ticket["prep"], ensure_ascii=False, indent=2) + "\n```")
+            else:
+                lines.append(
+                    f"\n- Speaking `prep` block: present on board (run `python3 core/digest.py --ticket {t_ref}` only if editing speaking lines)."
+                )
 
-    if include_db:
-        acct_pat = plugins.account_pattern()
-        accts = list(dict.fromkeys(m.group(0).upper() for m in acct_pat.finditer(" ".join(scan_parts))))[:3]
-        if accts:
+    if ticket.get("threads"):
+        lines.append("\n## Linked Threads")
+        for th in ticket["threads"]:
+            lines.append(f"- [{th.get('where', '?')}] {th.get('label', '')}: {th.get('url', '')} (last: `{th.get('last_at', '?')}`)")
+
+    evs = (ticket.get("events") or [])[-10:]
+    if evs:
+        lines.append("\n## Recent Timeline Events (newest last)")
+        for ev in evs:
+            src_u = f" ({ev['source_url']})" if ev.get("source_url") else ""
+            lines.append(f"- `{ev.get('on', '')} {ev.get('at', '')}` **{ev.get('who', '')}** [{ev.get('where', '')}]: {ev.get('what', '')}{src_u}")
+
+    acct_pat = plugins.account_pattern()
+    accts = list(dict.fromkeys(m.group(0).upper() for m in acct_pat.finditer(" ".join(scan_parts))))[:3]
+    if accts:
+        if include_db:
             diag = plugins.account_context(accts, test=False)
             if diag:
                 lines += ["", "## Automatic Account Diagnostic (local plugin)", "", diag]
+        else:
+            acct_list = ", ".join(f"`{a}`" for a in accts)
+            lines += [
+                "",
+                f"- Accounts referenced here: {acct_list} (call `dandori_inspect_account` only if you need live DB / code-rule state beyond `prepared`).",
+            ]
 
     lines += [
         "",
-        "---",
-        "Note: When updating this item or ticket on the board, apply a JSON patch with `./core/apply.py` (or `dandori_apply_patch`) and rebuild with `./core/tick.py --rebuild`. Never send external messages without explicit approval.",
+        "## Standing Co-Pilot Rules",
+        "1. **Never send external messages or mutate PROD without explicit owner approval**: draft or verify first, and wait for approval.",
+        f"2. **Client house style on demand**: read `{prof_rel}` when writing or editing client-facing copy, checking people/rooms/routes, or running client workflow scripts (preserve `{{word|reading}}` on `body_ruby`, never expose internal ticket IDs/SP/waves/engineer names to the client, and wrap chat drafts containing URLs in ```` ```text ```` blocks).",
+        "3. **Keep DANDORI in sync**: write board/draft edits via `python3 core/apply.py <patch.json>` + `python3 core/tick.py --rebuild` (or `dandori_apply_patch` / `dandori_tick`), and save any new screenshots/evidence under the client `docs/evidence/` folder.",
     ]
     return "\n".join(lines)
 
@@ -254,7 +396,8 @@ TOOLS = [
         "description": (
             "Open the interactive DANDORI Desk MCP App right inside chat so the user "
             "can click any job, ticket, or draft to pin live context, tick steps, "
-            "mark drafts posted, or check new Asana/Slack replies."
+            "mark drafts posted, or check new Asana/Slack replies. With `focus`, the "
+            "result also carries that job's full context (same as dandori_context)."
         ),
         "inputSchema": {
             "type": "object",
@@ -279,16 +422,15 @@ TOOLS = [
     {
         "name": "dandori_context",
         "description": (
-            "Fetch complete context for a DANDORI job number (e.g. '42' or 'item:42'), "
-            "ticket ref (e.g. '保安閉栓'), or 'board', including drafts, timeline, "
-            "evidence files, and automatic multi-layer account diagnostics."
+            "Fetch complete, token-lean context for a DANDORI job number (e.g. '42' or 'item:42'), "
+            "ticket ref (e.g. '保安閉栓'), or 'board', including drafts, timeline, and evidence files."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "ref": {"type": "string", "description": "Job number ('42'), 'item:42', ticket ref, or 'board'"},
                 "draft": {"type": "integer", "description": "Optional 1-based draft number to focus on"},
-                "include_db": {"type": "boolean", "description": "Include automatic account diagnostic when accounts appear (default true)"},
+                "include_db": {"type": "boolean", "description": "Run live multi-layer account DB diagnostic upfront (default false; call dandori_inspect_account when needed)"},
             },
             "required": ["ref"],
         },
@@ -373,7 +515,6 @@ TOOLS = [
 
 def _call_tool_full(name: str, args: dict) -> dict:
     if name in ("dandori_board", "dandori_app_state"):
-        snap = build_ui_board_snapshot()
         focus = str(args.get("focus") or "").strip()
         try:
             draft_num = int(args.get("draft") or 0)
@@ -385,14 +526,21 @@ def _call_tool_full(name: str, args: dict) -> dict:
             focus = f"ticket:{focus}"
         elif focus in ("board", "desk", "day"):
             focus = ""
+        snap = build_ui_board_snapshot(focus_ref=focus, focus_draft=draft_num)
         focus_note = f" focused on `{focus}`" + (f" (Draft {draft_num})" if draft_num else "") if focus else ""
         summary = (
             f"Opened {snap['desk_name']}{focus_note}: {snap['todo_count']} job(s) with you, "
             f"{snap['waiting_count']} waiting (checked {snap['checked_short']}). "
-            "Click any job, ticket, or draft in the interactive board above to pin its full context into this chat."
+            "Click any job, ticket, or draft in the interactive board above to pin its context into this chat."
         )
+        content = [{"type": "text", "text": summary}]
+        # A focused open from the model carries that spot's full context too, so
+        # one call both shows the owner the job in the widget and hands the model
+        # what it needs; a second dandori_context round trip is not required.
+        if focus and name == "dandori_board":
+            content.append({"type": "text", "text": build_context_bundle(focus, draft_num=draft_num)})
         return {
-            "content": [{"type": "text", "text": summary}],
+            "content": content,
             "structuredContent": {"board": snap, "initial_ref": focus, "initial_draft": draft_num},
             "isError": False,
         }
@@ -401,7 +549,7 @@ def _call_tool_full(name: str, args: dict) -> dict:
         text = build_context_bundle(
             str(args.get("ref") or "board"),
             draft_num=int(args.get("draft") or 0),
-            include_db=True,
+            include_db=False,
         )
         return {"content": [{"type": "text", "text": text}], "isError": False}
 
@@ -409,7 +557,7 @@ def _call_tool_full(name: str, args: dict) -> dict:
         text = build_context_bundle(
             str(args.get("ref") or "board"),
             draft_num=int(args.get("draft") or 0),
-            include_db=bool(args.get("include_db", True)),
+            include_db=bool(args.get("include_db", False)),
         )
         return {"content": [{"type": "text", "text": text}], "isError": False}
 
@@ -499,21 +647,24 @@ def _get_prompt(name: str, args: dict) -> dict | None:
         return None
     focus = str(args.get("focus") or "").strip()
     draft_raw = str(args.get("draft") or "").strip()
-    call_args = []
-    if focus:
-        call_args.append(f'focus="{focus}"')
-    if draft_raw.isdigit():
-        call_args.append(f"draft={int(draft_raw)}")
-    call_str = f"dandori_board({', '.join(call_args)})"
-    extra = f" Also load `dandori_context(ref=\"{focus}\"" + (f", draft={int(draft_raw)}" if draft_raw.isdigit() else "") + ")` so you have the full details ready." if focus else ""
+    if focus and focus not in ("board", "desk", "day"):
+        ctx_args = [f'ref="{focus}"']
+        if draft_raw.isdigit():
+            ctx_args.append(f"draft={int(draft_raw)}")
+        prompt_txt = (
+            f"Call `dandori_context({', '.join(ctx_args)})` right now so you load only that spot's ticket, steps, and drafts "
+            "(call `dandori_board` only if I ask for the interactive board widget)."
+        )
+    else:
+        prompt_txt = "Call `dandori_board()` right now to open my interactive DANDORI board."
     return {
-        "description": "Open the interactive DANDORI Desk MCP App",
+        "description": "Open DANDORI context or interactive board",
         "messages": [
             {
                 "role": "user",
                 "content": {
                     "type": "text",
-                    "text": f"Call `{call_str}` right now to open my interactive DANDORI board.{extra}",
+                    "text": prompt_txt,
                 },
             }
         ],

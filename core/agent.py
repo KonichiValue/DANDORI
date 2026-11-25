@@ -16,10 +16,12 @@ progress line and a log, and reports how it ended.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Callable
@@ -29,6 +31,11 @@ import settings
 ROOT = settings.REPO
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+KEY_REFUSED_RE = re.compile(
+    r"Failed to authenticate|API Error: 40[13]\b|Invalid API key|Malformed API Key"
+    r"|apiKeyHelper failed",
+    re.I,
+)
 
 # Opus 5.5 on the Kraken gateway, in the owner's region (`config.json`
 # `models.region`: eu, us or apac). Named in full rather than as `opus`, because
@@ -96,9 +103,48 @@ DB = settings.database_mcp()
 MCP_ALLOW = ("asana", "slack", "google", "notion") + ((DB,) if DB else ())
 
 
+def _configured_optional_mcps() -> tuple[str, ...]:
+    """Optional read-only MCPs (e.g. `miro`) present in `~/.claude.json`."""
+    try:
+        data = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8"))
+        servers = set((data.get("mcpServers") or {}).keys())
+    except (OSError, ValueError):
+        return ()
+    out = []
+    if "miro" in servers:
+        out.append("miro")
+    return tuple(out)
+
+
+def strict_mcp_flags(wanted: set[str] | tuple[str, ...] | list[str],
+                     check_db_session: bool = False) -> list[str]:
+    """Build `--strict-mcp-config --mcp-config <json>` containing ONLY `wanted`
+    servers from `~/.claude.json` so headless runs never wait on unrelated user
+    MCPs (`incident_io`, `glean_default`, `dandori`) or an expired replica token.
+    Falls back to `[]` if `~/.claude.json` has none of `wanted`."""
+    try:
+        raw = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8"))
+        all_servers = raw.get("mcpServers") if isinstance(raw.get("mcpServers"), dict) else {}
+    except (OSError, ValueError):
+        return []
+    want_set = set(wanted)
+    db_name = settings.database_mcp()
+    if check_db_session and db_name and db_name in want_set:
+        try:
+            import doctor  # noqa: PLC0415
+            if doctor.check_database().get("status") != "ok":
+                want_set.discard(db_name)
+        except Exception:  # noqa: BLE001
+            pass
+    kept = {k: v for k, v in all_servers.items() if k in want_set}
+    if not kept:
+        return []
+    return ["--strict-mcp-config", "--mcp-config", json.dumps({"mcpServers": kept})]
+
+
 def _mcp_allow() -> tuple[str, ...]:
     db = settings.database_mcp()
-    return ("asana", "slack", "google", "notion") + ((db,) if db else ())
+    return ("asana", "slack", "google", "notion") + ((db,) if db else ()) + _configured_optional_mcps()
 
 # The built-ins a sweep uses: read the repo, write the board, run ./tick.py.
 # They are only listed because naming an MCP tool turns the allow list
@@ -121,11 +167,27 @@ BUILTIN_TOOLS = (
 # mistake, which is a stronger guarantee than a sentence in a prompt.
 NEVER = (
     "mcp__dandori__*",
-    "mcp__google__gmail_*", "mcp__google__sheets_*", "mcp__google__slides_*",
+    "mcp__incident_io__*",
+    "mcp__glean*",
+    # Google: keep read-only Calendar, Drive, Sheets, and Gmail search/read;
+    # strip every tool that sends, drafts, creates, edits, or mutates.
+    "mcp__google__gmail_send*", "mcp__google__gmail_create*",
+    "mcp__google__gmail_delete*", "mcp__google__gmail_trash*",
+    "mcp__google__gmail_untrash*", "mcp__google__gmail_archive*",
+    "mcp__google__gmail_modify*", "mcp__google__gmail_rename*",
+    "mcp__google__gmail_set*", "mcp__google__gmail_list_drafts",
+    "mcp__google__gmail_list_labels",
+    "mcp__google__sheets_create*", "mcp__google__sheets_update*",
+    "mcp__google__sheets_append*", "mcp__google__sheets_add*",
+    "mcp__google__sheets_delete*", "mcp__google__sheets_rename*",
+    "mcp__google__slides_*", "mcp__google__search_*",
     "mcp__google__calendar_create*", "mcp__google__calendar_delete*",
     "mcp__google__calendar_update*", "mcp__google__calendar_respond*",
-    "mcp__google__calendar_suggest*", "mcp__google__drive_copy*",
-    "mcp__google__drive_create*",
+    "mcp__google__calendar_suggest*", "mcp__google__calendar_list*",
+    "mcp__google__drive_copy*", "mcp__google__drive_create*",
+    "mcp__google__drive_move*", "mcp__google__drive_rename*",
+    "mcp__google__drive_list*", "mcp__google__drive_get_file_permissions",
+    "mcp__google__drive_search_files_raw",
     "mcp__asana__add_*", "mcp__asana__create*", "mcp__asana__update*",
     "mcp__asana__delete*", "mcp__asana__*portfolio*", "mcp__asana__*agent*",
     "mcp__asana__*preview*", "mcp__asana__get_teams", "mcp__asana__get_workspace*",
@@ -133,18 +195,40 @@ NEVER = (
     "mcp__slack__slack_send*", "mcp__slack__slack_schedule*",
     "mcp__slack__slack_create*", "mcp__slack__slack_update*",
     "mcp__slack__slack_add*",
-    # Notion is the heaviest server and a sweep uses four of its tools: fetch,
-    # search, the meeting notes and the user list. Everything else is writing,
-    # Notion AI sessions or skills.
+    # Notion is the heaviest server (78 tools) and a sweep uses five read-only
+    # tools: fetch, search, query-meeting-notes, get-comments, and get-users.
     "mcp__notion__notion-create*", "mcp__notion__notion-update*",
+    "mcp__notion__notion-delete*", "mcp__notion__notion-restore*",
     "mcp__notion__notion-move*", "mcp__notion__notion-duplicate*",
     "mcp__notion__notion-upload*", "mcp__notion__notion-download*",
-    "mcp__notion__notion-convert*", "mcp__notion__*session*",
-    "mcp__notion__*skill*", "mcp__notion__*agents*", "mcp__notion__*next-steps*",
+    "mcp__notion__notion-convert*", "mcp__notion__notion-link-*",
+    "mcp__notion__notion-set-*", "mcp__notion__notion-resolve-*",
+    "mcp__notion__notion-calendar-*", "mcp__notion__notion-view-version",
+    "mcp__notion__notion-get-version*", "mcp__notion__notion-get-sidebar*",
+    "mcp__notion__notion-memory-*", "mcp__notion__notion-connector-*",
+    "mcp__notion__notion-complete-*", "mcp__notion__notion-get-setup*",
+    "mcp__notion__notion-get-tool*", "mcp__notion__notion-get-groups",
+    "mcp__notion__notion-get-self", "mcp__notion__notion-get-file*",
+    "mcp__notion__notion-get-suggested*",
+    "mcp__notion__*session*", "mcp__notion__*skill*",
+    "mcp__notion__*agents*", "mcp__notion__*next-steps*",
     "mcp__notion__notion-get-async*", "mcp__notion__notion-list-*",
-    "mcp__notion__notion-get-teams", "mcp__notion__notion-get-comments",
+    "mcp__notion__notion-get-teams",
     "mcp__notion__notion-query-data-sources",
     "mcp__notion__notion-query-multiple*", "mcp__notion__notion-ai-search",
+    # Miro (when configured): read-only search, canvas read, and comment list only.
+    "mcp__miro__board_create*", "mcp__miro__board_move*",
+    "mcp__miro__board_restore*", "mcp__miro__board_role*",
+    "mcp__miro__board_share*", "mcp__miro__board_update*",
+    "mcp__miro__board_show", "mcp__miro__board_preview*",
+    "mcp__miro__canvas_create*", "mcp__miro__canvas_update*",
+    "mcp__miro__canvas_get_*", "mcp__miro__canvas_load_*",
+    "mcp__miro__comment_create*", "mcp__miro__comment_reply*",
+    "mcp__miro__comment_resolve*", "mcp__miro__image_create*",
+    "mcp__miro__image_get_upload*", "mcp__miro__section_*",
+    "mcp__miro__space_create*", "mcp__miro__space_share*",
+    "mcp__miro__space_update*", "mcp__miro__blog_*",
+    "mcp__miro__record_*", "mcp__miro__get_brand*",
     # ktdb puts production rows in the model's context. These only catch a
     # command that starts with the name; guard.py refuses the rest.
     "Bash(ktdb:*)", "Bash(uvx:*)", "Bash(uv:*)",
@@ -200,6 +284,15 @@ class Kind:
             ["which", self.binary], capture_output=True, text=True
         ).returncode == 0
 
+    def credential(self) -> str:
+        return ""
+
+    def credential_quiet(self) -> str:
+        return ""
+
+    def forget_credential(self) -> None:
+        pass
+
     def resume(self, session: str) -> list[str]:
         """Flags that carry on an earlier session rather than starting fresh."""
         return []
@@ -242,6 +335,12 @@ class Claude(Kind):
         # had none, and `./tick.py` never ran.
         for tool in (*(f"mcp__{s}__*" for s in _mcp_allow()), *BUILTIN_TOOLS):
             cmd += ["--allowedTools", tool]
+        if job in ("refresh", "delta", "prep", "post"):
+            cmd += strict_mcp_flags(_mcp_allow(), check_db_session=True)
+        elif job == "ask":
+            db = settings.database_mcp()
+            ask_mcps = ("asana", "slack") + ((db,) if db else ()) + _configured_optional_mcps()
+            cmd += strict_mcp_flags(ask_mcps, check_db_session=True)
         cmd += self.profile(job)
         cmd += ["--settings", json.dumps(self.settings(job))]
         if model != "auto":
@@ -468,16 +567,120 @@ class Claude(Kind):
             key = self.credential()
         return key
 
-    def forget_credential(self) -> None:
-        """Drop the remembered key, so the next run goes back to 1Password.
+    KEYCHAIN_SERVICE = "com.DANDORI.gateway-credential"
 
-        The memo lasts the life of the server, which is days. On 4 Nov a prep
-        ran for two minutes on a key the server had held since the day before, then got
+    @staticmethod
+    def _claude_settings() -> dict:
+        try:
+            raw = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
+            return raw if isinstance(raw, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    @classmethod
+    def _keychain_account(cls, conf: dict | None = None) -> str:
+        cfg = conf if conf is not None else cls._claude_settings()
+        helper = str(cfg.get("apiKeyHelper") or "").strip()
+        if not helper:
+            return ""
+        base = str((cfg.get("env") or {}).get("ANTHROPIC_BASE_URL") or "").strip()
+        digest = hashlib.sha256(f"{helper}\n{base}".encode("utf-8")).hexdigest()[:12]
+        return f"gateway-{digest}"
+
+    @staticmethod
+    def _keychain_ok() -> bool:
+        return (
+            sys.platform == "darwin"
+            and os.environ.get("DANDORI_NO_KEYCHAIN") != "1"
+            and Path("/usr/bin/security").exists()
+        )
+
+    @classmethod
+    def _keychain_get(cls, acct: str) -> str:
+        if not acct or not cls._keychain_ok():
+            return ""
+        try:
+            out = subprocess.run(
+                ["/usr/bin/security", "find-generic-password",
+                 "-s", cls.KEYCHAIN_SERVICE, "-a", acct, "-w"],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return out.stdout.strip() if out.returncode == 0 else ""
+
+    @classmethod
+    def _keychain_set(cls, acct: str, secret: str) -> None:
+        clean = secret.splitlines()[0].strip() if secret else ""
+        if not acct or not clean or not cls._keychain_ok():
+            return
+        esc = lambda s: s.replace("\\", "\\\\").replace('"', '\\"')
+        line = (
+            f'add-generic-password -U -s "{esc(cls.KEYCHAIN_SERVICE)}" '
+            f'-a "{esc(acct)}" -w "{esc(clean)}"\n'
+        )
+        try:
+            subprocess.run(
+                ["/usr/bin/security", "-i"],
+                input=line, capture_output=True, text=True,
+                timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    @classmethod
+    def _keychain_delete(cls, acct: str = "") -> None:
+        if not cls._keychain_ok():
+            return
+        cmd = ["/usr/bin/security", "delete-generic-password", "-s", cls.KEYCHAIN_SERVICE]
+        if acct:
+            cmd += ["-a", acct]
+        try:
+            subprocess.run(
+                cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    def credential_quiet(self) -> str:
+        """Return the gateway key without invoking `apiKeyHelper` / 1Password.
+
+        Checks the in-memory memo, `ANTHROPIC_API_KEY` in env or `settings.json`,
+        and the macOS Login Keychain entry written after an earlier `apiKeyHelper`
+        fetch, so `serve.py` restarts and background delta scouts never lose the key.
+        """
+        if Claude._credential:
+            return Claude._credential
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            Claude._credential = os.environ["ANTHROPIC_API_KEY"]
+            return Claude._credential
+        conf = self._claude_settings()
+        env_key = str((conf.get("env") or {}).get("ANTHROPIC_API_KEY") or "").strip()
+        if env_key:
+            Claude._credential = env_key
+            return Claude._credential
+        cached = self._keychain_get(self._keychain_account(conf))
+        if cached:
+            Claude._credential = cached
+            return Claude._credential
+        return ""
+
+    def forget_credential(self) -> None:
+        """Drop the remembered key in memory and macOS Keychain so the next run
+        fetches fresh from 1Password.
+
+        The memo and Keychain entry outlive a single run. On 4 Nov a prep ran
+        for two minutes on a key held since the day before, then got
         "Failed to authenticate. API Error: 403 Forbidden" from the gateway, and
-        Log in could not help: it asked for the key and was handed the same
-        refused one from memory, without 1Password ever being opened.
+        Log in could not help until the stale key was forgotten.
         """
         Claude._credential = ""
+        acct = self._keychain_account()
+        if acct:
+            self._keychain_delete(acct)
+        self._keychain_delete()
 
     # Set by credential() once a key has been had; "" means none yet.
     _credential = ""
@@ -488,15 +691,10 @@ class Claude(Kind):
         # and `_base_env()` strips it on purpose. Passing it back in under the
         # key's name would send the run at the gateway with a credential the
         # gateway does not accept.
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            return os.environ["ANTHROPIC_API_KEY"]
-        user_settings = Path.home() / ".claude" / "settings.json"
-        try:
-            conf = json.loads(user_settings.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return ""
-        if (conf.get("env") or {}).get("ANTHROPIC_API_KEY"):
-            return conf["env"]["ANTHROPIC_API_KEY"]
+        quiet = self.credential_quiet()
+        if quiet:
+            return quiet
+        conf = self._claude_settings()
         helper = conf.get("apiKeyHelper")
         if not helper:
             return ""
@@ -517,7 +715,10 @@ class Claude(Kind):
             return ""
         if out.returncode != 0:
             return ""
-        return out.stdout.strip()
+        secret = out.stdout.strip()
+        if secret:
+            self._keychain_set(self._keychain_account(conf), secret)
+        return secret
 
     def mcp_states(self) -> dict[str, str]:
         """Every configured MCP server, and whether it is usable right now.

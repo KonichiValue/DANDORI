@@ -50,7 +50,7 @@ function element(extra) {
 function makePage(options) {
   const opts = Object.assign(
     { stamp: "AAA", typed: "", composerOpen: false, palOpen: false, helpOpen: false,
-      syncOpen: false, running: "" },
+      targetsOpen: false, syncOpen: false, running: "" },
     options
   );
 
@@ -66,18 +66,25 @@ function makePage(options) {
     changed: element({ hidden: true }),
     pal: element({ hidden: !opts.palOpen }),
     help: element({ open: opts.helpOpen }),
+    "targets-dlg": element({ open: opts.targetsOpen }),
+    "tgt-body": element(),
   };
   const textarea = element({ value: opts.typed });
 
   const reloads = { count: 0 };
   const timers = [];
 
+  const runners = [
+    element({ textContent: "Refresh", dataset: { run: "/api/refresh", busy: "Refreshing" } }),
+    element({ textContent: "Update prep", dataset: { run: "/api/prep", busy: "Writing" } }),
+  ];
+
   const document = {
     body: element({ dataset: { stamp: opts.stamp, board: "B1" } }),
     hidden: false,
     getElementById: (id) => (Object.hasOwn(ids, id) ? ids[id] : null),
     querySelectorAll: (sel) => {
-      if (sel === "[data-run]") return [element({ dataset: {} })];
+      if (sel === "[data-run]") return runners;
       if (sel.indexOf(".ask textarea") === 0) return [textarea];
       // A question still out when the page was drawn: a bubble on one card.
       if (sel === ".qa[data-live]" && opts.running) {
@@ -88,6 +95,7 @@ function makePage(options) {
     },
     querySelector: (sel) => {
       if (sel.indexOf(".ask-box") === 0) return (opts.composerOpen || opts.qeOpen) ? element() : null;
+      if (sel === "dialog[open]") return (opts.helpOpen || opts.targetsOpen) ? element() : null;
       return null;
     },
     // Kept, so a test can press something the way a click would arrive.
@@ -122,13 +130,23 @@ function makePage(options) {
     // Whatever the test wants the server to be saying this poll.
     fetch: (url) => {
       sandbox.fetched.push(url);
+      if (sandbox.postStatus && url.indexOf("/api/prep") === 0) {
+        return Promise.resolve({
+          ok: sandbox.postStatus < 400,
+          status: sandbox.postStatus,
+          json: () => Promise.resolve(sandbox.postReply || sandbox.reply),
+          text: () => Promise.resolve(""),
+        });
+      }
       return Promise.resolve({
         ok: true,
+        status: 200,
         json: () => Promise.resolve(sandbox.reply),
         text: () => Promise.resolve("<ul class=\"qa-list\"></ul>"),
       });
     },
     fetched: [],
+    runners,
     Object,
     Date,
     reply: { state: "idle", message: "", asks: {}, stamp: opts.stamp },
@@ -452,6 +470,35 @@ async function run() {
     await settle();
     check("an open Quick Revise tray is not reloaded away", page.reloads.count === 0,
       `reloaded ${page.reloads.count} times while Quick Revise was open`);
+  }
+
+  // 18. An open Refresh Targets dialog holds back background reloads too.
+  {
+    const page = makePage({ stamp: "AAA", targetsOpen: true });
+    page.sandbox.reply = { state: "idle", message: "", asks: {}, stamp: "BBB" };
+    await settle();
+    check("an open Targets inspector dialog is not reloaded away", page.reloads.count === 0,
+      `reloaded ${page.reloads.count} times while Targets dialog was open`);
+  }
+
+  // 19. A rejected /api/prep click (HTTP 409) resets the button label immediately
+  //     instead of leaving Update prep stuck on "Writing", and a background delta
+  //     keeps Update prep clickable so the user can preempt it.
+  {
+    const page = makePage({ stamp: "AAA" });
+    page.sandbox.reply = { state: "running", job: "delta", background: true, message: "Updating", asks: {}, stamp: "AAA" };
+    await settle();
+    const prepBtn = page.sandbox.runners[1];
+    check("background delta keeps Update prep enabled", !prepBtn.disabled && prepBtn.textContent === "Update prep",
+      `disabled=${prepBtn.disabled}, text=${prepBtn.textContent}`);
+
+    page.sandbox.postStatus = 409;
+    page.sandbox.postReply = { state: "running", message: "a refresh or prep is already running" };
+    prepBtn.listeners.click();
+    await settle();
+    check("HTTP 409 on Update prep restores button label instead of staying on Writing",
+      !prepBtn.disabled && prepBtn.textContent === "Update prep",
+      `disabled=${prepBtn.disabled}, text=${prepBtn.textContent}`);
   }
 
   const bad = results.filter((r) => !r.pass);

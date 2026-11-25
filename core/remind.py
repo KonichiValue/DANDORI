@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Push the open board items into Apple Reminders.
+"""Push the few jobs that must not be missed into Apple Reminders.
 
-The page is a good place to read the list and a bad place to remember it. This
-puts every item that is still with the owner into a Reminders list named for
-the work (the client's short name and the workstream from `config.json`, such
-as "EE payments", or the desk's name when either is unset) with its number,
-ticket and estimate, due today, or on the chase date when it is held or sitting
-with someone else. Every reminder carries the link to act in.
+The page is the list. Copying every open job into Reminders as well only made a
+second list that went stale and pinged about things the page already showed, so
+this pushes an item only when it carries a `remind` block (`board.py` says when
+one is earned: rarely). Each goes into a Reminders list named for the work (the
+client's short name and the workstream from `config.json`, or the desk's name
+when either is unset), due on `remind.on` at `remind.at` (09:30 without one),
+with the why, the open steps and the link.
 
-Finished items are skipped, and existing reminders are cleared first, so
-re-running after a refresh does not duplicate.
+Every reminder this desk wrote is cleared first, so a job that closed or lost
+its `remind` drops off, and re-running never duplicates.
 
 Usage:
     python3 remind.py state/board.json
@@ -72,60 +73,65 @@ def clean_date(value: str) -> str:
         return date.today().isoformat()
 
 
-def as_date(value: str) -> str:
-    """An AppleScript date expression for 09:30 on the given ISO date."""
+def as_date(value: str, at: str = "") -> str:
+    """An AppleScript date expression for `at` (HH:MM, default 09:30) on the ISO date."""
     d = datetime.strptime(clean_date(value), "%Y-%m-%d")
+    try:
+        hh, mm = (int(x) for x in (at or "09:30").split(":", 1))
+    except ValueError:
+        hh, mm = 9, 30
     return (
-        f'(current date) - (time of (current date)) + (9 * hours) + (30 * minutes) '
+        f'(current date) - (time of (current date)) + ({hh} * hours) + ({mm} * minutes) '
         f'+ ({(d.date() - date.today()).days} * days)'
     )
 
 
 def build(data: dict) -> list[dict]:
-    today = date.today().isoformat()
+    """The open items that carry a `remind` block, and nothing else."""
     out = []
     for ticket in data.get("tickets", []):
         ref = ticket.get("ref", "")
         for action in ticket.get("items", []):
-            state = item_state(action)
-            if state["closed"]:
+            rem = action.get("remind")
+            if not isinstance(rem, dict) or not rem.get("on"):
                 continue
-            hold = action.get("hold") or {}
-            waits = action.get("waits_on") or {}
-            mins = action.get("est_minutes")
-            title = f"{action.get('id', '?')}. {ref}: {action.get('title', '')}"
-            if hold:
-                title = f"{title} (not yet)"
-            elif state["state"] == "waiting":
-                title = f"{title} (chase {state.get('who', 'them')})"
-            due = hold.get("revisit") or waits.get("chase_on") or action.get("due_by") or today
-            body = [action.get("why", "")]
-            if hold:
-                body.append(f"On hold: {hold.get('why', '')}")
-                body.append(f"Waiting for: {hold.get('until', '')}")
-            elif waits.get("what"):
-                body.append(f"{waits.get('who', 'They')} owe: {waits['what']}")
+            if item_state(action)["closed"]:
+                continue
+            body = [rem.get("why", "")]
             body += [f"{n}. {b}" for n, b in enumerate(action.get("steps", []), 1)
                      if not B.step_done(action, b)]
             if action.get("done_when"):
                 body.append(f"Finished when: {action['done_when']}")
             if action.get("link"):
                 body.append(action["link"])
-            if action.get("draft"):
-                body.append("--- draft ---")
-                body.append(plain(action["draft"].get("body_ruby", "")))
             out.append(
                 {
-                    "title": title,
-                    "due": clean_date(due),
-                    "body": "\n".join(b for b in body if b),
-                    "minutes": mins,
+                    "title": f"{action.get('id', '?')}. {ref}: {action.get('title', '')}",
+                    "due": clean_date(str(rem["on"])),
+                    "at": str(rem.get("at") or ""),
+                    "body": "\n".join(plain(str(b)) for b in body if b),
+                    "minutes": action.get("est_minutes"),
                 }
             )
-    return sorted(out, key=lambda r: r["title"])
+    return sorted(out, key=lambda r: (r["due"], r["at"], r["title"]))
 
 
 def push(items: list[dict], list_name: str, tag: str, old_tags: tuple[str, ...] = ()) -> None:
+    """Clear this desk's reminders and write `items`. With none, only clear,
+    and never create an empty list just to clear it."""
+    if not items:
+        lines = [
+            "tell application \"Reminders\"",
+            f"  if exists list {quote(list_name)} then",
+            f"    tell list {quote(list_name)}",
+            *[f"      delete (every reminder whose completed is false and body contains {quote(t)})"
+              for t in (tag, *old_tags)],
+            "    end tell",
+            "  end if",
+            "end tell",
+        ]
+        applescript("\n".join(lines))
+        return
     lines = [
         "tell application \"Reminders\"",
         f"  if not (exists list {quote(list_name)}) then make new list with properties {{name:{quote(list_name)}}}",
@@ -141,7 +147,7 @@ def push(items: list[dict], list_name: str, tag: str, old_tags: tuple[str, ...] 
             "    make new reminder with properties {"
             f"name:{quote(item['title'])}, "
             f"body:{quote(note)}, "
-            f"due date:{as_date(item['due'])}"
+            f"due date:{as_date(item['due'], item.get('at', ''))}"
             "}"
         )
     lines += ["  end tell", "end tell"]
@@ -168,15 +174,13 @@ def main() -> int:
         return 1
     data = json.loads(src.read_text(encoding="utf-8"))
     items = build(data)
-    if not items:
-        print("nothing to push")
-        return 0
-
     tag = TAG
 
     if dry:
         for item in items:
-            print(f"{item['due']}  {item['title']}")
+            print(f"{item['due']} {item['at'] or '09:30'}  {item['title']}")
+        if not items:
+            print("no job carries a remind block")
         return 0
 
     try:

@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import gzip
 import hashlib
+import importlib
 import json
 import os
 import pty
@@ -49,9 +51,11 @@ import plugins
 import quick_edit
 import render
 import render_desk
+import render_desk_md
 import scout
 import settings
 import setup_page
+import targets
 
 ROOT = settings.REPO
 KEY = secrets.token_urlsafe(16)
@@ -269,42 +273,71 @@ render_lock = threading.Lock()
 # The board mtime the served desk.md was last rendered from, so a plain reload
 # does not redraw a file the browser never sees.
 _md_rendered_mtime: float | None = None
+_renderer_sig: tuple | None = None
+_RENDER_MODS = (
+    "render",
+    "render_dialogs",
+    "render_milestone",
+    "render_prioritize",
+    "render_brief",
+    "render_week",
+    "render_path",
+    "render_standup",
+    "render_chat",
+    "render_desk",
+    "render_desk_md",
+)
+
+
+def _reload_renderers_if_changed() -> None:
+    """Hot-reload `core/render*.py` in dependency order if any renderer file was
+    edited on disk, keeping ~25ms in-process renders without stale code."""
+    global _renderer_sig
+    sig = tuple(
+        (p.name, p.stat().st_mtime_ns)
+        for p in sorted(settings.CORE.glob("render*.py"))
+    )
+    if _renderer_sig is None:
+        _renderer_sig = sig
+        return
+    if sig == _renderer_sig:
+        return
+    for mname in _RENDER_MODS:
+        mod = sys.modules.get(mname)
+        if mod is not None:
+            importlib.reload(mod)
+    _renderer_sig = sig
 
 
 def rebuild() -> str:
-    """Render the desk and hand back the HTML, so a load is always current.
-
-    Held behind a lock so two overlapping loads do not run two renders into the
-    same file at once, which could hand back a half-written page.
-    """
+    """Render the desk in-process and hand back the HTML, so every load is fast
+    (~25ms instead of spawning Python subprocesses) and always current."""
     global _md_rendered_mtime
-    html = settings.OUTPUT_DIR / "desk.html"
+    html_path = settings.OUTPUT_DIR / "desk.html"
+    md_path = settings.OUTPUT_DIR / "desk.md"
     with render_lock:
-        # desk.html on every load: it carries the "checked N hours ago" line, so
-        # it has to be current even when the board itself has not moved.
-        subprocess.run(
-            [sys.executable, str(settings.CORE / "render_desk.py"), str(BOARD), str(html)],
-            cwd=ROOT,
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        # desk.md is read by chats, never served from here, so only redraw it when
-        # the board changed since we last wrote it. A plain reload of the page
-        # then costs one render, not two.
-        md = settings.OUTPUT_DIR / "desk.md"
+        _reload_renderers_if_changed()
+        data = board.load()
+        settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        render_desk.load_asks(ASKS)
+        glossed = render.apply_glossary(copy.deepcopy(data))
+        html_text = render_desk.render(glossed)
+        tmp_h = html_path.with_name(f"{html_path.name}.{os.getpid()}.tmp")
+        tmp_h.write_text(html_text, encoding="utf-8")
+        os.replace(tmp_h, html_path)
+
         try:
             bmtime: float | None = BOARD.stat().st_mtime
         except OSError:
             bmtime = None
-        if bmtime is None or not md.exists() or _md_rendered_mtime != bmtime:
-            subprocess.run(
-                [sys.executable, str(settings.CORE / "render_desk_md.py"), str(BOARD), str(md)],
-                cwd=ROOT,
-                check=False,
-                stdout=subprocess.DEVNULL,
-            )
+        if bmtime is None or not md_path.exists() or _md_rendered_mtime != bmtime:
+            render_desk_md.load_asks(ASKS)
+            md_text = render_desk_md.render(glossed)
+            tmp_m = md_path.with_name(f"{md_path.name}.{os.getpid()}.tmp")
+            tmp_m.write_text(md_text, encoding="utf-8")
+            os.replace(tmp_m, md_path)
             _md_rendered_mtime = bmtime
-        return html.read_text(encoding="utf-8")
+        return html_text
 
 
 def sync_status_info() -> tuple[str, str]:
@@ -359,12 +392,23 @@ def last_refreshed() -> str:
     return sync_status_info()[0]
 
 
-def set_job(state: str, message: str = "", url: str = "", kind: str = "sweep") -> None:
+def set_job(
+    state: str,
+    message: str = "",
+    url: str = "",
+    kind: str = "sweep",
+    background: bool | None = None,
+) -> None:
     with job_lock:
         job.update(
             state=state, message=message, url=url, kind=kind,
             at=datetime.now().strftime("%H:%M"),
         )
+        if background is not None:
+            job["background"] = background
+        elif state in ("idle", "done", "failed", "needs_login"):
+            job["background"] = False
+            job.pop("queued", None)
 
 
 def ask_job(state: str, message: str = "", url: str = "") -> None:
@@ -437,8 +481,10 @@ PLAIN = (
     ("board.json", "Reading the board"),
     ("asana", "Reading the Asana ticket"),
     ("slack", "Reading the Slack thread"),
+    ("gmail", "Checking client email"),
     ("notion", "Reading the Notion notes"),
     ("miro", "Reading the Miro board"),
+    ("glean", "Searching Glean"),
     ("database", "Looking at the data"),
     ("kraken-core", "Reading the Kraken code"),
     ("prompts/", "Reading its own instructions"),
@@ -494,10 +540,11 @@ def read_events(stream, said: list[str], noise: list[str], calls: list[str],
             clean = ANSI.sub("", raw).strip()
             if not clean:
                 continue
-            beat[0] = time.time()   # any line from the agent is a sign of life
+            beat[0] = time.monotonic()   # any line from the agent is a sign of life
             if not clean.startswith("{"):
                 noise.append(clean)
-                set_live(key, last=clean[-200:])
+                if not clean.startswith("[claude-code:"):
+                    set_live(key, last=clean[-200:])
                 if fh is not None:
                     fh.write(clean + "\n")
                     fh.flush()
@@ -530,7 +577,7 @@ def read_events(stream, said: list[str], noise: list[str], calls: list[str],
                 calls.append(text)
                 set_live(key, last=plain_phrase(text), step=True)
                 if fh is not None:
-                    fh.write(f"  [{mmss(time.time() - began)}] {text}\n")
+                    fh.write(f"  [{mmss(time.monotonic() - began)}] {text}\n")
                     fh.flush()
             elif what == "result":
                 # The whole final message, which is cleaner than the deltas: it
@@ -640,11 +687,7 @@ def resumable(ran: Ran, resumed: bool = False) -> bool:
 # authenticate. API Error: 403 Forbidden", reported as a plain stop with no Log
 # in button, when all it needed was the key fetched again and the same session
 # carried on.
-KEY_REFUSED = re.compile(
-    r"Failed to authenticate|API Error: 40[13]\b|Invalid API key|Malformed API Key"
-    r"|apiKeyHelper failed",
-    re.I,
-)
+KEY_REFUSED = agent.KEY_REFUSED_RE
 # How many times one run fetches the key again before it is reported. Once is
 # enough to tell a stale key from one 1Password itself no longer has right.
 KEY_REFETCHES = 1
@@ -685,7 +728,7 @@ def run_stream(cmd: list[str], payload: str, timeout: int, fh=None, key: str = "
                kind: agent.Kind | None = None) -> Ran:
     """One agent run, reported as it goes."""
     runner = kind or agent.KINDS[0]
-    began = time.time()
+    began = time.monotonic()
     set_live(key, start=True)
     # The CLI takes some seconds to come up before it says anything, and a blank
     # progress line in that gap reads as a hang.
@@ -736,7 +779,7 @@ def run_stream(cmd: list[str], payload: str, timeout: int, fh=None, key: str = "
             code = proc.wait(timeout=5)
             break
         except subprocess.TimeoutExpired:
-            now = time.time()
+            now = time.monotonic()
             # Before the first word, the grace period applies: a cold start on
             # this gateway has taken over two minutes to its first token, and
             # killing a run that was only still connecting is the worse error.
@@ -762,7 +805,7 @@ def run_stream(cmd: list[str], payload: str, timeout: int, fh=None, key: str = "
     with cancel_lock:
         procs.pop(key, None)
     return Ran("".join(said).strip(), "\n".join(noise), code,
-               round(time.time() - began), len(calls), stalled,
+               round(time.monotonic() - began), len(calls), stalled,
                session[0] if session else "")
 
 
@@ -907,7 +950,7 @@ def calendar_loop() -> None:
     time.sleep(20)
     while True:
         try:
-            if calendar_sync.due():
+            if _credential_ready_quiet(agent.pick(), allow_fetch=False) and calendar_sync.due():
                 read_calendar()
         except Exception:  # noqa: BLE001
             pass
@@ -917,6 +960,8 @@ def calendar_loop() -> None:
 scout_state: dict = {"state": "idle", "said": "", "at": "", "finished_ts": 0.0}
 scout_lock = threading.Lock()
 scout_proc: list["subprocess.Popen[str] | None"] = [None]
+_bg_cancel: list[threading.Event | None] = [None]
+_queued_sweep: list[str] = [""]
 SCOUT_MIN_GAP_SECS = 75
 
 
@@ -941,23 +986,75 @@ def preempt_scout() -> None:
     scout.LOCK.unlink(missing_ok=True)
 
 
-def _credential_ready_quiet(kind: agent.Kind | None, allow_fetch: bool = False) -> bool:
+def preempt_background_sweep() -> None:
+    """Stop both Stage 1 scout and any Stage 2 background sweep (`delta` or
+    automatic daily refresh) so a manual Refresh or Update prep press starts
+    immediately instead of failing with HTTP 409."""
+    preempt_scout()
+    ev: threading.Event | None = None
+    with job_lock:
+        if job["state"] == "running" and job.get("kind") == "sweep" and job.get("background"):
+            ev = _bg_cancel[0]
+            if ev is not None:
+                ev.set()
+    if ev is None:
+        return
+    with cancel_lock:
+        proc = procs.get("sweep")
+    if proc is not None:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    deadline = time.monotonic() + 6.0
+    while time.monotonic() < deadline:
+        with job_lock:
+            still_bg = job["state"] == "running" and bool(job.get("background"))
+        if not still_bg and not LOCK.exists():
+            break
+        with cancel_lock:
+            proc = procs.get("sweep")
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        time.sleep(0.05)
+
+
+_cred_fetch_lock = threading.Lock()
+_last_cred_fetch_ts = 0.0
+CRED_INTERACTIVE_BACKOFF_SECS = 300
+CRED_TIMER_BACKOFF_SECS = 1800
+
+
+def _credential_ready_quiet(
+    kind: agent.Kind | None,
+    allow_fetch: bool = False,
+    force: bool = False,
+) -> bool:
     """Check whether a model credential is available without nagging 1Password
-    on a background timer. Action-triggered scouts (`allow_fetch=True`) may
-    resolve it once if needed."""
+    on a background timer.
+
+    Reads the in-memory memo, env, `settings.json`, or macOS Login Keychain
+    first (`credential_quiet()`, zero prompts). Only when none of those holds a
+    key yet does it try `apiKeyHelper`, throttled on failure (immediate on
+    `force`, 5m on browser tab return, 30m on background timers).
+    """
+    global _last_cred_fetch_ts
     if kind is None:
         return False
-    if os.environ.get("ANTHROPIC_API_KEY") or getattr(kind, "_credential", ""):
+    if kind.credential_quiet():
         return True
-    try:
-        conf = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        if (conf.get("env") or {}).get("ANTHROPIC_API_KEY"):
+    now_mono = time.monotonic()
+    backoff = 0 if force else (CRED_INTERACTIVE_BACKOFF_SECS if allow_fetch else CRED_TIMER_BACKOFF_SECS)
+    with _cred_fetch_lock:
+        if kind.credential_quiet():
             return True
-    except (OSError, ValueError):
-        pass
-    if allow_fetch:
-        return bool(kind.credential())
-    return False
+        if _last_cred_fetch_ts and (now_mono - _last_cred_fetch_ts) < backoff:
+            return False
+        _last_cred_fetch_ts = now_mono
+    return bool(kind.credential())
 
 
 def run_scout(force: bool = False, interactive: bool = False) -> None:
@@ -971,15 +1068,15 @@ def run_scout(force: bool = False, interactive: bool = False) -> None:
     if lock_held() or signing_in():
         return
     kind = agent.pick()
-    if not _credential_ready_quiet(kind, allow_fetch=interactive):
+    if not _credential_ready_quiet(kind, allow_fetch=interactive, force=force):
         return
     if calendar_sync.due():
         threading.Thread(target=read_calendar, daemon=True).start()
     if scout.daily_full_refresh_due():
         scout.record_full_attempt()
-        set_job("running", "Running daily full refresh…")
+        set_job("running", "Running daily full refresh…", background=True)
         threading.Thread(
-            target=guarded(lambda: run_agent("refresh"), "daily full refresh"),
+            target=guarded(lambda: run_agent("refresh", background=True), "daily full refresh"),
             daemon=True,
         ).start()
         return
@@ -1009,8 +1106,10 @@ def run_scout(force: bool = False, interactive: bool = False) -> None:
         if not got.get("changed"):
             scout_state.update(state="done", said="Up to date", at=now_hm, finished_ts=time.time())
             with job_lock:
-                if job["state"] == "idle":
-                    job["message"] = last_refreshed() or job["message"]
+                if job["state"] == "idle" or (
+                    job["state"] in ("done", "failed") and job.get("job") == "delta"
+                ):
+                    job.update(state="idle", message=last_refreshed() or job["message"], url="")
             return
         summary = str(got.get("summary") or "changes found")
         scout_state.update(state="delta", said=summary, at=now_hm, finished_ts=time.time())
@@ -1021,8 +1120,11 @@ def run_scout(force: bool = False, interactive: bool = False) -> None:
             return
     if lock_held() or signing_in():
         return
-    set_job("running", f"Updating what moved ({summary})")
-    threading.Thread(target=guarded(lambda: run_agent("delta"), "delta refresh"), daemon=True).start()
+    set_job("running", f"Updating what moved ({summary})", background=True)
+    threading.Thread(
+        target=guarded(lambda: run_agent("delta", background=True), "delta refresh"),
+        daemon=True,
+    ).start()
 
 
 def scout_loop() -> None:
@@ -1254,7 +1356,7 @@ def watch_grants() -> None:
                 time.sleep(GRANTS_EVERY_SECS)
                 continue
             kind = agent.pick()
-            if kind is not None and getattr(kind, "_credential", ""):
+            if kind is not None and kind.credential_quiet():
                 with job_lock:
                     quiet = job["state"] in ("idle", "needs_login") and not login_lock.locked()
                 with cancel_lock:
@@ -1478,6 +1580,8 @@ def _ensure_mcp_servers_added(kind: agent.Kind, missing_names: list[str]) -> Non
 
 
 def _walk_logins(fresh_key: bool = False) -> None:
+    global _last_cred_fetch_ts
+    _last_cred_fetch_ts = 0.0
     kind = agent.pick()
     if kind is None:
         login_say("needs_login", agent.blockers(None)[1])
@@ -2299,7 +2403,11 @@ def open_in_ai(body: dict) -> tuple[int, dict]:
     stamp = f"ai-{int(time.time())}-{secrets.token_hex(2)}"
     saved_imgs = _save_ask_images(stamp, raw_images)
 
-    md = mcp_server.build_context_bundle(ref, draft_num=draft_num, include_db=True)
+    include_db = bool(body.get("include_db"))
+    include_prep = mode not in ("work", "catchup")
+    md = mcp_server.build_context_bundle(
+        ref, draft_num=draft_num, include_db=include_db, include_prep=include_prep
+    )
     if follow_up:
         md += f"\n\n## Earlier Ask Exchange on Card\n\n{follow_up}\n"
     if saved_imgs:
@@ -2310,7 +2418,11 @@ def open_in_ai(body: dict) -> tuple[int, dict]:
         r"[^A-Za-z0-9._-]+", "-",
         f"{ref}" + (f"-draft-{draft_num}" if draft_num else ""),
     ).strip("-")[:64] or "board"
-    ctx_file = settings.TMP_DIR / f"ai-{slug}.md"
+    if not ref.isascii():
+        # A Japanese ref strips to "ticket", so every ticket would share one
+        # file and two open sessions would read each other's context.
+        slug += "-" + hashlib.sha1(ref.encode("utf-8")).hexdigest()[:8]
+    ctx_file =settings.TMP_DIR / f"ai-{slug}.md"
     ctx_file.parent.mkdir(parents=True, exist_ok=True)
     ctx_file.write_text(md + "\n", encoding="utf-8")
     abs_ctx = str(ctx_file.resolve())
@@ -2348,37 +2460,90 @@ def open_in_ai(body: dict) -> tuple[int, dict]:
         ctx_arg = 'ref="board"'
         head = f"Working on the {settings.client_short()} DANDORI board."
 
-    if target == "claude-desktop":
-        prompt_lines = [
-            f"Open `dandori_board({focus_arg})` and load `dandori_context({ctx_arg})` right now ({head}).",
-            "When updating the board or a draft, use `dandori_apply_patch` or `dandori_tick`. Never send external messages without my explicit approval.",
+    prof_rel = settings.client_rel(settings.PROFILE)
+    is_board = ref in ("board", "day", "desk") or not (item or ticket)
+    if target in ("claude-desktop", "claude-code"):
+        # Claude opens on the widget, focused, the way Cursor opens on the file:
+        # the owner sees the spot the answer is read from, and a focused
+        # dandori_board result already carries the full bundle, so it is one
+        # tool call rather than a board call plus a context call.
+        if is_board:
+            open_line = f"Call `dandori_board()` first ({head}) so I can see the board in the widget."
+        else:
+            open_line = (
+                f"Call `dandori_board({focus_arg})` first ({head}): it shows me this spot in the board widget "
+                "and returns its full context (ticket, steps, drafts, timeline), so do not also call `dandori_context`."
+            )
+        if target == "claude-code":
+            fallback = (
+                f"Then read `{abs_ctx}` for the board digest." if is_board
+                else f"If the dandori tools are not in this session, read `{abs_ctx}` instead (same content)."
+            )
+            fallback += (
+                f" Do NOT run `settings.py` or read `desk.md`, `board.json` or `config.json`; read `{prof_rel}` only when drafting messages or checking client rules."
+            )
+            write_line = (
+                f"Write board or draft changes with `dandori_apply_patch` / `dandori_tick` (or `python3 {ROOT / 'core/apply.py'}` and `python3 {ROOT / 'core/tick.py'} --rebuild`)."
+            )
+        else:
+            fallback = "" if is_board else f"If `dandori_board` is unavailable, call `dandori_context({ctx_arg})` instead."
+            write_line = "Write board or draft changes with `dandori_apply_patch` or `dandori_tick`; call `dandori_inspect_account` only if live DB state is needed."
+        prompt_lines = [open_line] + ([fallback] if fallback else []) + [
+            write_line + " Never send external messages or mutate PROD without my explicit approval.",
         ]
+        if saved_imgs and target == "claude-code":
+            prompt_lines.append("Also inspect attached screenshot(s): " + ", ".join(f"`{ROOT / p}`" for p in saved_imgs))
     else:
-        prompt_lines = [
-            f"Open `dandori_board({focus_arg})` first so the interactive board opens right at this spot, and read `{abs_ctx}` ({head}).",
-            f"All ticket context, numbered drafts, recent timeline, and live DB Account X-Ray are already preloaded in `{abs_ctx}` — do NOT search `desk.md` or `board.json`.",
-            f"When updating the board or draft, write via `python3 {ROOT / 'core/apply.py'}` and `python3 {ROOT / 'core/tick.py'} --rebuild` (or `dandori_apply_patch`). Never send external messages without my approval.",
-        ]
+        if is_board:
+            prompt_lines = [
+                f"Open `dandori_board()` and read `{abs_ctx}` ({head}).",
+                f"`{abs_ctx}` already contains the full board digest and workspace paths: do NOT run `settings.py` or read `desk.md` or `board.json` (read `{prof_rel}` only when drafting messages, editing scripts, or checking client rules).",
+                f"When updating the board, steps, or drafts, write via `python3 {ROOT / 'core/apply.py'}` and `python3 {ROOT / 'core/tick.py'} --rebuild` (or `dandori_apply_patch` / `dandori_tick`). Never send external messages or write to PROD without my explicit approval.",
+            ]
+        else:
+            prompt_lines = [
+                f"Read `{abs_ctx}` ({head}).",
+                f"`{abs_ctx}` already preloads this spot's workspace paths, ticket, steps, drafts, and timeline: do NOT run `settings.py`, do NOT read `desk.md`, `board.json`, or `config.json`, and do NOT call `dandori_board` unless I ask for the interactive board widget (read `{prof_rel}` only when drafting/editing messages or checking client rules; call `dandori_inspect_account` only when live DB/code-rule state is needed beyond `prepared`).",
+                f"When updating the board, steps, or drafts, write via `python3 {ROOT / 'core/apply.py'}` and `python3 {ROOT / 'core/tick.py'} --rebuild` (or `dandori_apply_patch` / `dandori_tick`). Never send external messages or write to PROD without my explicit approval.",
+            ]
         if saved_imgs:
             prompt_lines.append("Also inspect attached screenshot(s): " + ", ".join(f"`{ROOT / p}`" for p in saved_imgs))
 
-    if mode == "catchup" and ticket:
-        fetch_bits = []
+    fetch_bits = []
+    if ticket:
         if re.fullmatch(r"\d+", t_gid):
             fetch_bits.append(f"Asana task `{t_gid}` (plus `get_attachments` if any new image/file was attached)")
         if internal_gid:
             fetch_bits.append(f"internal Asana build `{internal_gid}`")
         if thread_urls:
             fetch_bits.append("linked Slack thread(s): " + ", ".join(thread_urls))
-        sources_txt = "; ".join(fetch_bits) if fetch_bits else "the linked Asana task and Slack threads"
+    sources_txt = "; ".join(fetch_bits) if fetch_bits else "the linked Asana task and Slack threads"
+
+    if mode == "catchup" and ticket:
         default_task = (
-            f"Check ONLY the newest comments/replies since the last recorded timestamp on {sources_txt}. "
+            f"Check ONLY the newest comments/replies since the last recorded timestamp in `{abs_ctx}` on {sources_txt}. "
             "Tell me concisely what changed and what I should do next, and update this ticket's open item steps/drafts on the board if needed."
         )
+    elif mode == "work" and (item or ticket) and not draft_num:
+        subj_label = f"Job {item.get('id')} ({t_ref})" if item else f"ticket {t_ref}"
+        fresh_line = (
+            f"1. **Quick freshness check**: verify whether any comment/reply arrived after the latest timestamp in `{abs_ctx}` on {sources_txt}.\n"
+            if ticket and fetch_bits
+            else ""
+        )
+        default_task = (
+            f"Help me complete the remaining work on {subj_label} step by step:\n"
+            f"{fresh_line}"
+            "2. **Done vs Remaining**: give me a crisp checklist of what is already completed vs each remaining step, marking what you can do/verify vs what needs my browser action or approval.\n"
+            "3. **Do every safe AI step now**: immediately run any read-only checks (DB replica, Slack Canvas, Asana, local files) and prepare exact copy-paste values, links, or drafts so nothing is left unverified. Never send messages or mutate external/PROD systems without my explicit approval.\n"
+            "4. **Walk Step 1 with me**: hand me the exact link and ready-to-use values/draft for the next human step, and tell me what confirmation or screenshot to drop back here so we can finish each step together, save any evidence files, and tick the board."
+        )
     elif item and draft_num:
-        default_task = f"Summarize Draft {draft_num} in one line and wait for my edit or question."
+        default_task = f"Summarize Draft {draft_num} in one line, verify all facts/links against `{abs_ctx}`, and wait for my edit or approval."
     elif item:
-        default_task = f"Summarize what is left on Job {item.get('id')} in one line and wait for my instruction."
+        default_task = (
+            f"Show a concise Done-vs-Remaining checklist for Job {item.get('id')}, run any safe read-only verification you can do now, and tee up the next step for us to complete together."
+        )
     else:
         default_task = "Show the board above and wait for my instruction."
 
@@ -2664,9 +2829,13 @@ def agent_model(kind: str) -> str:
     return agent.model_for(kind)
 
 
-def run_agent(kind: str) -> None:
+def run_agent(kind: str, background: bool = False) -> None:
     """One agent pass over a prompt, then the page reloads itself."""
     prompt_name, running_note = JOBS[kind]
+    cancel_ev = threading.Event() if background else None
+    with job_lock:
+        _bg_cancel[0] = cancel_ev
+        job["background"] = background
     # A patch left by a run that died before applying it would block this run's
     # Write (the tool will not overwrite a file it has not read) and could be
     # applied by mistake. It is unapplied work from a dead run, so it goes.
@@ -2682,6 +2851,9 @@ def run_agent(kind: str) -> None:
     runner = agent.pick()
     if runner is None:
         set_job("failed", agent.blockers(None)[1])
+        return
+    if cancel_ev is not None and cancel_ev.is_set():
+        set_job("idle", last_refreshed())
         return
     if lock_held():
         set_job("failed", "a refresh or prep is already running. Let it finish.")
@@ -2716,11 +2888,14 @@ def run_agent(kind: str) -> None:
                     break
             time.sleep(2)
 
-    set_job("running", running_note)
+    set_job("running", running_note, background=background)
     # Which button is running, so the progress line can say "Refresh" or
     # "Prep" as a title rather than repeating the long running note.
     with job_lock:
         job["job"] = kind
+    if cancel_ev is not None and cancel_ev.is_set():
+        set_job("idle", last_refreshed())
+        return
     keep.keep(kind)
     log = settings.LOGS_DIR / f"{kind}-{datetime.now():%Y-%m-%d}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -2736,6 +2911,8 @@ def run_agent(kind: str) -> None:
     carry_on = ""   # the session to resume after a reply was cut off
     try:
         for attempt in range(1, 4 + MID_STREAM_RESUMES + KEY_REFETCHES):
+            if cancel_ev is not None and cancel_ev.is_set():
+                return
             with log.open("a", encoding="utf-8") as fh:
                 fh.write(
                     f"\n=== {datetime.now():%H:%M:%S} {kind} on "
@@ -2754,11 +2931,14 @@ def run_agent(kind: str) -> None:
                         )
                     ran = run_stream(cmd, full_prompt, timeout, fh,
                                      kind=runner)
+                preempted_tag = ", preempted" if (cancel_ev is not None and cancel_ev.is_set()) else ""
                 fh.write(
                     f"\n{ran.text}\n"
                     f"=== {kind} ended after {ran.took}s, {ran.calls} tool calls, "
-                    f"exit {ran.code}{', stalled' if ran.stalled else ''} ===\n"
+                    f"exit {ran.code}{', stalled' if ran.stalled else ''}{preempted_tag} ===\n"
                 )
+            if cancel_ev is not None and cancel_ev.is_set():
+                return
             # The gateway would not take the key. The one the server remembers
             # can be days old, so ask 1Password for it again and carry the same
             # session on: every call before the refusal ran and is in it. A run
@@ -2882,6 +3062,21 @@ def run_agent(kind: str) -> None:
     finally:
         clear_live("sweep")
         LOCK.unlink(missing_ok=True)
+        nxt = ""
+        with job_lock:
+            if _bg_cancel[0] is cancel_ev:
+                _bg_cancel[0] = None
+            if cancel_ev is not None and cancel_ev.is_set():
+                if job.get("background"):
+                    job.update(state="idle", message=last_refreshed(), background=False)
+                    job.pop("queued", None)
+            elif job.get("state") != "needs_login" and _queued_sweep[0]:
+                nxt = _queued_sweep[0]
+                _queued_sweep[0] = ""
+                job.pop("queued", None)
+        if nxt:
+            set_job("running", "Starting", background=False)
+            run_agent(nxt, background=False)
 
 
 # How a run says it stopped on a dead connection, per "Stop rather than improvise".
@@ -3129,7 +3324,8 @@ class Handler(BaseHTTPRequestHandler):
                 draft_num = int(qparts.get("draft") or "0")
             except ValueError:
                 draft_num = 0
-            md = mcp_server.build_context_bundle(ref, draft_num=draft_num, include_db=True)
+            include_db = qparts.get("db") in ("1", "true", "yes")
+            md = mcp_server.build_context_bundle(ref, draft_num=draft_num, include_db=include_db)
             self.json_out(200, {"markdown": md, "ref": ref})
             return
         if path == "/api/activity":
@@ -3157,6 +3353,16 @@ class Handler(BaseHTTPRequestHandler):
                     "auto_mins": settings.auto_sweep_mins(),
                 },
             )
+            return
+        if path == "/api/targets":
+            with db_lock:
+                dbc = dict(db_state)
+            try:
+                snap = targets.snapshot(db_info=dbc)
+            except Exception as exc:  # noqa: BLE001
+                self.json_out(500, {"error": str(exc)[:240]})
+                return
+            self.json_out(200, snap)
             return
         if path == "/manifest.webmanifest":
             self.send(200, json.dumps(manifest()).encode(), "application/manifest+json")
@@ -3242,7 +3448,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 html = rebuild()
-            except subprocess.CalledProcessError as exc:
+            except Exception as exc:  # noqa: BLE001
                 self.send(500, f"render failed: {exc}".encode(), "text/plain")
                 return
             # A finished run has been collected by this load, so clear it.
@@ -3267,9 +3473,15 @@ class Handler(BaseHTTPRequestHandler):
             self.json_out(403, {"error": "bad key"})
             return
         if path in ("/api/refresh", "/api/prep"):
-            preempt_scout()
+            kind = path.rsplit("/", 1)[1]
+            preempt_background_sweep()
             with job_lock:
                 if job["state"] == "running" and job.get("kind") == "sweep":
+                    if kind == "prep" and job.get("job") == "refresh":
+                        _queued_sweep[0] = "prep"
+                        job["queued"] = "prep"
+                        self.json_out(202, {"state": "running", "queued": "prep"})
+                        return
                     self.json_out(409, dict(job))
                     return
             if lock_held():
@@ -3281,10 +3493,9 @@ class Handler(BaseHTTPRequestHandler):
                                     "message": "The sign-in is still going. Finish it "
                                                "first; the buttons come back when it is done."})
                 return
-            kind = path.rsplit("/", 1)[1]
-            set_job("running", "Starting")
+            set_job("running", "Starting", background=False)
             threading.Thread(
-                target=guarded(lambda: run_agent(kind), kind), daemon=True
+                target=guarded(lambda: run_agent(kind, background=False), kind), daemon=True
             ).start()
             self.json_out(202, {"state": "running"})
             return

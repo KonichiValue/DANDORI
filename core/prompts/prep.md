@@ -67,11 +67,14 @@ Otherwise sweep, briefly, in the same turns as above:
 - **Census and gate together.** The census is every incomplete task assigned to
   the owner (`config.json` `owner.asana_user_gid`) in every project in
   `config.json` `asana.projects`, no date filter, with
-  `opt_fields=completed,assignee.name,memberships.section.name,custom_fields.name,custom_fields.display_value`.
+  `opt_fields=completed,due_on,assignee.name,memberships.section.name,custom_fields.name,custom_fields.display_value`.
   It decides membership and refreshes every card's `asana` fields (Status is the
   custom field the profile's `## Where my work lives` names as the status, `Status`
   unless it says otherwise). An assigned gid not on the board is added as a
   ticket; nothing unassigned ever is, however important (that is a `news` row).
+  If an open item for a newly added ticket card was earlier placed on another
+  ticket before the card existed, re-home it onto its own ticket card with
+  `"items": {"<N>": {"ticket": "<ref>"}}` (its item number never changes).
   A board ticket missing from the census was completed or reassigned: find out
   which. The gate (`modified_at_after` from the SWEEP PLAN) decides which
   tickets earn `get_task_stories(task_ids=[...], created_after=<since_utc>)` in
@@ -90,9 +93,17 @@ Otherwise sweep, briefly, in the same turns as above:
   when a draft would otherwise pack dates, rows or multi-account numbers into
   prose, generate a zero-PII evidence image into `docs/` (using `clients/<client>/scripts/`
   when present) and attach it in `prepared.files` with `"draft"` and `"where"`.
+  A draft posted as an Asana comment is read inside its ticket, so it never
+  names the ticket or restates its subject ("〇〇の件ですが") and never retells
+  an earlier comment there unless that one is weeks old; it opens with the news,
+  under @mentions of the people who need to act or know, which always stay.
+  The spoken script is the opposite: there nobody has the ticket open, so the
+  topic goes into the first sentence.
   Every job needs a day:
   `urgency` exactly `today`, `this-week` or `monitor`, or an ISO `chase_on`,
   plus an ISO `due_by` on the owner's work that has a deadline rather than a start.
+  A `remind` block (a phone ping via Apple Reminders) is for the rare job where
+  missing the moment does real harm; `prompts/refresh.md` step 6 has the bar.
 - Fix every line of the digest's `OUT OF DATE` block, update `news` (route named,
   five at most) and `brief`, and end the patch with `"swept": true`.
 
@@ -109,7 +120,8 @@ budget: compose from the one `--full` read (which already includes `BRIEF`,
 `SCRIPT`, `HUDDLE`, `XWS`, and each ticket's existing `prep` summary — never
 grep `board.json` for them).
 
-**Keep an unchanged ticket's `prep` when nothing on it moved.** When a ticket
+**Keep an unchanged ticket's `prep` when nothing on it moved, and NEVER leave an active cycle/priority ticket without `prep.script`.**
+Every incomplete ticket assigned to the owner in the active cycle (`This Cycle's Priority`) or carrying a live priority (`Top Priority`, `High`, `Priority`, `New`) MUST get a `prep` block on `What I say`, even if it currently has zero open items on the board! Place `prep.order` strictly in the room's priority order (`Top Priority -> Priority -> New -> Other`), and include `prep.explainer` on newly added tickets. When a ticket
 already carries a `prep` block written for the same session kind (for example
 `standup`), and neither its `events`, its `where_it_stands`, its `asana.status`
 nor its open items changed since `prep.built_at` (and it was not closed out at a
@@ -231,30 +243,39 @@ the "nothing internal reaches the client" rule does not apply. The huddle walks
 **milestones and blockers**, so write those two and keep both as short as the
 owner would type them into the huddle's databases:
 
-- `milestones`: one entry per open board milestone the owner leads, `{id,
+- `milestones`: one entry per open board milestone the owner leads in the
+  team huddle's milestone database (`in_huddle` not `false`), `{id,
   status, confidence, update}`. `id` is the board milestone's; `status` is
   `on-track`, `at-risk`, `off-track`, `not-started` or `done`; `confidence` is
   `Committed`, `Tentative` or `No date yet`; `update` is **one line** for the
   Latest update column: what moved since last week and what is next, with a date
   when there is one. Read it from the milestone's phases and the items they name,
-  which the `--full` read already gave you.
-- `blockers`: **be very selective.** Only something actually stuck on another
-  person or an unmade decision, as `{blocker, milestone, waiting_on, next_step,
-  status}` with `status` one of `blocked`, `waiting`, `resolved`. Most weeks it is
-  empty, and an empty list is the honest answer; never write "No blockers" as a
-  row.
-- `plate` is optional: at most five terse lines, only when the profile says the
-  huddle still asks what is on the owner's plate. Leave it out otherwise.
+  plus the huddle page's milestone database (`meeting.also` `kind: huddle` `link`)
+  when present. Board milestones with `in_huddle: false` (internal projects not
+  tracked in the huddle milestone database) belong in `plate`, not `milestones`.
+- `blockers`: **be very selective.** Check the huddle page's blockers database
+  and include any open blocker owned by or affecting the owner's workstream, plus
+  anything actually stuck on another person or an unmade decision, as `{blocker,
+  milestone, waiting_on, next_step, status}` with `status` one of `blocked`,
+  `waiting`, `resolved`. Most weeks it is empty, and an empty list is the honest
+  answer; never write "No blockers" as a row.
+- `plate` is optional: at most five terse lines (including any `in_huddle: false`
+  side project), only when the profile says the huddle still asks what is on the
+  owner's plate. Leave it out otherwise.
 
 ### The order the meeting walks
 
 The standup works down the client's board in the order the cards appear on
 screen, and the owner follows along live. If the profile's
 `## Where my work lives` names the Asana section the standup walks (for example a
-cycle board's current-priority section), call `get_tasks` with that `section` and
-`limit: 60`, which returns tasks in board order. Set each ticket's `prep.order` to
-1, 2, 3 by that position, and `prep.board_position` to something like
-`"5 of 12 on the board"` so the owner knows roughly when they are up.
+cycle board's current-priority section), call `get_tasks` with that `section`
+(including `opt_fields=name,completed,assignee.name,custom_fields.name,custom_fields.display_value`)
+and `limit: 60`. **Crucial: Asana's `get_tasks(section=...)` returns raw
+ungrouped task order, whereas a client board grouped by Priority walks
+`Top Priority` -> `Priority` -> `New` -> `Other` (check the profile's running-order
+rule)!** Sort the active tasks by that Priority group first and section order
+within each group, then set each ticket's `prep.order` to 1, 2, 3 and
+`prep.board_position` to its on-screen position (`"5 of 21 on the board"`).
 
 If that section GID has moved because a new cycle started, find the section of
 the same name on the project the profile names and use that. With no section
@@ -297,10 +318,14 @@ reads as unresolved, invites the same discussion a second time, and buries the
 one or two tickets that genuinely need the room.
 
 This is different from a ticket sitting quietly with Kraken engineering, which
-still earns its one-line where-it-stands block because the client has a live
-interest in hearing it is in hand and has not been told since. The test is whether
-anything is still owed **in the room**: nothing owed, and last time already
-covered it, means no block.
+**always** earns its one-line where-it-stands block on the speaking view whenever
+it sits in the board section the meeting walks (`This Cycle's Priority`, etc.):
+the client scrolls down that column live on screen, so skipping an assigned open
+card leaves the owner hunting for it when the screen reaches its slot. Give
+every incomplete assigned ticket in the walked section at least a one-line `現状`
+card in exact on-screen board order (`2 of 22 on the board`, etc.). Only omit
+`prep` on a completed ticket or a ticket that is not on the walked board and
+has nothing owed in the room.
 
 **It reopens only when something new happens.** If the recovery fails, the
 evidence is contested, the client raises a fresh question, or a promised date
@@ -330,6 +355,58 @@ Write the chain into `prep.consequences`:
 
 Anything only the client can answer becomes an `open_questions` entry. Anything
 the owner can answer themselves becomes an `unknowns` entry.
+
+### Pedagogical walkthrough for complex, new, or newly-assigned tickets (`prep.explainer`)
+
+Whenever a ticket in the script is **new, newly assigned to the owner (within
+the last ~2 weeks or in its first couple of sessions), handed over mid-stream
+from a colleague, or multi-part complex** (such as a unit-price or subsidy rate
+revision across TEST, holds and PROD, a multi-stage rollout, or a subtle
+multi-fuel billing pathway bug), write `prep.explainer` so the owner can master
+the whole picture in thirty seconds before speaking.
+
+The page renders `prep.explainer` inside a compact tabbed drawer (`1. How it
+works`, `2. Done & next`, `3. Key facts & Q&A`, `Timeline`) so it takes almost
+no vertical room on the board while keeping everything one click apart:
+
+- `badge`: short tag naming why it has a walkthrough (e.g. `"New · Rate update"`,
+  `"Newly assigned · Multi-step fix"`, `"Price revision rollout"`).
+- `new_to_you`: `true` when the ticket was newly assigned to the owner or this
+  is their first session speaking on it (opens Tab 1 by default); `false` once
+  they have already walked it in an earlier session (collapses to its 1-line
+  summary bar while keeping the tabs one click away).
+- `summary`: one plain-English sentence teaching what this ticket is from first
+  principles, with zero unexplained jargon.
+- `flow`: 3 or 4 short steps (`{"step": "1. Trigger", "who": "You", "where": "PROD Support Site", "detail": "..."}`) that
+  teach the end-to-end mechanism concretely: always name **who** acts (`You`,
+  `the client`, `Kraken engineer`), **where** (`the support-site settings screen`,
+  `the release canvas`, `the bill PDF notice box`), and what actually happens in
+  plain words (never bundle four abstract jargon phrases into one sentence).
+- `why_say`: 1 or 2 plain sentences explaining **why** today's `script` says
+  what it says (and what it deliberately holds back), so the owner knows the
+  exact intent behind every spoken sentence.
+- `journey`: 3 to 5 chronological milestones (`{"state": "done|now|next|blocked",
+  "label": "...", "detail": "..."}`) covering what was already completed (even
+  before the ticket reached the owner), where today's session sits (`now`), and
+  what follows next (`next`).
+- `facts`: 2 to 4 crisp key-value pairs (`{"label": "Scope", "value": "..."}`)
+  giving the exact counts, menus, periods, or exclusions the room might ask for.
+- `if_asked`: 1 to 3 likely follow-up questions (`{"q": "...", "a": "...",
+  "say_ja": "..."}`), with a plain-English explanation in `a` and, where useful,
+  a ready-to-read client-language reply in `say_ja` (carrying `{word|reading}`
+  markup when readings are on, and obeying the same no-internal-leak rule as
+  `script`).
+
+Skip `prep.explainer` only on simple, single-point tickets the owner has already
+carried for weeks where a 1-line status needs no mental model.
+
+Also write `prep.gist` on every scripted ticket: one crisp English sentence
+under 18 words stating what you say or ask on that ticket today (shown directly
+in the session card's running-order table). And write `script.before_start` at
+board level: 2 to 4 compact pre-meeting status bullets (`{"label": "Since last
+standup", "what": "...", "ref": "..."}`) giving the main status shifts since the
+last session, the exact asks you need answered in the room today, and any
+attendance or programme context to know before the call starts.
 
 ### The script itself
 
@@ -494,9 +571,35 @@ Per ticket, one `prep` object, replacing whatever was there:
 "prep": {
   "order": 1,
   "board_position": "5 of 12 on the board",
+  "gist": "One short sentence on what you say or ask on this ticket today.",
   "issue": ["Two or three lines of plain English. No jargon, no client-language terms.",
             "Someone who has never seen this ticket understands it here."],
   "why_it_matters": "One sentence on the customer or business impact.",
+  "explainer": {
+    "badge": "Newly assigned · Price update",
+    "new_to_you": true,
+    "summary": "One plain-English sentence teaching what this ticket is.",
+    "why_say": "Why today's script says what it says and what it holds back.",
+    "flow": [
+      {"step": "1. Trigger", "detail": "What starts the case or rate change."},
+      {"step": "2. Mechanism", "detail": "How Kraken processes it (or where it fails)."},
+      {"step": "3. Fix / Rollout", "detail": "How we verify and ship safely."}
+    ],
+    "journey": [
+      {"state": "done", "label": "TEST load & check", "detail": "Who did what and when."},
+      {"state": "now", "label": "Align PROD timing", "detail": "Today's standup goal."},
+      {"state": "next", "label": "PROD load & post-check", "detail": "What follows sign-off."}
+    ],
+    "facts": [
+      {"label": "Scope", "value": "Exact menus, rows, or account count"},
+      {"label": "Out of scope", "value": "What does not change"}
+    ],
+    "if_asked": [
+      {"q": "Likely question from the client in the room",
+       "a": "Plain-English answer for your own understanding.",
+       "say_ja": "Optional client-language spoken answer with {word|reading} markup."}
+    ]
+  },
   "consequences": {
     "fix_covers": "", "falls_outside": "", "accumulates": "",
     "who_owns_it": "", "done_means": "", "still_open": ""
@@ -537,7 +640,12 @@ And once at board level:
   "for_date": "YYYY-MM-DD, the session you wrote for",
   "at": "the session's time, meeting.time_local for the main standup",
   "built_at": "ISO 8601 with the offset of config.json timezone",
-  "headline": "One sentence naming what this room has to produce. It sits under the session name on the prep tab, so it must read to someone who has opened nothing else: name the ticket and name the decision. Never a recap of what changed, and never a verdict on how big the problem turned out to be."
+  "headline": "One sentence naming what this room has to produce. It sits under the session name on the prep tab, so it must read to someone who has opened nothing else: name the ticket and name the decision. Never a recap of what changed, and never a verdict on how big the problem turned out to be.",
+  "before_start": [
+    {"label": "Landed since last room", "what": "Key outcomes that closed or moved since you last spoke."},
+    {"label": "Your asks today", "what": "Which ticket(s) need the client's go or answer today.", "ref": "TICKET-TAG"},
+    {"label": "Room context", "what": "Anyone away, or programme context that touches your walk."}
+  ]
 },
 "sessions": [
   {"kind": "onsite", "date": "YYYY-MM-DD", "at": "", "title": "Workstream onsite",

@@ -50,6 +50,13 @@ FINISHED = {
     "cancelled", "withdrawn", "cancelled / withdrawn",
 }
 
+# Active engineering states: already picked up, so never ask to prioritize them.
+ACTIVE_BUILD_STATUS = {
+    "in progress", "doing", "building", "in review", "review", "code review",
+    "review / signoff", "client verification", "testing", "in testing",
+    "ready for release",
+}
+
 
 def config() -> dict:
     """The owner's `prioritization` block, or {} when they have no round."""
@@ -120,13 +127,31 @@ def owner_off(day: date, cfg: dict) -> bool:
 def cutoff_for(round_day: date, planned: date, cfg: dict) -> str:
     """When raising closes on `round_day`.
 
-    Normal Monday rounds stay open until `cutoff_at` (e.g. 13:30 CDL meeting).
-    When a Monday holiday pushes the round to Tuesday morning, CE's Tuesday 11:00
-    finalization meeting runs the same morning, so raising closes earlier (`holiday_cutoff_at`).
+    Normal Monday rounds stay open until `cutoff_at` (e.g. 13:30 CDL meeting), as
+    do rounds pulled earlier to the preceding Friday (`round_day < planned`).
+    When a Monday holiday pushes the round later to Tuesday morning (`round_day > planned`),
+    CE's Tuesday 11:00 finalization meeting runs the same morning, so raising closes
+    earlier (`holiday_cutoff_at`) unless `moved` sets an explicit `cutoff_at`.
     """
-    if round_day != planned:
+    for row in cfg.get("moved") or []:
+        if row.get("from") == planned.isoformat() and row.get("cutoff_at"):
+            return str(row["cutoff_at"])
+    if round_day > planned:
         return str(cfg.get("holiday_cutoff_at") or "10:00")
     return str(cfg.get("cutoff_at") or cfg.get("thread_at") or "13:30")
+
+
+def working_days_since(start: date, end: date, cfg: dict) -> int:
+    """Working days strictly after `start` up to and including `end`."""
+    if end <= start:
+        return 0
+    d = start + timedelta(days=1)
+    n = 0
+    while d <= end:
+        if working(d, cfg):
+            n += 1
+        d += timedelta(days=1)
+    return n
 
 
 def rounds(cfg: dict | None = None, start: date | None = None, count: int = 6) -> list[dict]:
@@ -153,7 +178,7 @@ def rounds(cfg: dict | None = None, start: date | None = None, count: int = 6) -
                 (r.get("why", "") for r in cfg.get("moved") or []
                  if r.get("from") == planned.isoformat()), "")
             if not moved and day != planned:
-                moved = "Monday holiday: runs Tuesday morning before 10:00 (ahead of CE's 11:00 meeting)"
+                moved = "Mon holiday · runs Tue morning before 10:00"
             ask_day = ask_by(day, cfg)
             out.append({
                 "planned": planned.isoformat(),
@@ -170,6 +195,8 @@ def rounds(cfg: dict | None = None, start: date | None = None, count: int = 6) -
 
 def previous(cfg: dict | None = None, today: date | None = None) -> dict:
     """The last round that has already closed, or {} when there is none."""
+    if isinstance(cfg, date) and today is None:
+        today, cfg = cfg, None
     cfg = config() if cfg is None else cfg
     if not _iso(cfg.get("anchor")):
         return {}
@@ -203,6 +230,8 @@ def next_round(cfg: dict | None = None, today: date | None = None) -> dict:
     On the round's own day, before `cutoff_at`, it is still the active round.
     {} when there is no round.
     """
+    if isinstance(cfg, date) and today is None:
+        today, cfg = cfg, None
     cfg = config() if cfg is None else cfg
     if not _iso(cfg.get("anchor")):
         return {}
@@ -217,25 +246,67 @@ def next_round(cfg: dict | None = None, today: date | None = None) -> dict:
     return {}
 
 
-def kind(build: dict, raised_kts: set[str] | None = None, nxt_date: str = "") -> str:
-    """Which of five things a build is, for this round.
+def is_scheduled(build: dict, today: date | None = None, cfg: dict | None = None) -> bool:
+    """Whether a build is actively committed into a Wave or being built.
 
-    raise    refined and sized, no client order: say it should be ordered
-    raised   refined and sized, no client order yet, already raised for this round
-    ordered  has a client order (`client_order`): only its dates and status need to be right
+    A ticket in a `Wave` (or assigned to an engineer / actively building) has a
+    committed cycle window. A bare `client_order` with no `Wave`
+    only counts as scheduled during the 2-day handoff right after a round before
+    CE assigns Waves; past that window, an empty `Wave` means the build did not
+    make capacity or was swapped out mid-cycle and needs follow-up next round.
+    """
+    if str(build.get("wave") or "").strip():
+        return True
+    if str(build.get("engineer") or "").strip():
+        return True
+    status = str(build.get("status") or "").strip().lower()
+    if status in ACTIVE_BUILD_STATUS:
+        return True
+    if str(build.get("client_order") or "").strip():
+        prev = previous(cfg, today)
+        prev_d = _iso(prev.get("date")) if prev else None
+        ref_d = today or today_local()
+        if prev_d is None or (prev_d <= ref_d and working_days_since(prev_d, ref_d, cfg or config()) <= 2):
+            return True
+    return False
+
+
+def has_motivation(build: dict) -> bool:
+    """A refined build is only raised when `push` is not False and `why` states
+    a clear reason to push it in this round."""
+    if build.get("push") is False:
+        return False
+    return bool(str(build.get("why") or "").strip())
+
+
+def kind(
+    build: dict,
+    raised_kts: set[str] | None = None,
+    nxt_date: str = "",
+    today: date | None = None,
+    cfg: dict | None = None,
+) -> str:
+    """Which of six things a build is, for this round.
+
+    raise    refined, not in a Wave or ordered, and has a clear 1-sentence motivation (`why`)
+    raised   already raised in the thread for this round
+    ordered  already has a committed `wave`, fresh `client_order`, or an engineer on it
+    parked   refined, but deliberately held back (`push: false` or no motivation to push now)
     refining not refined yet, so it cannot be ordered this round
     done     finished, not part of the round
     """
     status = str(build.get("status", "")).strip().lower()
     if status in FINISHED:
         return "done"
-    if str(build.get("client_order") or "").strip():
+    if is_scheduled(build, today=today, cfg=cfg):
         return "ordered"
     ref = str(build.get("refinement") or build.get("ref") or "").strip()
     if ref == "🟢" or status == "ready to build":
         kt = str(build.get("kt") or "").strip()
         if (raised_kts and kt in raised_kts) or (nxt_date and build.get("raised_for") == nxt_date):
             return "raised"
+        if not has_motivation(build):
+            return "parked"
         return "raise"
     return "refining"
 
@@ -266,25 +337,41 @@ def summary(board: dict, today: date | None = None) -> dict:
     builds = [b for b in block.get("builds") or [] if isinstance(b, dict)]
     nxt = next_round(cfg, today)
     nxt_date = nxt.get("date") or ""
+    nxt_planned = nxt.get("planned") or ""
+    last = previous(cfg, today)
+    last_round = block.get("last_round") if isinstance(block.get("last_round"), dict) else {}
+    lr_date = str(last_round.get("date") or "").strip()
+    lr_ordered = {str(k).strip() for k in (last_round.get("ordered") or []) if k}
     raised_block = block.get("raised") if isinstance(block.get("raised"), dict) else {}
+    rb_round = str(raised_block.get("round") or "").strip()
     raised_kts = (
         {str(k).strip() for k in (raised_block.get("kts") or []) if k}
-        if nxt_date and raised_block.get("round") == nxt_date
+        if nxt_date and rb_round in {nxt_date, nxt_planned}
         else set()
     )
+    if nxt_date and lr_date == nxt_date:
+        raised_kts |= lr_ordered
+    # Right after a round closes (up to 2 working days before CE sets Wave in Asana),
+    # builds ordered in `last_round` are awaiting Wave assignment rather than re-raising.
+    handoff_ordered: set[str] = set()
+    prev_d = _iso(last.get("date")) if last else None
+    ref_d = today or today_local()
+    if prev_d and lr_date == last.get("date") and prev_d <= ref_d and working_days_since(prev_d, ref_d, cfg) <= 2:
+        handoff_ordered = lr_ordered
     rows = []
     for b in builds:
-        k = kind(b, raised_kts, nxt_date)
+        k = kind(b, raised_kts, nxt_date, today=today, cfg=cfg)
+        if k == "raise" and str(b.get("kt") or "").strip() in handoff_ordered:
+            k = "ordered"
         if k != "done":
             rows.append({**b, "kind": k, "fixes": fixes(b)})
     # Ordered builds by their client order; the rest keep the board's order,
     # which is the order the owner would ask for them in.
-    order = {"raise": 0, "raised": 1, "ordered": 2, "refining": 3}
+    order = {"raise": 0, "raised": 1, "ordered": 2, "parked": 3, "refining": 4}
     rows.sort(key=lambda r: (order[r["kind"]],
-                             int(r["client_order"]) if str(r.get("client_order") or "").isdigit() else 0))
+                             int(r["client_order"]) if str(r.get("client_order") or "").isdigit() else 999))
     checked = block.get("checked_at", "")
     stale = ""
-    last = previous(cfg, today)
     if not builds:
         stale = "No builds have been read yet. A refresh fills this from Asana."
     elif last and checked[:10] < last["date"]:
@@ -295,7 +382,7 @@ def summary(board: dict, today: date | None = None) -> dict:
         "config": cfg,
         "next": nxt,
         "last": last,
-        "last_round": block.get("last_round") or {},
+        "last_round": last_round,
         "raised_info": raised_block if raised_kts else {},
         "rows": rows,
         "raise": [r for r in rows if r["kind"] == "raise"],
@@ -326,18 +413,24 @@ def message(s: dict) -> str:
         lines.append("")
         lines.append(f"Please consider for a {order}:")
         for r in s["raise"]:
-            bits = [r.get("size", "")]
-            if r.get("why"):
-                bits.append(r["why"])
-            if r.get("url"):
-                bits.append(r["url"])
-            tail = ", ".join(b for b in bits if b)
-            lines.append(f"- {r.get('kt', '')} {short(r.get('name', ''))}" + (f" ({tail})" if tail else ""))
+            bits = [r.get("size", ""), r.get("url", "")]
+            meta = ", ".join(b for b in bits if b)
+            mot = str(r.get("why") or "").strip().rstrip(".")
+            head = f"- {r.get('kt', '')} {short(r.get('name', ''))}" + (f" ({meta})" if meta else "")
+            lines.append(f"{head} - {mot}." if mot else head)
     ordered = [r for r in s["rows"] if r["kind"] == "ordered"]
     if ordered:
         lines.append("")
-        lines.append("Already ordered, no change: " + ", ".join(
-            f"{r.get('kt')} ({order} {r.get('client_order')})" for r in ordered))
+        sched_bits = []
+        for r in ordered:
+            detail = (
+                f"{order} {r['client_order']}"
+                + (f", {r['wave']}" if r.get("wave") else "")
+                if r.get("client_order")
+                else (r.get("wave") or r.get("status") or "scheduled")
+            )
+            sched_bits.append(f"{r.get('kt')} ({detail})")
+        lines.append("Already scheduled in wave, no change: " + ", ".join(sched_bits))
     return "\n".join(lines)
 
 
@@ -381,7 +474,8 @@ def main() -> int:
         tag = {
             "raise": "RAISE",
             "raised": "RAISED",
-            "ordered": f"{short_name}#{r.get('client_order')}",
+            "ordered": f"{short_name}#{r.get('client_order')}" if r.get("client_order") else (r.get("wave") or "IN WAVE")[:9],
+            "parked": "hold",
             "refining": "refining",
         }[r["kind"]]
         print(f"  {tag:9} {r.get('kt', ''):10} {r.get('ticket') or '-':8} "

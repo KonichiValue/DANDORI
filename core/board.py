@@ -13,7 +13,8 @@ Shape of `state/board.json`:
       "checked_at": "2026-08-24T18:20:00+00:00",
       "next_id": 8,
               "sessions": [ ...see below... ],
-              "script": {"for_date", "at", "built_at", "headline"},
+              "script": {"for_date", "at", "built_at", "headline",
+                         "before_start": [{"label", "what", "ref"}]},
               "news": [ ...see below... ],
               "prioritization": { ...see below... },
               "tickets": [
@@ -206,7 +207,19 @@ status of its own: that view takes `where_it_stands` from the ticket, so a scrip
 can never contradict the desk.
 
     {"order": 1, "board_position": "5 of 12 on the board",
+     "gist": "one plain-English line for the standup running-order preview",
      "issue": ["plain English, two or three lines"], "why_it_matters",
+     "explainer": {                                   complex / new / newly-assigned tickets
+       "badge": "New ticket · Rate update",
+       "new_to_you": true,                            opens Tab 1 on first read
+       "summary": "One plain-English sentence on what this ticket is.",
+       "why_say": "Why today's script says what it says (and what it holds back).",
+       "flow": [{"step": "1. Trigger", "who": "You", "where": "PROD UI", "detail": "..."}],
+       "visuals": [{"path": "docs/evidence/...", "label": "...", "caption": "..."}],
+       "journey": [{"state": "done|now|next|blocked", "label": "...", "detail": "..."}],
+       "facts": [{"label": "Scope", "value": "..."}],
+       "if_asked": [{"q": "...", "a": "...", "say_ja": "optional {word|reading}..."}]
+     },
      "consequences": {"fix_covers", "falls_outside", "accumulates",
                       "who_owns_it", "done_means", "still_open"},
      "open_questions": [{"en", "ja_ruby", "who"}],
@@ -229,7 +242,7 @@ An item is a piece of work with a life:
             {"id": 3, "title", "prepared", "steps": [], "done_when", "why",
              "state": "todo|waiting|hold|done|sent|dropped",
              "state_at", "state_note", "waits_on", "hold", "draft",
-             "where", "link", "urgency", "due_by", "est_minutes", "opened",
+             "where", "link", "urgency", "due_by", "remind", "est_minutes", "opened",
              "closed_at", "after": 17,
              "at_standup", "at_standup_note",
              "history": [{"at", "state", "note"}]}
@@ -253,6 +266,14 @@ at a closed item is spent and ignored, so nothing has to clean it up.
 it has to be done by. Without it every job of theirs reads "Do now", and a note
 due Friday week looked as pressing as one due this morning. The card reads "By
 6 Nov" until the day, then "Due today", and the week strip draws it on that day.
+
+`remind` is the rare job that also rings on the owner's phone, as an Apple
+Reminder: `{"on": "2026-12-07", "at": "16:30", "why": "PROD load at 17:00"}`,
+`at` optional (09:30 without it). Only something that goes wrong if it is
+missed earns one: a fixed production window, a hard deadline the client was
+promised, a cut-off nobody else will catch. Most boards carry none, a few at
+most; everything else is on the page already and a Reminder for it is noise.
+`remind.py` pushes exactly these, and clears its own when the job closes.
 
 `steps` is what the owner actually does, in order, verb first, and it is the one
 field an item cannot be useful without. `done_when` is the finished thing in a
@@ -601,7 +622,9 @@ def save(board: dict, path: Path | None = None) -> None:
         # Somebody wrote the board after this writer read it. Their change and
         # this one both land; see the module docstring.
         if disk is not None and base_text is not None and base_text != disk_text:
-            merged = merge(json.loads(base_text), board, disk)
+            base_obj = json.loads(base_text)
+            merged = merge(base_obj, board, disk)
+            _reconcile_moved_items(base_obj, board, disk, merged)
             _renumber_collisions(merged, disk)
         if disk is not None:
             vanished(disk, merged)
@@ -692,6 +715,50 @@ def _merge_keyed(base: list, mine: list, theirs: list, field: str) -> list:
         if key not in b or row != b[key]:
             out.append(row)   # new there, or this writer removed what they changed
     return out
+
+
+def _reconcile_moved_items(base: dict, mine: dict, theirs: dict, merged: dict) -> None:
+    """When one writer re-homes an existing item to another ticket while a second
+    writer edits that item in its old ticket, merge both edits onto the new ticket
+    and drop the stale duplicate from the old ticket before collision renumbering."""
+    base_loc = {str(i.get("id")): (str(t.get("id")), i) for t, i in items(base)}
+    mine_loc = {str(i.get("id")): (str(t.get("id")), i) for t, i in items(mine)}
+    theirs_loc = {str(i.get("id")): (str(t.get("id")), i) for t, i in items(theirs)}
+
+    moves: dict[str, tuple[str, str]] = {}
+    for iid, (b_tid, _) in base_loc.items():
+        m_entry = mine_loc.get(iid)
+        t_entry = theirs_loc.get(iid)
+        if m_entry and m_entry[0] != b_tid:
+            moves[iid] = (b_tid, m_entry[0])
+        elif t_entry and t_entry[0] != b_tid:
+            moves[iid] = (b_tid, t_entry[0])
+    if not moves:
+        return
+
+    tickets_by_id = {str(t.get("id")): t for t in merged.get("tickets") or [] if isinstance(t, dict)}
+    for iid, (old_tid, new_tid) in moves.items():
+        old_t = tickets_by_id.get(old_tid)
+        new_t = tickets_by_id.get(new_tid)
+        if not old_t or not new_t or old_t is new_t:
+            continue
+        old_t["items"] = [x for x in (old_t.get("items") or []) if str(x.get("id")) != iid]
+        b_item = base_loc[iid][1]
+        m_item = (mine_loc.get(iid) or (None, b_item))[1]
+        t_item = (theirs_loc.get(iid) or (None, b_item))[1]
+        combined = merge(b_item, m_item, t_item, "")
+        replaced = False
+        new_items = []
+        for x in new_t.get("items") or []:
+            if str(x.get("id")) == iid:
+                if not replaced:
+                    new_items.append(combined)
+                    replaced = True
+            else:
+                new_items.append(x)
+        if not replaced:
+            new_items.append(combined)
+        new_t["items"] = new_items
 
 
 def _renumber_collisions(board: dict, theirs: dict) -> None:
@@ -794,6 +861,7 @@ SHAPES: dict[str, type | tuple[type, ...]] = {
     "why": str,
     "state": str,
     "urgency": str,
+    "remind": dict,
     "steps": list,
     "steps_done": dict,
     "done_when": str,
@@ -915,6 +983,18 @@ def check(board: dict) -> list[str]:
                 f"YYYY-MM-DD, or leave it out and let urgency place the job."
             )
 
+        # A phone reminder needs a real day and, if given, a real time, or
+        # osascript fails and the one job worth a ping never rings.
+        remind = item.get("remind")
+        if isinstance(remind, dict):
+            if not ISO_DAY.fullmatch(str(remind.get("on") or "").strip()):
+                bad.append(f"{where}: remind.on is {remind.get('on')!r}. Use YYYY-MM-DD.")
+            at = remind.get("at")
+            if at and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(at).strip()):
+                bad.append(f"{where}: remind.at is {at!r}. Use HH:MM, or leave it out.")
+            if not str(remind.get("why") or "").strip():
+                bad.append(f"{where}: remind has no why. Say what goes wrong if it is missed.")
+
         prepared = item.get("prepared")
         if isinstance(prepared, dict):
             for n, entry in enumerate(prepared.get("earlier") or [], 1):
@@ -968,12 +1048,12 @@ def check(board: dict) -> list[str]:
                     and k not in readable
                     and str(v or "").strip()
                 ):
-                    is_ja = draft.get("language") == "ja"
-                    home = "body_ruby" if is_ja else "body_en"
+                    ja = is_ja(draft)
+                    home = "body_ruby" if ja else "body_en"
                     bad.append(
                         f"{where}: draft body is under {k!r}, which no renderer reads, "
                         f"so the card shows an empty box. Put the text in {home}"
-                        + (" (a ja draft carries any readings as {word|reading})." if is_ja else ".")
+                        + (" (a ja draft carries any readings as {word|reading})." if ja else ".")
                     )
                 if (
                     k in readable
@@ -1044,6 +1124,42 @@ def check(board: dict) -> list[str]:
                         f"uses say_ja/say_en, which no renderer reads on script lines. "
                         f"Use ja_ruby and en (say_ja/say_en is for prep.pushback)."
                     )
+        if "gist" in prep and prep["gist"] is not None and not isinstance(prep["gist"], str):
+            bad.append(f"prep on {ticket.get('ref', '?')}: gist should be text")
+        exp = prep.get("explainer")
+        if exp is not None:
+            if not isinstance(exp, dict):
+                bad.append(f"prep on {ticket.get('ref', '?')}: explainer should be an object, or left out")
+            else:
+                for sfield in ("badge", "summary", "why_say"):
+                    if exp.get(sfield) is not None and not isinstance(exp.get(sfield), str):
+                        bad.append(f"prep.explainer.{sfield} on {ticket.get('ref', '?')} should be text")
+                for lfield in ("flow", "visuals", "journey", "facts", "if_asked"):
+                    val = exp.get(lfield)
+                    if val is not None and not isinstance(val, list):
+                        bad.append(f"prep.explainer.{lfield} on {ticket.get('ref', '?')} should be a list")
+                    elif isinstance(val, list):
+                        for r_idx, row in enumerate(val, 1):
+                            if not isinstance(row, dict):
+                                bad.append(
+                                    f"prep.explainer.{lfield}[{r_idx}] on {ticket.get('ref', '?')} "
+                                    f"should be an object"
+                                )
+                            elif lfield == "journey" and row.get("state", "done") not in PHASE_STATES:
+                                bad.append(
+                                    f"prep.explainer.journey[{r_idx}] on {ticket.get('ref', '?')}: "
+                                    f"state {row.get('state')!r}, one of {', '.join(PHASE_STATES)}"
+                                )
+
+    script_meta = board.get("script")
+    if isinstance(script_meta, dict) and script_meta.get("before_start") is not None:
+        bs = script_meta["before_start"]
+        if not isinstance(bs, list):
+            bad.append("script.before_start should be a list, or left out")
+        else:
+            for b_idx, entry in enumerate(bs, 1):
+                if not isinstance(entry, (str, dict)):
+                    bad.append(f"script.before_start[{b_idx}] should be text or {{label, what, ref}}")
 
     milestones = board.get("milestones")
     if milestones is not None and not isinstance(milestones, list):
@@ -1063,6 +1179,8 @@ def check(board: dict) -> list[str]:
                        "put any wording in target_note")
         if ms.get("status") not in (None, *MILESTONE_STATUS):
             bad.append(f"{where}: status {ms['status']!r}, one of {', '.join(MILESTONE_STATUS)}")
+        if ms.get("in_huddle") is not None and not isinstance(ms["in_huddle"], bool):
+            bad.append(f"{where}: in_huddle should be true or false")
         for field in ("phases", "tickets", "items"):
             if ms.get(field) is not None and not isinstance(ms[field], list):
                 bad.append(f"{where}: {field} should be a list")
@@ -1121,7 +1239,12 @@ def check(board: dict) -> list[str]:
         if row.get("due_on") and not ISO_DAY.fullmatch(str(row["due_on"])):
             bad.append(f"prioritization build {row['kt']}: due_on {row['due_on']!r} "
                        "is not YYYY-MM-DD; leave it empty when there is none")
-        for field in ("client_order", "status", "size", "wave", "why", "ticket"):
+        if row.get("committed_on") and not ISO_DAY.fullmatch(str(row["committed_on"])):
+            bad.append(f"prioritization build {row['kt']}: committed_on {row['committed_on']!r} "
+                       "is not YYYY-MM-DD; leave it empty when there is none")
+        if row.get("push") is not None and not isinstance(row.get("push"), bool):
+            bad.append(f"prioritization build {row['kt']}: push should be true or false")
+        for field in ("client_order", "status", "size", "wave", "why", "hold_why", "ticket"):
             if isinstance(row.get(field), (dict, list)):
                 bad.append(f"prioritization build {row['kt']}: {field} should be text")
     for field in ("ordered", "not_pushed"):
@@ -1207,6 +1330,20 @@ def drafts(item: dict) -> list[dict]:
 
 def unsent(draft: dict) -> bool:
     return not (draft.get("sent") or draft.get("posted"))
+
+
+def is_ja(draft: dict) -> bool:
+    """Whether a draft is in the client's language ("ja", the historical value).
+
+    `language` decides when it is set. A draft without one that carries
+    `body_ruby` or `body_ja` is in the client's language too: an ask that turned
+    an English draft Japanese once left `language` off, and the card then showed
+    and copied the English reading copy instead of the words to paste.
+    """
+    lang = str(draft.get("language") or "").strip()
+    if lang:
+        return lang == "ja"
+    return bool(str(draft.get("body_ruby") or draft.get("body_ja") or "").strip())
 
 
 def prune_ticked(board: dict) -> None:

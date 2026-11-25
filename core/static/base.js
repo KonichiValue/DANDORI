@@ -129,11 +129,58 @@
   document.addEventListener('click',function(e){
     var a=e.target.closest('a[data-goto]');
     if(!a)return;
+    e.preventDefault();
     show(a.dataset.goto);
     var target=document.querySelector(a.getAttribute('href'));
-    if(target){e.preventDefault();target.scrollIntoView({behavior:'smooth',block:'start'});
+    if(target){target.scrollIntoView({behavior:'smooth',block:'start'});
       history.replaceState(null,'',a.getAttribute('href'))}
   });
+  // Pedagogical explainer tabs on speaking cards, kept across live updates.
+  function activateExpTab(shell,key,save){
+    if(!shell||!key)return;
+    [].forEach.call(shell.querySelectorAll('[data-exp-tab]'),function(b){
+      b.setAttribute('aria-selected',String(b.dataset.expTab===key));
+    });
+    [].forEach.call(shell.querySelectorAll('[data-exp-pane]'),function(p){
+      p.hidden=p.dataset.expPane!==key;
+    });
+    if(save&&shell.dataset.expGroup){
+      try{sessionStorage.setItem('exptab-'+shell.dataset.expGroup,key)}catch(e){}
+    }
+  }
+  [].forEach.call(document.querySelectorAll('.exp-shell[data-exp-group]'),function(shell){
+    try{
+      var saved=sessionStorage.getItem('exptab-'+shell.dataset.expGroup);
+      if(saved&&shell.querySelector('[data-exp-pane="'+saved+'"]'))activateExpTab(shell,saved,false);
+    }catch(e){}
+  });
+  document.addEventListener('click',function(e){
+    var b=e.target.closest&&e.target.closest('[data-exp-tab]');
+    if(!b)return;
+    activateExpTab(b.closest('.exp-shell'),b.dataset.expTab,true);
+  });
+  // In-page screenshot Lightbox so evidence & walkthrough images enlarge in 1 click.
+  var lb=document.getElementById('img-lb');
+  var lbImg=document.getElementById('lb-img');
+  var lbTitle=document.getElementById('lb-title');
+  var lbCap=document.getElementById('lb-cap');
+  var lbOpen=document.getElementById('lb-open');
+  var lbClose=document.getElementById('lb-close');
+  document.addEventListener('click',function(e){
+    var shot=e.target&&e.target.closest&&e.target.closest('a[data-lightbox]');
+    if(!shot||!lb||typeof lb.showModal!=='function')return;
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+    e.preventDefault();
+    var img=shot.querySelector('img');
+    var src=(img&&img.currentSrc)||(img&&img.src)||shot.getAttribute('href')||'';
+    if(lbImg){lbImg.src=src;lbImg.alt=shot.dataset.lightbox||''}
+    if(lbTitle)lbTitle.textContent=shot.dataset.lightbox||'Screenshot';
+    if(lbCap)lbCap.textContent=shot.dataset.caption||'';
+    if(lbOpen)lbOpen.href=src;
+    if(!lb.open)lb.showModal();
+  });
+  if(lbClose&&lb)lbClose.addEventListener('click',function(){lb.close()});
+  if(lb)lb.addEventListener('click',function(e){if(e.target===lb)lb.close()});
   // The finder. Everything on the page is in one index, so a ticket tag, an
   // item number or a word out of a title all land in the same place.
   var pal=document.getElementById('pal');

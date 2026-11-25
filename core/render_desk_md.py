@@ -117,7 +117,7 @@ def render_draft(d: dict, st: dict | None = None) -> list[str]:
     if not d:
         return []
     # "ja" is the historical value for a draft in the client's language.
-    lang = client_language_name() if d.get("language") == "ja" else "English"
+    lang = client_language_name() if B.is_ja(d) else "English"
     gone = (st and st["state"] not in {"todo", "hold"}) or d.get("sent") or d.get("posted")
     head = (
         f"**Sent {render_path.sent_when(d) or (st or {}).get('at', '')}** to {d.get('target', '')}"
@@ -127,7 +127,7 @@ def render_draft(d: dict, st: dict | None = None) -> list[str]:
     # A client-language draft's text is in body_ruby (body_en is its translation,
     # folded below); an English draft's text is in body_en with no body_ruby. Show the right
     # one as the main body, or an English draft prints an empty code block.
-    is_ja = d.get("language") == "ja"
+    is_ja = B.is_ja(d)
     if is_ja:
         body, translation = draft_plain(d.get("body_ruby", "")), draft_plain(d.get("body_en") or "")
     else:
@@ -305,7 +305,10 @@ def render_ticket(t: dict, index: dict[str, dict] | None = None) -> list[str]:
         if st["state"] == "todo" and a.get("due_by") and not behind:
             # The deadline, as the card's chip says it: "BY FRI (11/6)".
             label = f"{label}, {when_tag(a, st)[0].upper()}"
-        head = f"{a.get('id', '-')}. {a.get('title', '')} [{label}{mins}]"
+        rem = a.get("remind") if isinstance(a.get("remind"), dict) else {}
+        if rem.get("on") and not st["closed"]:
+            label = f"{label}, REMINDER {rem['on']} {rem.get('at', '')}".rstrip()
+        head =f"{a.get('id', '-')}. {a.get('title', '')} [{label}{mins}]"
         if st["closed"]:
             # Finished is finished: the number and how it ended, nothing more.
             # Printed whole these were most of a 600KB file. --item N has the rest.
@@ -506,6 +509,23 @@ def render_prep(prep: dict) -> list[str]:
         rows += [f"- {b}" for b in prep["issue"]]
         if prep.get("why_it_matters"):
             rows.append(f"- Why it matters: {prep['why_it_matters']}")
+        rows.append("")
+    exp = prep.get("explainer") or {}
+    if isinstance(exp, dict) and any(exp.get(k) for k in ("summary", "flow", "journey", "facts", "if_asked")):
+        rows.append(f"**Walkthrough ({exp.get('badge') or 'Complex ticket'})**")
+        if exp.get("summary"):
+            rows.append(f"- Summary: {exp['summary']}")
+        if exp.get("why_say"):
+            rows.append(f"- Why you say this: {exp['why_say']}")
+        for f in exp.get("flow") or []:
+            rows.append(f"- {f.get('step', 'Step')}: {f.get('detail', '')}")
+        for j in exp.get("journey") or []:
+            rows.append(f"- [{str(j.get('state', 'done')).upper()}] {j.get('label', '')}: {j.get('detail', '')}")
+        for fc in exp.get("facts") or []:
+            rows.append(f"- {fc.get('label', '')}: {fc.get('value', '')}")
+        for qa in exp.get("if_asked") or []:
+            rows.append(f"- If asked '{qa.get('q', '')}': {qa.get('a', '')}"
+                        + (f" ({plain(qa['say_ja'])})" if qa.get("say_ja") else ""))
         rows.append("")
     cons = prep.get("consequences") or {}
     labels = (

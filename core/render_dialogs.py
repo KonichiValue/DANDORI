@@ -171,11 +171,11 @@ def help_dialog() -> str:
 
     <h3>Quick revisions vs. Cursor &amp; Claude</h3>
     <p>For a quick tweak while reading a draft or script (&ldquo;make this shorter&rdquo;,
-    &ldquo;remove CC&rdquo;, &ldquo;softer tone&rdquo;), press <b>&#10022; Revise</b> right on
+    &ldquo;remove CC&rdquo;, &ldquo;softer tone&rdquo;), press <b>&#10022; Ask / Revise</b> right on
     the draft or script: it updates in place in a few seconds with one-click
-    <b>Undo</b>. For multi-turn work or checking new replies, press any <b>Open
-    in Cursor / Claude Code &#8599;</b> split button (click <b>&#9662;</b> to switch
-    your default AI app), or type <code>/dandori</code> inside <b>Cursor</b>,
+    <b>Undo</b>. To execute remaining steps together or check new replies, press any
+    <b>Work on this / Check replies in Cursor &#8599;</b> split button (click <b>&#9662;</b>
+    to switch your default AI app or mode), or type <code>/dandori</code> inside <b>Cursor</b>,
     <b>Claude Code</b>, or <b>Claude Desktop</b> to open the interactive board at
     that exact spot.</p>
 
@@ -194,7 +194,7 @@ def help_dialog() -> str:
 
     <h3>Keys</h3>
     <p><kbd>1</kbd> your work, <kbd>2</kbd> what you say, <kbd>/</kbd> find
-    anything, <kbd>s</kbd> {script_only}, <kbd>,</kbd> settings,
+    anything, <kbd>s</kbd> {script_only}, <kbd>T</kbd> sync targets, <kbd>,</kbd> settings,
     <kbd>[</kbd> <kbd>]</kbd> the week before
     and after, <kbd>?</kbd> this.</p>
     <p>On the To do list: <kbd>j</kbd> <kbd>k</kbd> move down and up,
@@ -356,7 +356,7 @@ def settings_dialog() -> str:
     {asana_status_block}
 
     <h3>Default external AI workspace</h3>
-    <p>Which app opens when you press <b>Check replies</b> or <b>Open in &hellip;</b>
+    <p>Which app opens when you press <b>Work on this</b>, <b>Check replies</b>, or <b>Open in &hellip;</b>
     on a ticket, job, or draft (you can also switch anytime from the <b>&#9662;</b>
     arrow next to any button).</p>
     <div class="thms">
