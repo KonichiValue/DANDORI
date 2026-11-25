@@ -63,6 +63,8 @@ BLANKS = re.compile(r"\n{3,}")
 CONCISE_PARENT = re.compile(r"^THREAD: [\s\S]*? \[[^\n\[\]]+\]\n\n(?=> )")
 REPLY_SPLIT = re.compile(r"\n*(?=--- Reply \d+ of \d+ ---\n)")
 MESSAGE_TS = re.compile(r"^Message TS:\s*(\d+(?:\.\d+)?)", re.M)
+SAVED_FILE_RE = re.compile(r"saved to (\S+?\.(?:txt|json))")
+INLINE_BUDGET = 24_000
 
 
 def trim_slack_thread(messages: str, oldest: str) -> str:
@@ -208,6 +210,35 @@ def main() -> int:
         if not raw:
             return 0
         tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+        saved = SAVED_FILE_RE.search(raw)
+        if saved:
+            saved_path = Path(saved.group(1))
+            try:
+                disk_raw = saved_path.read_text(encoding="utf-8")
+            except OSError:
+                return 0
+            small = compact_text(disk_raw, tool=tool, tool_input=tool_input)
+            log(tool, len(disk_raw), len(small))
+            if len(small) <= INLINE_BUDGET:
+                print(json.dumps({"hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "updatedMCPToolOutput": small,
+                }}, ensure_ascii=False))
+                return 0
+            compact_path = saved_path.with_name(f"{saved_path.stem}.compact{saved_path.suffix}")
+            try:
+                compact_path.write_text(small, encoding="utf-8")
+                note = (
+                    f"Compacted output ({len(small)} chars, down from {len(disk_raw)}) "
+                    f"saved to {compact_path}. Preview:\n{small[:4000]}"
+                )
+                print(json.dumps({"hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "updatedMCPToolOutput": note,
+                }}, ensure_ascii=False))
+            except OSError:
+                pass
+            return 0
         small = compact_text(raw, tool=tool, tool_input=tool_input)
         log(tool, len(raw), len(small))
         if len(small) >= len(raw):

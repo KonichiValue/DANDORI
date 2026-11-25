@@ -2,26 +2,36 @@
 
 Guidance for AI agents working in this repository.
 
-## Read these two files first
+## Context first, without loading what you do not need
 
-**Before anything else, run `python3 core/settings.py` and read the active client's
-`config.json` and `profile.md` in `clients/<client>/`.** DANDORI separates its
-universal engine (`core/`) from each client workspace (`clients/<client>/`,
-pointed to by `clients/active`). Those two files say whose DANDORI this is: the
-owner (a Kraken Client Delivery Lead), the client, the workstream, the rooms, the
-people, the house style and the standing rules. This file says how DANDORI Core
-works; those say for whom. Where the profile and this file disagree about a
-person, a room or a style, the profile wins.
+DANDORI separates its universal engine (`core/`) from each client workspace
+(`clients/<client>/`, pointed to by `clients/active`). `config.json` and
+`profile.md` in `clients/<client>/` say whose DANDORI this is: the owner (a
+Kraken Client Delivery Lead), the client, the workstream, the rooms, the people,
+the house style and the standing rules. This file says how DANDORI Core works;
+those say for whom. Where the profile and this file disagree about a person, a
+room or a style, the profile wins.
 
-If neither exists, nobody has set DANDORI up yet. Say so, and offer to follow
-`core/setup/INTERVIEW.md` with the owner, or point them at the setup page
-(`DANDORI setup`). `python3 core/settings.py` prints what DANDORI thinks it knows
-and the exact paths of the active client workspace.
+- **When the prompt already hands you a DANDORI context file (`clients/<client>/tmp/ai-*.md`) or `dandori_context(...)`:**
+  read that context first and **do not** run `python3 core/settings.py` or read
+  `config.json`, `output/desk.md`, or `state/board.json` upfront. That bundle
+  already carries the active client workspace, `checked_at`, ticket, steps,
+  drafts, and timeline. Read `clients/<client>/profile.md` only when drafting or
+  editing messages/scripts, checking client people/rooms/routes, or running
+  client workflow scripts.
+- **When starting a fresh chat with no handoff file:**
+  run `python3 core/settings.py` first to see the active client workspace paths.
+  Read `clients/<client>/config.json` and `clients/<client>/profile.md` before
+  acting on client tickets, drafts, or meetings (skip them when only editing
+  generic `core/` code unless client config matters).
+
+If neither `config.json` nor `profile.md` exists, nobody has set DANDORI up yet.
+Say so, and offer to follow `core/setup/INTERVIEW.md` with the owner, or point
+them at the setup page (`DANDORI setup`).
 
 Headless runs (the buttons, `DANDORI refresh`, the schedule) get both files and
 their workspace paths injected above their prompt by `settings.prompt()`, so the
-prompts never need to name a person. A chat does not, which is why it reads them
-itself.
+prompts never need to name a person.
 
 ## Repository layout (`core/` + `clients/` + `packaging/`)
 
@@ -85,11 +95,20 @@ writing anything for a meeting.
 
 ## When the owner asks you to act on their work
 
-**Read the active client's `output/desk.md` (`clients/<client>/output/desk.md`)
-first, before answering anything.** That is the board in
-markdown: every ticket, its Asana status, its threads, its timeline and its
-items, with the drafts already written. Say plainly when `checked_at` is hours
-old rather than answering from a stale page.
+**Load only the slice of the board that matches the request, never the whole
+`state/board.json` or `output/desk.md` when one item or ticket was named:**
+
+- If the prompt names a handoff file (`clients/<client>/tmp/ai-*.md`), read that
+  file directly.
+- If the request names one item number (`"Do 3"`) or one ticket (`"status of X"`),
+  run `./core/digest.py --item <N>` or `./core/digest.py --ticket <REF>` (or call
+  `dandori_context`).
+- If the request asks about the board or day as a whole, run `./core/digest.py`
+  (under 27KB), and read `clients/<client>/output/desk.md` only when you need its
+  rendered `Meetings` section or past card Q&A.
+
+Say plainly when `checked_at` is hours old rather than answering from a stale
+board.
 
 Requests will usually be one of these, and they arrive without much context
 because the context is in the file:
@@ -264,7 +283,11 @@ closed.
    client ticket, a client comment or "the standup" to them as if they can look
    it up, and never use the client's own case numbering without saying what it
    means unless that wording is already in the same thread. Say what was decided
-   and what is still pending.
+   and what is still pending. The other way round, an Asana comment is read
+   inside its ticket, under the title and the earlier comments, so it never
+   names the ticket or restates its subject ("〇〇の件ですが", "Regarding the
+   X") and never retells an earlier comment there unless that one is weeks old.
+   It still @mentions the people who need to act or know.
 5. **Writing to the client follows the house style** in the profile's
    `## Writing to the client`: register, sentence length, the client's own
    vocabulary rather than simplified substitutes. When `config.json`

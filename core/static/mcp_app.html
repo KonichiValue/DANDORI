@@ -436,7 +436,11 @@ html, body {
       state.selectedDraft = 0;
     }
     var sig = cur.key + "#" + (state.selectedDraft || 0);
-    if (state.pinnedSig !== sig) {
+    if (!state.pinnedSig) {
+      // Record initial selection without pushing duplicate context into the chat;
+      // explicit clicks on a row or "Refine in chat" pin context on demand.
+      state.pinnedSig = sig;
+    } else if (state.pinnedSig !== sig) {
       state.pinnedSig = sig;
       pinContext(cur, state.selectedDraft || 0);
     }
@@ -494,7 +498,7 @@ html, body {
     var draftsHtml = (it.drafts || []).filter(function (d) {
       return !d.sent || state.selectedDraft === d.num;
     }).map(function (d) {
-      var body = stripRuby(d.body_ruby || d.body_en || "");
+      var body = d.copy_plain || stripRuby(d.body_ruby || d.body_en || "");
       var sel = state.selectedDraft === d.num ? " sel" : "";
       return '<div class="draft' + sel + '" data-draft-card="' + d.num + '">'
         + '<div class="dr-h"><span class="dr-num">Draft ' + d.num + (d.sent ? " (sent)" : "") + '</span>'
@@ -649,7 +653,7 @@ html, body {
   // Boot the MCP Apps lifecycle handshake, then load the live board if tool-result hasn't arrived yet.
   sendRequest("ui/initialize", {
     protocolVersion: "2026-01-26",
-    appInfo: { name: "DANDORI Desk", version: "1.3.4" },
+    appInfo: { name: "DANDORI Desk", version: "1.3.6" },
     appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] }
   }).then(function (initRes) {
     if (initRes && initRes.hostContext) applyHostContext(initRes.hostContext);

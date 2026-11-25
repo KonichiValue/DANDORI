@@ -319,11 +319,12 @@ to run `./tick.py` rather than editing a page by hand.
 
 ## Reminders
 
-`POST_REMIND=1` pushes the open items into an Apple Reminders list at the end of
-a fold-in run. Anything with you is due that day, anything held or sitting with
-someone else is due on its chase date and says so in the title. The note carries
-the why, the link and the draft. Finished items are skipped, and re-running
-replaces the list rather than duplicating it. `--list` picks the list's name.
+The page is the list, so Apple Reminders gets only the rare job that must not
+be missed: one carrying a `remind` block (`{"on", "at", "why"}`, see `board.py`),
+such as a fixed production window or a deadline promised to the client. Most
+days there are none. Every tick, refresh and prep re-syncs them, so a reminder
+whose job closed is cleared and nothing duplicates. The note carries the why,
+the open steps and the link. `--list` picks the list's name.
 
 ```sh
 python3 remind.py state/board.json --dry-run

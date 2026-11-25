@@ -20,10 +20,10 @@ commands or shortcuts:
    `kraken cloudfarer login`) and sends a notification with the link.
 4. Proactive Notifications & Apple Reminders Sync: sends native macOS alerts
    15 minutes before meetings and on Prioritization Eve, and keeps Apple
-   Reminders (`remind.py`) synced with open board items.
+   Reminders (`remind.py`) synced with the rare jobs that carry `remind`.
 
     ./core/notify.py --check            run all automatic checks and actions
-    ./core/notify.py --sync-reminders   sync open board items to Apple Reminders
+    ./core/notify.py --sync-reminders   sync the jobs with `remind` to Apple Reminders
     ./core/notify.py --send "Title" "Message"
 """
 
@@ -296,7 +296,9 @@ def auto_fold_meeting_notes(b: dict, now: datetime) -> list[str]:
 
 
 def sync_reminders(quiet: bool = False) -> bool:
-    """Push open board items to Apple Reminders using `remind.py`."""
+    """Push the jobs with a `remind` block to Apple Reminders using `remind.py`.
+
+    Runs with none too, so a reminder whose job closed is cleared."""
     if os.environ.get("DANDORI_NO_REMIND") == "1":
         return False
     if not B.BOARD.exists():
@@ -304,8 +306,6 @@ def sync_reminders(quiet: bool = False) -> bool:
     try:
         data = B.load()
         items = remind.build(data)
-        if not items:
-            return True
         remind.push(items, remind.default_list(), remind.TAG, remind.OLD_TAGS)
         if not quiet:
             print(f"Synced {len(items)} open item(s) to Apple Reminders ({remind.default_list()!r})")

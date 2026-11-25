@@ -216,6 +216,12 @@ def script_json(obj: Any) -> str:
 
 
 CJK = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]")
+CJK_WORD = re.compile(r"[\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff]")
+GLOSS_PROTECT = re.compile(
+    r"`[^`]+`|https?://\S+|\S+\.(?:docx?|xlsx?|csv|pdf|png|jpe?g|webp|gif|json|py|md|html|txt|sql)\b"
+    r"|「[^」]+」|『[^』]+』",
+    re.I,
+)
 # Where a Japanese word can turn up inside a sentence written for the owner. Drafts,
 # the terms table and thread labels are left alone: a draft is text that goes to
 # somebody, and the terms table is the long version of this gloss already.
@@ -259,6 +265,14 @@ GLOSS_FIELDS = {
     "waiting_on",
     "label",
     "gist",
+    "summary",
+    "why_say",
+    "step",
+    "detail",
+    "caption",
+    "value",
+    "q",
+    "a",
 }
 GLOSS_SKIP = {"draft", "terms", "threads", "asks"}
 # Each of these holds things the owner reads one at a time: a block of the
@@ -279,6 +293,13 @@ GLOSS_BLOCKS = {
     "agenda",
     "unanswered",
     "raised",
+    "explainer",
+    "flow",
+    "visuals",
+    "journey",
+    "facts",
+    "if_asked",
+    "before_start",
 }
 # The order the page reads a card, so the gloss lands on the first mention they
 # actually see rather than on one inside a shut fold.
@@ -289,6 +310,7 @@ GLOSS_ORDER = (
     "issue",
     "why_it_matters",
     "script",
+    "explainer",
     "items",
     "prepared",
     "decisions",
@@ -323,11 +345,10 @@ def gloss_text(text: str, glossary: dict[str, str], seen: set[str]) -> str:
     """
     if not text or not CJK.search(text) or jp_heavy(text):
         return text
-    # Never gloss inside `backticked` copy-paste snippets or URLs: injecting an
-    # English gloss into a literal client-language snippet corrupts what gets pasted.
+    # Never gloss inside `backticked` copy-paste snippets, URLs, filenames, or Japanese quotes.
     protected = [
         (m.start(), m.end())
-        for m in re.finditer(r"`[^`]+`|https?://\S+", text)
+        for m in GLOSS_PROTECT.finditer(text)
     ]
     # Every occurrence of every term, so a term inside a longer one is left
     # alone: a short term that sits inside a longer compound would, glossed
@@ -356,33 +377,33 @@ def gloss_text(text: str, glossary: dict[str, str], seen: set[str]) -> str:
             if inside:
                 at = end
                 continue
-            # A term followed straight away by Latin letters ("<term>IF") can be
-            # the name of a sheet in the client's workbook rather than the term
-            # followed by the letters, and a gloss dropped between the two
-            # renames their document. A Latin letter or digit straight after the
-            # term means the match is part of a longer identifier.
+            # Never split an identifier ("<term>IF") or an unglossed CJK compound/clause in half.
+            prev_ch = text[i - 1 : i] if i > 0 else ""
             tail = text[end : end + 1]
-            if tail.isascii() and (tail.isalnum() or tail == "_"):
+            if (
+                (tail.isascii() and (tail.isalnum() or tail == "_"))
+                or CJK_WORD.match(tail)
+                or CJK_WORD.match(prev_ch)
+            ):
                 at = end
                 continue
             gloss = glossary[term]
+            clean_g = re.sub(r"\s*\([^()]*\)", "", str(gloss)).strip() or str(gloss).strip()
             # The sentence often explains the word itself, as in "<term>
-            # reading_date". Saying it twice is worse than not saying it. The
-            # test is the one word that carries the gloss: "period" matching
-            # "period boundary" would drop the gloss on a line that never says
-            # which period it means.
-            # The window is at least as long as the gloss, so a long one cannot
-            # be re-added past the end of its own words.
-            after = text[end : end + max(44, len(gloss) + 8)].lower()
-            words = sorted(re.split(r"\W+", gloss.lower()), key=len)
+            # reading_date". Saying it twice is worse than not saying it.
+            after = text[end : end + max(44, len(clean_g) + 8)].lower()
+            words = sorted([w for w in re.split(r"\W+", clean_g.lower()) if w], key=len)
             if words and words[-1] in after:
                 seen.add(term)
                 break
-            found.append((i, end, gloss))
+            found.append((i, end, clean_g))
             seen.add(term)
             break
-    for _, end, gloss in sorted(found, reverse=True):
-        text = f"{text[:end]} ({gloss}){text[end:]}"
+    for i, end, clean_g in sorted(found, reverse=True):
+        if i > 0 and text[i - 1] in "(（" and text[end : end + 1] in ")）":
+            text = f"{text[:end]}: {clean_g}{text[end:]}"
+        else:
+            text = f"{text[:end]} ({clean_g}){text[end:]}"
     return text
 
 
@@ -1042,7 +1063,11 @@ def stamp(conversation: bool = True) -> str:
     # moved: if so it swaps one card's thread in place, and only a board that
     # moved under it is worth a reload.
     names = SOURCES if conversation else tuple(n for n in SOURCES if "asks" not in n)
-    paths = [settings.STATE_DIR / n for n in names] + sorted(STATIC.glob("*"))
+    paths = (
+        [settings.STATE_DIR / n for n in names]
+        + sorted(STATIC.glob("*"))
+        + sorted(settings.CORE.glob("render*.py"))
+    )
     for path in paths:
         try:
             info = path.stat()
@@ -1430,7 +1455,7 @@ def render_drafts(drafts: list[dict]) -> str:
     out = []
     for d in drafts:
         body = d.get("body_ruby") or d.get("body_en") or d.get("body", "")
-        is_ja = d.get("language") == "ja"
+        is_ja = B.is_ja(d)
         rendered = draft_html(body, ruby=is_ja)
         trans = (
             f'<div class="draft-en">{draft_html(d.get("body_en"))}</div>'
@@ -1879,7 +1904,7 @@ def ask_block(
                 <button type="button" class="ask-open">{SPARK}Ask or change on
                   <span class="ask-of">{esc(label)}</span></button>
                 <button type="button" class="ctx-copy bar-ctx" data-ctx-ref="{esc(ref)}"
-                        title="Open Cursor in DANDORI with this job, drafts, threads &amp; DB X-Ray preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>
+                        title="Open Cursor in DANDORI with this job, drafts &amp; threads preloaded (Option-click to copy instead)">Open in Cursor &#8599;</button>
                 {f'<span class="ask-n">{n} asked</span>' if asks else ""}
               </div>
               <div class="ask-box" hidden>

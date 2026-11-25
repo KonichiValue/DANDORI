@@ -303,7 +303,12 @@ Keep that text under 90 characters.
    list or file names in the message, the code reading goes in `prepared`.
    `.claude/skills/ask-dont-propose/SKILL.md` has the rules and an example.
    A new message to a channel in `slack.form_channels` is a request in that
-   form's fields; `prompts/post.md` has the shape.
+   form's fields; `prompts/post.md` has the shape. The other way round, an
+   Asana comment is read inside its ticket, under the title and the earlier
+   comments, so it never names the ticket or restates its subject
+   ("〇〇の件ですが", "Regarding the X") and never retells an earlier comment
+   there, unless that comment is weeks old. Open with what is new, under the
+   @mentions of the people who need to act or know, which always stay.
 5. **Writing to the client follows the house style** in the profile's
    `## Writing to the client`: register, sentence length, the team's own
    vocabulary rather than simplified substitutes, and readings as `{word|reading}`

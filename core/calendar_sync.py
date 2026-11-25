@@ -246,6 +246,7 @@ def fetch(timeout: int = 240) -> dict:
             kind.binary, "--print", "--model", model(),
             "--tools", "ToolSearch", "--allowedTools", TOOL,
             "--setting-sources", "user",
+            *agent.strict_mcp_flags(("google",)),
             "--settings", json.dumps({
                 "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
                 "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},
@@ -255,7 +256,8 @@ def fetch(timeout: int = 240) -> dict:
         # Everything but the one search is taken away, so the run cannot write
         # to the calendar or reach anything else even if it wanted to.
         db = settings.database_mcp()
-        for gone in ("mcp__dandori__*", "mcp__asana__*", "mcp__slack__*", "mcp__notion__*",
+        for gone in ("mcp__dandori__*", "mcp__incident_io__*", "mcp__miro__*",
+                     "mcp__asana__*", "mcp__slack__*", "mcp__notion__*",
                      *((f"mcp__{db}__*",) if db else ()), "mcp__glean*", "mcp__google__gmail_*",
                      "mcp__google__drive_*", "mcp__google__sheets_*", "mcp__google__slides_*",
                      "mcp__google__calendar_create*", "mcp__google__calendar_update*",
@@ -277,6 +279,8 @@ def fetch(timeout: int = 240) -> dict:
             return {"error": f"the calendar read ran past {timeout}s"}
         raw = results(ran.stdout)
         if not raw:
+            if agent.KEY_REFUSED_RE.search(f"{ran.stdout}\n{ran.stderr}"):
+                kind.forget_credential()
             tail = (ran.stderr or ran.stdout)[-300:].strip()
             return {"error": "the calendar answered nothing" + (f": {tail}" if tail else "")}
         me = settings.owner_email()
@@ -537,6 +541,131 @@ def standup_notes(board: dict, days: int = 7) -> dict | None:
         ready = True
     return {**last, "docs": docs, "ready": ready,
             "until": until[11:16], "shared": [e["title"] for e in call[1:]]}
+
+
+def unfolded_room_notes(board: dict, now: datetime | None = None) -> list[dict]:
+    """Scheduled rooms (`meeting` + `meeting.also`) that have ended today without
+    their board note record (`meeting_note`, `migration_note`, etc.) updated yet
+    and without a Gemini doc already attached on `calendar.json`.
+
+    Covers rooms whose notes land in Notion (`notion-query-meeting-notes`) rather
+    than (or before) Google Meet Gemini Docs, so neither Tuesday/Thursday
+    programme standups nor Monday/Wednesday standups are missed.
+    """
+    now = now or settings.now()
+    today = now.date().isoformat()
+    dow = settings.DAYS[now.weekday()]
+    now_mins = now.hour * 60 + now.minute
+
+    skipped_today: set[str] = set()
+    for s in board.get("sessions") or []:
+        if s.get("skipped") and str(s.get("date") or "") == today:
+            skipped_today.add(str(s.get("kind") or "standup").lower())
+
+    m = settings.meeting()
+    specs: list[dict] = [{
+        "kind": "standup",
+        "name": str(m.get("name") or "Standup"),
+        "notes_title": settings.notes_title(),
+        "record": "meeting_note",
+        "days": list(m.get("days") or []),
+        "time_local": str(m.get("time_local") or ""),
+        "minutes": int(m.get("minutes") or 30),
+        "link": str(m.get("link") or ""),
+    }]
+    for a in m.get("also") or []:
+        if not isinstance(a, dict):
+            continue
+        rec = str(a.get("record", "migration_note") or "").strip()
+        nt = str(a.get("notes_title") or a.get("name") or "").strip()
+        if not rec or not nt:
+            continue
+        specs.append({
+            "kind": str(a.get("kind") or "other").lower(),
+            "name": str(a.get("name") or nt),
+            "notes_title": nt,
+            "record": rec,
+            "days": list(a.get("days") or []),
+            "time_local": str(a.get("time_local") or "11:00"),
+            "minutes": int(a.get("minutes") or 30),
+            "link": str(a.get("link") or ""),
+        })
+
+    today_events = events_on(today)
+    st_info = standup_notes(board, days=2)
+    gem_urls = {
+        str(n.get("url") or "")
+        for e in today_events
+        for n in (e.get("notes") or [])
+        if GEMINI.search(str(n.get("title") or ""))
+    }
+    if st_info and st_info.get("docs"):
+        gem_urls |= {str(d.get("url") or "") for d in st_info["docs"]}
+
+    out: list[dict] = []
+    seen_rec_title: set[tuple[str, str]] = set()
+    for sp in specs:
+        if sp["kind"] in skipped_today:
+            continue
+        rec = sp["record"]
+        rec_obj = board.get(rec) if isinstance(board.get(rec), dict) else {}
+        if rec_obj.get("found") and str(rec_obj.get("date") or "") >= today:
+            continue
+        rx = _title_rx(sp["notes_title"]) or _title_rx(sp["name"])
+        cal_hit = next(
+            (e for e in today_events if e.get("work") and rx and rx.search(str(e.get("title") or ""))),
+            None,
+        )
+        end_mins: int | None = None
+        end_hm = ""
+        has_gemini = False
+        if cal_hit is not None:
+            has_gemini = any(
+                GEMINI.search(str(n.get("title") or ""))
+                for n in (cal_hit.get("notes") or [])
+            )
+            if sp["record"] == "meeting_note" and st_info and st_info.get("docs"):
+                has_gemini = True
+            until_str = (
+                st_info["until"]
+                if (sp["record"] == "meeting_note" and st_info and st_info.get("until"))
+                else str(cal_hit.get("until") or "")
+            )
+            if len(until_str) >= 5 and ":" in until_str:
+                try:
+                    eh, em = (int(x) for x in until_str[:5].split(":"))
+                    end_mins = eh * 60 + em
+                    end_hm = until_str[:5]
+                except ValueError:
+                    pass
+        elif dow in sp["days"] and sp["time_local"] and ":" in sp["time_local"]:
+            try:
+                sh, sm = (int(x) for x in sp["time_local"][:5].split(":"))
+                end_mins = sh * 60 + sm + sp["minutes"]
+                end_hm = f"{(end_mins // 60) % 24:02d}:{end_mins % 60:02d}"
+            except ValueError:
+                pass
+
+        if end_mins is None or has_gemini:
+            continue
+        # Wait 10 minutes after the call ends so Notion AI / transcript has finished writing,
+        # and only poll automatically within 6 hours of the meeting ending.
+        if not (end_mins + 10 <= now_mins <= end_mins + 360):
+            continue
+        key = (rec, sp["notes_title"].lower())
+        if key in seen_rec_title:
+            continue
+        seen_rec_title.add(key)
+        out.append({
+            "kind": sp["kind"],
+            "name": sp["name"],
+            "notes_title": sp["notes_title"],
+            "record": rec,
+            "date": today,
+            "ended_at": end_hm,
+            "link": sp["link"],
+        })
+    return out
 
 
 def doc_id(url: str) -> str:

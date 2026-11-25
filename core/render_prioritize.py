@@ -3,13 +3,12 @@
 
 Only when `config.json` has a `prioritization` block. The prioritization lead it
 names (`who`) posts the round's result first thing on the round's morning, and
-a build nobody raised by then waits for the next round. So the card's first
-line is the day the owner has to have spoken by, not the day of the round, and
-it is drawn red once that day has come. Under it, the owner's builds: the ones
-to raise, the edits to make in Asana first, and the ones already ordered, which
-only need their dates kept right. The note to the lead is built from the same
-rows, so it cannot say something the list does not. With no block there is no
-round, and both renderers return "".
+a build nobody raised by then waits for the next round. Tickets already in a
+`Wave` (or carrying a client order / assigned engineer) are already scheduled
+into a delivery cycle and never appear as `Raise`. Every `Raise` row carries a
+short 1-sentence motivation (`why`) explaining why it needs to be prioritized
+now; refined builds with no urgent motivation sit calmly under `Hold` instead of
+padding the prioritization thread.
 
 Desk only. Nothing here is ever said to the client. `prioritize.py` holds the
 dates and the rules; this file only draws them.
@@ -26,34 +25,51 @@ from render import day_words, draft_html, draft_plain, esc, esc_url, link_btn, t
 KIND = {
     "raise": ("Raise", "red"),
     "raised": ("Raised", "blue"),
-    "ordered": ("Ordered", "green"),
+    "ordered": ("In Wave", "green"),
+    "parked": ("Hold", "grey"),
     "refining": ("Not refined", "grey"),
 }
 
 
 def when(iso: str) -> str:
     try:
-        return date.fromisoformat(iso).strftime("%a %-d %b")
+        return date.fromisoformat(str(iso)[:10]).strftime("%a %-d %b")
     except (TypeError, ValueError):
-        return iso
+        return str(iso or "")
 
 
 def row(r: dict, refs: dict[str, str], tags: dict[str, str] | None = None) -> str:
     label, tone = KIND[r["kind"]]
+    if r["kind"] == "ordered" and r.get("client_order") and not r.get("wave"):
+        label = "Ordered"
     ref = r.get("ticket", "")
     tag_txt = (tags or {}).get(ref, ref)
     card = (f'<a class="pr-ref" href="#{esc(refs[ref])}">{esc(tag_txt)}</a>'
             if ref and ref in refs else "")
     kt = (f'<a class="pr-kt" href="{esc_url(r["url"])}" target="_blank" rel="noopener">{esc(r.get("kt", ""))}</a>'
           if r.get("url") else f'<span class="pr-kt">{esc(r.get("kt", ""))}</span>')
+
     facts = [r.get("status", ""), r.get("size", "")]
     if r.get("client_order"):
         facts.append(f"{settings.client_short()} Order {r['client_order']}")
     if r.get("wave"):
         facts.append(r["wave"])
-    facts.append(f"due {when(r['due_on'])}" if r.get("due_on") else "no due date")
-    fixes = "".join(f'<li>{esc(f)}</li>' for f in r.get("fixes") or [])
-    why = f'<span class="pr-why">{esc(r["why"])}</span>' if r.get("why") and r["kind"] == "raise" else ""
+    if r.get("engineer"):
+        facts.append(f"engineer {r['engineer']}")
+    if r.get("due_on"):
+        facts.append(f"due {when(r['due_on'])}")
+    elif r.get("committed_on"):
+        facts.append(f"committed {when(r['committed_on'])}")
+    elif not r.get("wave"):
+        facts.append("not scheduled yet")
+
+    fixes = "".join(f"<li>{esc(f)}</li>" for f in r.get("fixes") or [])
+    why = ""
+    if r["kind"] == "raise" and r.get("why"):
+        why = f'<span class="pr-why"><b>Why raise:</b> {esc(r["why"])}</span>'
+    elif r["kind"] == "parked":
+        reason = r.get("hold_why") or r.get("why") or "No urgent reason to push in this round."
+        why = f'<span class="pr-why muted"><b>Not raising:</b> {esc(reason)}</span>'
     return f"""
         <li class="pr-row {esc(r["kind"])}">
           <span class="pr-tag {tone}">{esc(label)}</span>
@@ -87,10 +103,13 @@ def render(board: dict, refs: dict[str, str]) -> str:
     same_day = nxt.get("ask_by") == nxt.get("date")
     by_clock = f" before {cutoff}" if same_day else ""
     raise_n, raised_n, fix_n = len(s["raise"]), len(s.get("raised") or []), len(s["fixes"])
+    in_wave_n = sum(1 for r in s["rows"] if r["kind"] == "ordered")
     if not raise_n and raised_n:
         due, tone = f"Raised for {when(nxt['date'])}", "green"
+    elif not raise_n:
+        due, tone = f"Nothing to raise for {when(nxt['date'])}", "green"
     elif ask_days < 0:
-        due, tone = f"Ask-by day passed ({when(nxt['ask_by'])}); raise before {when(nxt['date'])} {cutoff}", "red"
+        due, tone = f"Ask-by passed ({when(nxt['ask_by'])}) · before {when(nxt['date'])} {cutoff}", "red"
     elif ask_days == 0:
         due, tone = f"Raise today{by_clock}" + (" (off on round day)" if nxt.get("pto_shifted") else ""), "red"
     elif ask_days == 1:
@@ -101,12 +120,15 @@ def render(board: dict, refs: dict[str, str]) -> str:
             if same_day
             else f"Raise by {when(nxt['ask_by'])} (off {when(nxt['date'])})"
         ), "grey"
-    moved = f' <span class="pr-moved">(moved: {esc(nxt["moved"])})</span>' if nxt.get("moved") else ""
+    moved_clean = str(nxt.get("moved") or "").strip()
+    moved = f' <span class="pr-moved">&middot; {esc(moved_clean)}</span>' if moved_clean else ""
     counts = []
     if raise_n:
         counts.append(f"{raise_n} to raise")
     if raised_n:
         counts.append(f"{raised_n} raised")
+    if in_wave_n:
+        counts.append(f"{in_wave_n} in wave")
     if fix_n:
         counts.append(f"{fix_n} to fix in Asana")
     tally = " · ".join(counts) or "nothing to raise"
@@ -136,10 +158,6 @@ def render(board: dict, refs: dict[str, str]) -> str:
                      f'{esc("; ".join(bits) or "nothing of yours")}. '
                      f'{link_btn(last.get("url", ""), "Thread")}</p>')
     stale = f'<p class="pr-stale">{esc(s["stale"])}</p>' if s["stale"] else ""
-    # One line until the owner opens it. The round is weekly at most and most
-    # days there is nothing to do about it, so the card it used to be stood
-    # between them and their work every morning to say "not yet". It opens on
-    # its own only on the last day to raise a build, and only if there is one.
     quiet = not (raise_n or fix_n) and ask_days > 1
     return f"""
     <details class="pr{" quiet" if quiet else ""}" id="prioritization" data-remember="prioritization"{" open" if ask_days <= 0 and (raise_n or fix_n) else ""}>
@@ -183,14 +201,23 @@ def markdown(board: dict) -> str:
     out.append("")
     for r in s["rows"]:
         label = KIND[r["kind"]][0]
+        sched_tail = (
+            f", due {r['due_on']}"
+            if r.get("due_on")
+            else f", committed {r['committed_on']}"
+            if r.get("committed_on")
+            else ""
+        )
         line = (f"- **{label}** {r.get('kt', '')} {P.short(r.get('name', ''))}"
                 + (f" ({r['ticket']})" if r.get("ticket") else "")
                 + f": {r.get('status', '')}, {r.get('size', '') or 'no size'}"
                 + (f", {settings.client_short()} Order {r['client_order']}" if r.get("client_order") else "")
                 + (f", {r['wave']}" if r.get("wave") else "")
-                + f", due {r.get('due_on') or 'none'}.")
-        if r.get("why") and r["kind"] == "raise":
-            line += f" {r['why']}"
+                + f"{sched_tail}.")
+        if r["kind"] == "raise" and r.get("why"):
+            line += f" Why raise: {r['why']}"
+        elif r["kind"] == "parked":
+            line += f" Held back: {r.get('hold_why') or r.get('why') or 'no urgent reason this round'}"
         out.append(line)
         for f in r["fixes"]:
             out.append(f"  - fix in Asana: {f}")

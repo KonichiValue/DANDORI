@@ -13,6 +13,7 @@
 #   DANDORI ask day "..."    about the day rather than one job, answered in numbers
 #   DANDORI refresh          sweep every open ticket and thread, rebuild, open
 #   DANDORI scout            run the fast Haiku delta scout (--status for watermarks)
+#   DANDORI targets          list all Refresh & Delta sync targets (--json)
 #   DANDORI prep             sweep, then write the next meeting's script
 #   DANDORI client [slug]    list client workspaces in clients/, or switch to <slug>
 #   DANDORI scripts          list client workflow scripts in clients/<client>/scripts/
@@ -365,6 +366,7 @@ case "${1:-}" in
   run)           shift; python3 "$REPO/core/plugins.py" run "$@" ;;
   doctor)        shift; python3 "$REPO/core/doctor.py" "$@" ;;
   scout)         shift; python3 "$REPO/core/scout.py" "$@" ;;
+  targets)       shift; python3 "$REPO/core/targets.py" "$@" ;;
   notify)        shift; python3 "$REPO/core/notify.py" "$@" ;;
   remind)        shift; python3 "$REPO/core/remind.py" "$BOARD" "$@" ;;
   check)         shift; python3 "$REPO/core/check.py" "$@" ;;
@@ -412,6 +414,6 @@ case "${1:-}" in
     esac ;;
   open)          page ;;
   -v|--version|version) python3 "$REPO/core/settings.py" --version ;;
-  -h|--help|help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//' ;;
   *)             python3 "$REPO/core/tick.py" "$@" ;;
 esac

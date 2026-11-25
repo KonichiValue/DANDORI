@@ -39,6 +39,7 @@ import prioritize
 import calendar_sync
 import scout
 import settings
+import targets
 
 WRAP = 160
 ROOT = Path(__file__).resolve().parent
@@ -118,6 +119,16 @@ def _prep_summary(prep: dict) -> None:
         _out("      issue: " + " ".join(str(x) for x in prep["issue"]))
     if prep.get("why_it_matters"):
         _out(f"      why_it_matters: {prep['why_it_matters']}")
+    if prep.get("gist"):
+        _out(f"      gist: {prep['gist']}")
+    exp = prep.get("explainer")
+    if isinstance(exp, dict) and exp:
+        _out(
+            f"      explainer [{exp.get('badge') or 'walkthrough'}"
+            f"{', new' if exp.get('new_to_you') else ''}]: "
+            f"{exp.get('summary') or ''} (flow={len(exp.get('flow') or [])}, "
+            f"journey={len(exp.get('journey') or [])}, facts={len(exp.get('facts') or [])})"
+        )
     cons = prep.get("consequences") or {}
     c_bits = [f"{k}={cons[k]}" for k in ("fix_covers", "falls_outside", "accumulates",
                                           "who_owns_it", "done_means", "still_open") if cons.get(k)]
@@ -293,16 +304,8 @@ SLACK_LIVE_DAYS = 30
 
 
 def _slack_ts(url: str) -> tuple[str, str] | None:
-    """(channel, parent ts) from a Slack link, the two things read_thread takes.
-
-    A reply's link carries the parent in `thread_ts`; a parent's link carries it
-    in the `p` segment, with the decimal point taken out.
-    """
-    m = re.search(r"slack\.com/archives/([A-Z0-9]+)/p(\d{10})(\d{6})", url or "")
-    if not m:
-        return None
-    parent = re.search(r"thread_ts=(\d{10}\.\d{6})", url)
-    return m.group(1), parent.group(1) if parent else f"{m.group(2)}.{m.group(3)}"
+    """(channel, parent ts) from a Slack link or `CHAN/p...` shorthand."""
+    return targets.slack_ts(url)
 
 
 def _slack_oldest(last_at: str, past_minute: bool = True) -> str:
@@ -397,6 +400,25 @@ def _slack_plan(b: dict, checked: str) -> None:
     # so a reply that wakes it is still found.
     for channel in sorted(old):
         _out(f"     search in:<#{channel}> after:{after}  = wakes any thread here quiet over {SLACK_LIVE_DAYS} days")
+    seen_hints: set[str] = set()
+    for raw_ch in settings.section("slack").get("channel_hints") or []:
+        clean_ch = re.sub(r"^#+", "", str(raw_ch or "").strip())
+        if not clean_ch or clean_ch.lower() in seen_hints:
+            continue
+        if re.fullmatch(r"[CDG][A-Z0-9]{8,}", clean_ch):
+            if clean_ch in old:
+                continue
+            seen_hints.add(clean_ch.lower())
+            q_in = f"in:<#{clean_ch}>"
+        else:
+            seen_hints.add(clean_ch.lower())
+            q_in = f"in:#{clean_ch}"
+        _out(f"     search {q_in} after:{after}  = unlinked client/ops channel mention check")
+    for cid, c_refs in sorted(targets.active_canvases(b).items()):
+        _out(
+            f"     read_canvas canvas_id={cid}  = check open canvas for {', '.join(c_refs)}"
+            " (large doc: if persisted to file, grep once for date/ref)"
+        )
     _out("     A reply in any of these is an event; the owner's own message is an event \"You\" (section 5).")
     _out("     Put each read thread's newest message in the patch's \"threads\" (last_at, last_from).")
 
@@ -433,7 +455,12 @@ def _sweep_plan(b: dict) -> None:
             _out("     = its child tickets that moved. Update the milestone's tickets/phases rows; a child assigned to")
             _out("     the owner becomes a ticket card too (new_tickets), anything else stays a row on the milestone.")
     _slack_plan(b, checked)
-    _out("  2. Other threads to read (not looked at since the ticket last moved); mark them in the patch's \"checked\".")
+    mcps = targets.configured_mcps()
+    gmail_q, _ = targets.email_query(checked)
+    if gmail_q and "google" in mcps:
+        _out(f"  E. Client email (read-only): gmail_search_messages query=\"{gmail_q}\" max_results=10")
+        _out("     = if any relevant email returned, call gmail_get_message and fold into the ticket.")
+    _out("  2. Other threads & linked Notion/Miro/Docs (not looked at since the ticket last moved); mark them in \"checked\".")
     quiet_refs: list[str] = []
     for t in b.get("tickets", []):
         threads = [th for th in t.get("threads") or [] if not _slack_ts(th.get("url", ""))]
@@ -518,6 +545,40 @@ def _sweep_plan(b: dict) -> None:
         for e in unread[:8]:
             doc = next((n for n in e.get("notes") or [] if calendar_sync.GEMINI.search(n.get("title", ""))), {})
             _out(f"       - {e['date']} {e['at']} {e['title'][:60]}  {doc.get('url', '')}")
+    unfolded_rooms = calendar_sync.unfolded_room_notes(b)
+    if unfolded_rooms:
+        _out("  R. Today's ended rooms without Gemini docs yet: query Notion meeting notes in the same message as 0/1/S:")
+        for rm in unfolded_rooms:
+            _out(f"       - {rm['name']} (ended {rm['ended_at']}): notion-query-meeting-notes title contains \"{rm['notes_title']}\" created today -> set {rm['record']}")
+    pre_sync = scout.pre_room_sync(b)
+    if isinstance(pre_sync, dict) and pre_sync.get("active"):
+        import render_desk  # noqa: E402
+
+        missing_prep = [
+            str(t.get("ref") or t.get("id") or "?")
+            for t in b.get("tickets") or []
+            if render_desk.needs_room_script(t) and not (t.get("prep") or {}).get("script")
+        ]
+        _out(
+            f"  W. PRE-ROOM SCRIPT SYNC ACTIVE ({pre_sync.get('room')} in {pre_sync.get('mins_until')}m,"
+            f" {pre_sync.get('date')} {pre_sync.get('at')}): update `tickets.<ref>.prep` on any ticket"
+            " whose state, timeline, or asks move in this sweep."
+        )
+        if missing_prep:
+            _out(
+                f"     !! MISSING FROM WHAT I SAY: {', '.join(missing_prep)} have NO `prep.script`!"
+                " Write their `prep` blocks (with `order` respecting Top Priority -> Priority -> New -> Other,"
+                " `explainer`, and `{word|reading}` script) in this patch."
+            )
+    huddle_stale = scout.huddle_stale_today(b)
+    if isinstance(huddle_stale, dict) and huddle_stale.get("active"):
+        h_link = f" ({huddle_stale['link']})" if huddle_stale.get("link") else ""
+        _out(
+            f"  H. TEAM HUDDLE TODAY ({huddle_stale['room']} at {huddle_stale['at']}){h_link}:"
+            f" `board.huddle.for_date` is stale ({huddle_stale['was_date']})!"
+            " Fetch the Notion huddle page/databases and write `board.huddle` (`for_date`, `at`, `built_at`,"
+            " `milestones` for board milestones with `in_huddle != false`, `blockers`, `plate`) in this patch."
+        )
     _out()
 
 
@@ -606,7 +667,8 @@ Write ONE patch file with the Write tool, then apply it with ONE command:
                       "draft.body_ruby": "...", "progress_note": "...", "steps": ["..."]},
                       draft.reply_from / draft.expects_reply: false say what Posted it does;
                       never a "./core/tick.py N" step, the page has a button for it
-               "45": {"state": "waiting", "who": "Sato-san, client", "chase_on": "2026-10-09"}},
+               "45": {"state": "waiting", "who": "Sato-san, client", "chase_on": "2026-10-09"},
+               "46": {"ticket": "NEW-CARD-REF"}},                              re-homes item 46 onto its own ticket card
    "new_items": [{"ticket": "...", "title": "...", "why": "...", "steps": ["..."],
                   "done_when": "...", "urgency": "today"}],        numbered for you
    "new_tickets": [{"id": "1200...", "ref": "SHORT-TAG", "title_ja": "...", "title_en": "...",
@@ -736,7 +798,7 @@ def _brief_and_rollups(b: dict, full: bool) -> None:
             if isinstance(ln, dict):
                 items_str = f" items={ln.get('items')}" if ln.get("items") else ""
                 ref_str = f" ref={ln.get('ref')}" if ln.get("ref") else ""
-                _out(f"  [{ln.get('kind', '?')}]{ref_str}{items_str} {_clip(ln.get('what'), 160, full)}")
+                _out(f"  [{ln.get('kind', '?')}]{ref_str}{items_str} {_clip(ln.get('what'), 240, True)}")
         _out()
 
     script = b.get("script") or {}
@@ -837,6 +899,8 @@ def _delta_plan(b: dict, delta: dict) -> set[str]:
             ref = str(row.get("ref") or "")
             if ref and not ref.startswith("milestone:") and ref != "news/assigned":
                 expand.add(ref)
+            if len(full_task_gids) < 10 and ref != "news/assigned":
+                full_task_gids.append(gid)
             story_gids.append(gid)
             _out(f"    - {ref or gid} (gid={gid}, modified_at={row.get('modified_at')}): {row.get('name', '')[:80]}")
 
@@ -857,12 +921,36 @@ def _delta_plan(b: dict, delta: dict) -> set[str]:
 
     dedup_stories = list(dict.fromkeys(g for g in story_gids if g))
     dedup_tasks = list(dict.fromkeys(g for g in full_task_gids if g))
-    if dedup_stories or dedup_tasks or delta.get("standup_notes") or delta.get("unread_notes"):
+    today_iso = settings.now().date().isoformat()
+    same_day_notes: list[tuple[str, str]] = []
+    if delta.get("census_added"):
+        for nkey in ("meeting_note", "migration_note"):
+            nrec = b.get(nkey) or {}
+            if str(nrec.get("date") or "") == today_iso and nrec.get("url"):
+                same_day_notes.append((nkey, str(nrec["url"])))
+    has_fetch = bool(
+        dedup_stories
+        or dedup_tasks
+        or same_day_notes
+        or delta.get("standup_notes")
+        or delta.get("unread_notes")
+        or delta.get("notion_meeting_notes")
+        or delta.get("email_messages")
+    )
+    if has_fetch:
         _out("  TO FETCH IN ONE PARALLEL TURN:")
         if dedup_tasks:
-            _out(f"    - get_task for new/missing gids: {', '.join(dedup_tasks)}")
+            _out(
+                "    - get_task (check description `notes`, `due_on`, subtasks & custom fields) for gids: "
+                + ", ".join(dedup_tasks)
+            )
         if dedup_stories:
             _out(f"    - get_task_stories task_ids={json.dumps(dedup_stories)} created_after={since_utc}")
+        for nkey, nurl in same_day_notes:
+            _out(
+                f"    - Re-read today's {nkey} ({nurl}) + Notion meeting notes for instructions on"
+                " the newly assigned ticket(s) (folded in before Asana assigned them)!"
+            )
         st = delta.get("standup_notes")
         if isinstance(st, dict) and st.get("docs"):
             for d in st["docs"]:
@@ -871,24 +959,69 @@ def _delta_plan(b: dict, delta: dict) -> set[str]:
             for n in e.get("notes") or []:
                 if calendar_sync.GEMINI.search(n.get("title", "")):
                     _out(f"    - drive_read_file (meeting {e.get('date')} {e.get('title', '')[:45]}): {n.get('url', '')}")
+        for nm in delta.get("notion_meeting_notes") or []:
+            _out(
+                f"    - notion-fetch (meeting notes {nm.get('date')} {nm.get('room')} -> {nm.get('record')}):"
+                f" {nm.get('url') or nm.get('notes_title')}"
+            )
+        for em in delta.get("email_messages") or []:
+            _out(
+                f"    - gmail_get_message message_id={em.get('id')!r}"
+                f" (from {em.get('from', '?')}: {em.get('subject', '')[:70]})"
+            )
+
+    # Map every ticket ref, client task GID, internal build GID, and KT id -> ticket ref
+    # so Slack/email mentions containing Asana URLs or KT numbers auto-expand their ticket.
+    needle_to_ref: list[tuple[str, str]] = []
+    for t in b.get("tickets") or []:
+        t_ref = str(t.get("ref") or "").strip()
+        if not t_ref:
+            continue
+        needle_to_ref.append((t_ref.lower(), t_ref))
+        t_gid = str(t.get("id") or "").strip()
+        if t_gid:
+            needle_to_ref.append((t_gid.lower(), t_ref))
+        it = t.get("internal_ticket") if isinstance(t.get("internal_ticket"), dict) else {}
+        for cand in (
+            it.get("name"),
+            (it.get("build") or {}).get("kt") if isinstance(it.get("build"), dict) else "",
+            str(it.get("url") or "").rstrip("/").rsplit("/", 1)[-1],
+        ):
+            cs = str(cand or "").strip()
+            if len(cs) >= 4:
+                needle_to_ref.append((cs.lower(), t_ref))
+    for pb in ((b.get("prioritization") or {}).get("builds") or []):
+        if not isinstance(pb, dict):
+            continue
+        pb_ref = str(pb.get("ticket") or "").strip()
+        if not pb_ref:
+            continue
+        for cand in (pb.get("kt"), pb.get("gid")):
+            cs = str(cand or "").strip()
+            if len(cs) >= 4:
+                needle_to_ref.append((cs.lower(), pb_ref))
+
+    def _expand_from_text(blob: str) -> None:
+        low = blob.lower()
+        for needle, t_ref in needle_to_ref:
+            if needle in low:
+                expand.add(t_ref)
 
     if delta.get("slack_replies"):
         _out(f"  * NEW SLACK THREAD REPLIES ({len(delta['slack_replies'])}; already fetched, no need to re-read):")
         for r in delta["slack_replies"]:
             if r.get("ticket"):
                 expand.add(str(r["ticket"]))
+            _expand_from_text(str(r.get("messages") or ""))
             _out(f"    --- {r.get('ticket', '?')} | {r.get('url', '')} ---")
             for ln in str(r.get("messages") or "").splitlines():
                 _out(f"      {ln}")
 
     if delta.get("slack_messages"):
         _out(f"  * NEW SLACK MESSAGES / SENDS / MENTIONS ({len(delta['slack_messages'])}; already fetched):")
-        known_refs = [str(t.get("ref") or "") for t in b.get("tickets") or [] if t.get("ref")]
         for m in delta["slack_messages"]:
             txt = str(m.get("text") or "")
-            for r in known_refs:
-                if r and r.lower() in txt.lower():
-                    expand.add(r)
+            _expand_from_text(txt)
             _out(
                 f"    --- [{m.get('source')}] {m.get('channel') or m.get('channel_id')}"
                 f" | from {m.get('from') or '?'} at {m.get('time') or m.get('ts')}"
@@ -906,11 +1039,33 @@ def _delta_plan(b: dict, delta: dict) -> set[str]:
             for ln in (c.get("matching_lines") or [])[:15]:
                 _out(f"      {ln}")
 
+    if delta.get("email_messages"):
+        _out(f"  * NEW CLIENT EMAILS ({len(delta['email_messages'])}; read-only):")
+        for em in delta["email_messages"]:
+            _expand_from_text(f"{em.get('subject', '')} {em.get('snippet', '')}")
+            _out(f"    - id={em.get('id')} from={em.get('from', '?')} | {em.get('subject', '')}")
+            if em.get("snippet"):
+                _out(f"      snippet: {em['snippet']}")
+
+    if delta.get("notion_meeting_notes"):
+        _out(f"  * NEW NOTION MEETING NOTES ({len(delta['notion_meeting_notes'])}):")
+        for nm in delta["notion_meeting_notes"]:
+            _out(f"    - {nm.get('date')} {nm.get('room')} -> {nm.get('record')}: {nm.get('url', '')}")
+
     if delta.get("brief_missing"):
         _out("  * MORNING BRIEF: brief.for_date is not today yet; write today's brief in this patch.")
 
     prep_sync = delta.get("pre_room_prep_sync")
     if isinstance(prep_sync, dict) and prep_sync.get("active"):
+        import render_desk  # noqa: E402
+
+        missing_prep = [
+            str(t.get("ref") or t.get("id") or "?")
+            for t in b.get("tickets") or []
+            if render_desk.needs_room_script(t) and not (t.get("prep") or {}).get("script")
+        ]
+        for r in missing_prep:
+            expand.add(r)
         _out()
         _out(
             f"  !! PRE-ROOM SCRIPT SYNC ACTIVE: {prep_sync.get('room')} is in {prep_sync.get('mins_until')}m"
@@ -918,11 +1073,18 @@ def _delta_plan(b: dict, delta: dict) -> set[str]:
             " script is already built."
         )
         _out(
-            "     For ONLY the ticket(s) whose state, timeline, or asks changed in this delta, also"
-            " update `tickets.<ref>.prep` (or set `prep: null` if completed/settled) in the house"
-            " style with `{word|reading}` readings when `language.readings` is true."
+            "     For ONLY the ticket(s) whose state, timeline, or asks changed in this delta, AND any"
+            " active cycle/priority ticket missing `prep.script`, update/write `tickets.<ref>.prep`"
+            " (or set `prep: null` if completed/settled) in the house style with `{word|reading}`"
+            " readings when `language.readings` is true."
         )
-        _out("     Leave unchanged tickets' `prep` blocks untouched.")
+        if missing_prep:
+            _out(
+                f"     !! MISSING FROM WHAT I SAY: {', '.join(missing_prep)} have NO `prep.script`!"
+                " You MUST write their `prep` blocks (with `order` respecting Top Priority -> Priority -> New -> Other)"
+                " in this patch so `./core/check.py` passes."
+            )
+        _out("     Leave other unchanged tickets' `prep` blocks untouched.")
 
     _out()
     return expand
@@ -1004,10 +1166,11 @@ def _board(b: dict, args: argparse.Namespace, full: bool, delta: dict | None = N
         news = b.get("news") or []
         _out(f"NEWS ({len(news)})")
         for n in news:
-            _out(f"  - {n.get('on', '?')} {n.get('topic', '')}")
-            _out(f"    {_clip(n.get('what'), 240 if full else 90, full)}")
+            _out(f"  - {n.get('on', '?')} {n.get('topic', '')}"
+                 + (f"  [{n['source_url']}]" if n.get("source_url") else ""))
+            _out(f"    {_clip(n.get('what'), 360, True)}")
             if n.get("why"):
-                _out(f"    reaches you: {_clip(n['why'], 200 if full else 70, full)}")
+                _out(f"    reaches you: {_clip(n['why'], 240, True)}")
         _out()
 
         for key in ("meeting_note", "migration_note"):
@@ -1054,9 +1217,36 @@ def _board(b: dict, args: argparse.Namespace, full: bool, delta: dict | None = N
 
         prio = b.get("prioritization") or {}
         if settings.prioritization() and prio:
+            p_cfg = settings.prioritization()
             p_builds = prio.get("builds") or []
+            p_chan = str(p_cfg.get("channel") or "").lstrip("#").lower()
+            p_cid = str(p_cfg.get("channel_id") or "")
+            prio_delta = bool(
+                delta is not None
+                and (
+                    delta.get("moved_builds")
+                    or any(
+                        m.get("source") == "prioritization_lead"
+                        or (p_cid and m.get("channel_id") == p_cid)
+                        or (p_chan and p_chan in str(m.get("channel") or "").lower())
+                        for m in (delta.get("slack_messages") or [])
+                    )
+                )
+            )
             _out(f"PRIORITIZATION (checked_at={prio.get('checked_at', '-')}, {len(p_builds)} builds;"
                  " address as prioritization.builds.<n>.<field>):")
+            lr = prio.get("last_round") if isinstance(prio.get("last_round"), dict) else {}
+            if lr:
+                _out(
+                    f"  last_round: date={lr.get('date', '-')} ordered={lr.get('ordered') or []}"
+                    f" thread={lr.get('thread_url', '')}"
+                )
+            rb = prio.get("raised") if isinstance(prio.get("raised"), dict) else {}
+            if rb:
+                _out(
+                    f"  raised: round={rb.get('round', '-')} at={rb.get('at', '-')}"
+                    f" kts={rb.get('kts') or []} url={rb.get('source_url', '')}"
+                )
             for n, pb in enumerate(p_builds):
                 if not isinstance(pb, dict):
                     continue
@@ -1065,11 +1255,13 @@ def _board(b: dict, args: argparse.Namespace, full: bool, delta: dict | None = N
                     f" ticket={pb.get('ticket') or '-'} status={pb.get('status') or '-'}"
                     f" ref={pb.get('refinement') or '-'} size={pb.get('size') or '-'}"
                     f" order={pb.get('client_order') or '-'} wave={pb.get('wave') or '-'}"
-                    f" squad={pb.get('squad') or '-'} due={pb.get('due_on') or '-'}"
+                    f" squad={pb.get('squad') or '-'} due={pb.get('due_on') or pb.get('committed_on') or '-'}"
                     f" eng={pb.get('engineer') or '-'}"
+                    + (" push=false" if pb.get("push") is False else "")
                 )
-                if full or delta is None:
-                    _out(f"    name: {_clip(pb.get('name'), 110, full)} | why: {_clip(pb.get('why'), 140, full)}")
+                if full or delta is None or prio_delta:
+                    why_lbl = f"hold_why: {_clip(pb.get('hold_why'), 140, full)}" if pb.get("push") is False else f"why: {_clip(pb.get('why'), 140, full)}"
+                    _out(f"    name: {_clip(pb.get('name'), 110, full)} | {why_lbl}")
                 if full and pb.get("url"):
                     _out(f"    url: {pb['url']}")
             _out()
@@ -1079,7 +1271,12 @@ def _board(b: dict, args: argparse.Namespace, full: bool, delta: dict | None = N
     quiet: list[str] = []
     unchanged_open: list[str] = []
     aliases = settings.owner_aliases()
-    prep_sync_on = bool(delta and isinstance(delta.get("pre_room_prep_sync"), dict) and delta["pre_room_prep_sync"].get("active"))
+    import render_desk  # noqa: E402
+
+    prep_sync_on = bool(
+        (delta and isinstance(delta.get("pre_room_prep_sync"), dict) and delta["pre_room_prep_sync"].get("active"))
+        or (delta is None and bool((scout.pre_room_sync(b) or {}).get("active")))
+    )
     for t in b.get("tickets", []):
         ref = str(t.get("ref") or t.get("id") or "?")
         asana = t.get("asana") or {}
@@ -1089,7 +1286,14 @@ def _board(b: dict, args: argparse.Namespace, full: bool, delta: dict | None = N
             not asana.get("completed")
             and str(asana.get("assignee") or "").strip().lower() in aliases
         )
-        if not args.everything and not has_open and not (full and (mine_open or t.get("prep"))) and ref not in delta_refs:
+        active_room_ticket = mine_open and render_desk.needs_room_script(t)
+        if (
+            not args.everything
+            and not has_open
+            and not active_room_ticket
+            and not (full and (mine_open or t.get("prep")))
+            and ref not in delta_refs
+        ):
             status = asana.get("status", "?")
             quiet.append(f"{ref} {t.get('id', '?')} ({status})")
             continue

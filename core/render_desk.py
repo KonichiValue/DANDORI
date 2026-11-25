@@ -816,16 +816,24 @@ def render_ticket(
           {non_asana_btns(t)}
           {say_link}
           {internal_btn(internal)}
+          <button type="button" class="qe-btn tk-qe-btn" data-qe-kind="ticket"
+                  data-qe-ref="ticket:{esc(t.get("ref"))}" data-qe-lang="en" aria-expanded="false"
+                  title="Ask Opus anything about this ticket">{SPARK}Ask AI</button>
           {ai_split_btn(
               f'ticket:{t.get("ref")}',
-              tpl="Check replies in {app}",
-              mode="catchup",
+              tpl="Work on this in {app}" if mine else "Check replies in {app}",
+              mode="work" if mine else "catchup",
               cls="tk-ai",
-              title="Open this full ticket on the interactive DANDORI board in your chosen AI app and check only new Asana/Slack replies (Option-click copies context)",
+              title=(
+                  "Open this ticket in your chosen AI app with full context (done vs remaining steps, drafts, evidence & rules) to execute remaining work together (Option-click copies context)"
+                  if mine
+                  else "Open this ticket in your chosen AI app and check only new Asana/Slack replies since the last sweep (Option-click copies context)"
+              ),
           )}
           {keep_in}
         </div>
       </header>
+      <div class="qe-slot tk-qe-slot" data-qe-slot hidden></div>
 
       {f'<p class="tk-about">{esc(" ".join(t["prep"]["issue"]))}</p>'
        if isinstance((t.get("prep") or {}).get("issue"), list) and t["prep"]["issue"] else ""}
@@ -930,7 +938,14 @@ def controls(prep_label: str, needs_prep: bool = False, initial_sync: str = "", 
         <ul id="sp-runs" class="sp-runs"><li class="sp-empty">No recent runs logged yet.</li></ul>
       </div>
       <div class="sp-sec sp-conn">
-        <div class="sp-h"><span>Connections</span><button type="button" class="sp-link" data-open-conn>Settings</button></div>
+        <div class="sp-h">
+          <span>Connections</span>
+          <span class="sp-h-acts">
+            <button type="button" class="sp-link" data-open-targets title="Inspect all Refresh &amp; Delta targets (Shift+T)">Targets</button>
+            <span class="sp-sep">&middot;</span>
+            <button type="button" class="sp-link" data-open-conn>Settings</button>
+          </span>
+        </div>
         <div class="sp-crows">
           <div class="sp-crow">
             <span class="sp-cdot is-ok" id="sp-mcp-dot"></span>
@@ -1003,17 +1018,63 @@ def _hhmm_mins(text: str) -> int | None:
         return None
 
 
+def needs_room_script(t: dict) -> bool:
+    """Whether an incomplete owner-assigned ticket belongs in an active speaking script."""
+    asana = t.get("asana") or {}
+    if asana.get("completed"):
+        return False
+    status = str(asana.get("status") or "").strip().lower()
+    if status in {"実装完了", "対応完了", "実装しない", "完了", "done", "closed", "completed", "cancelled", "canceled"}:
+        return False
+    prio = str(asana.get("priority") or "").strip().lower()
+    if prio in {"not kraken", "none", "low"}:
+        return False
+    owner_names = {
+        str(n).strip().lower()
+        for n in [settings.owner_name(), *(settings.section("owner").get("aliases") or [])]
+        if str(n).strip()
+    }
+    assignee = str(asana.get("assignee") or "").strip().lower()
+    if owner_names and assignee and assignee not in owner_names:
+        return False
+    sec = str(asana.get("section") or "").strip().lower()
+    if any(skip in sec for skip in ("backlog", "icebox", "完了", "archive")):
+        return False
+    if "this cycle" in sec or "current cycle" in sec:
+        return True
+    if prio in {"top priority", "high", "priority", "new", "urgent", "p0", "p1"}:
+        return True
+    return False
+
+
 def script_state(data: dict, tickets: list[dict], soon: dict) -> tuple[bool, bool]:
     """Return `(stale, needs_prep)` for the speaking view and the header Prep button.
 
     A script written for a room that has already ended today is finished work,
-    not a stale warning. A script for an upcoming room is stale only when a
-    ticket moved after its `prep.built_at` (or when `script.for_date` still
-    points at an earlier session than `soon`).
+    not a stale warning. A script for an upcoming room is stale when a ticket
+    moved after its `prep.built_at`, when an active cycle/priority ticket lacks
+    `prep.script` altogether, or when `script.for_date` still points at an
+    earlier session than `soon`.
     """
-    today_iso = date.today().isoformat()
     now_dt = settings.now()
+    today_iso = now_dt.date().isoformat()
     now_mins = now_dt.hour * 60 + now_dt.minute
+    day_abbr = settings.DAYS[now_dt.weekday()]
+    rollup_needs_prep = False
+    for also in settings.meeting().get("also") or []:
+        if not isinstance(also, dict) or day_abbr not in (also.get("days") or []):
+            continue
+        r_kind = str(also.get("kind") or "")
+        b_key = "xws" if r_kind == "rollup" else ("huddle" if r_kind == "huddle" else "")
+        if not b_key:
+            continue
+        r_mins = _hhmm_mins(str(also.get("time_local") or ""))
+        if r_mins is not None and now_mins > r_mins + 30:
+            continue
+        if str((data.get(b_key) or {}).get("for_date") or "") != today_iso:
+            rollup_needs_prep = True
+            break
+
     has_script = any((t.get("prep") or {}).get("script") for t in tickets)
     soon_date = str(soon.get("date") or "")
     soon_at = str(soon.get("at") or "")
@@ -1021,7 +1082,7 @@ def script_state(data: dict, tickets: list[dict], soon: dict) -> tuple[bool, boo
     soon_today_ahead = soon_date == today_iso and (soon_mins is None or now_mins <= soon_mins + 30)
 
     if not has_script:
-        return False, soon_today_ahead
+        return False, (soon_today_ahead or rollup_needs_prep)
 
     meta = script_meta(data)
     built = str(meta.get("built_at") or "")
@@ -1034,15 +1095,21 @@ def script_state(data: dict, tickets: list[dict], soon: dict) -> tuple[bool, boo
     if soon_today_ahead and (for_date != today_iso or (soon_at >= "12:30" and for_at and for_at < soon_at)):
         return True, True
 
-    # If the session this script was written for has already ended, stay quiet.
+    # If the session this script was written for has already ended, only flag a due rollup.
     if for_date and for_date < today_iso:
-        return False, False
+        return False, rollup_needs_prep
     if for_date == today_iso and for_mins is not None and now_mins > for_mins + dur:
-        return False, False
+        return False, rollup_needs_prep
 
-    # Room is still ahead: check whether any ticket has an event newer than its `prep.built_at`.
+    # Room is still ahead: any active cycle/priority ticket with no `prep.script` at all
+    # means `What I say` is missing a ticket the owner has to speak to.
+    for t in tickets:
+        if needs_room_script(t) and not (t.get("prep") or {}).get("script"):
+            return True, True
+
+    # Check whether any ticket has an event newer than its `prep.built_at`.
     if not built:
-        return False, False
+        return False, rollup_needs_prep
     for t in tickets:
         if (t.get("asana") or {}).get("completed"):
             continue
@@ -1055,7 +1122,7 @@ def script_state(data: dict, tickets: list[dict], soon: dict) -> tuple[bool, boo
             if len(ev_on) == 10 and re.fullmatch(r"\d\d:\d\d", ev_at):
                 if f"{ev_on}T{ev_at}" > t_built:
                     return True, True
-    return False, False
+    return False, rollup_needs_prep
 
 
 def view_tabs(mine: int, has_script: bool, sess: dict) -> str:
@@ -1338,7 +1405,7 @@ def render(data: dict) -> str:
     meeting = (
         f'{today_iso}T{soon.get("at")}:00{settings.offset(date.today())}' if on_today else ""
     )
-    meeting_label = soon.get("name", "standup").lower() if on_today else ""
+    meeting_label = (soon.get("tab") or soon.get("name") or "standup").lower() if on_today else ""
     initial_sync, initial_tone = checked_status(data)
 
     body = f"""
@@ -1376,6 +1443,28 @@ def render(data: dict) -> str:
 </div>
 {people_json(data)}
 {finder([t for t in tickets if ticket_group(t) != "closed"], refs)}
+<div class="sel-ai" id="sel-ai" hidden role="toolbar" aria-label="Ask AI about selection">
+  <button type="button" class="sel-ai-btn primary" data-sel-act="explain">{SPARK}Explain / Check</button>
+  <button type="button" class="sel-ai-btn" data-sel-act="ask">Ask / Revise&hellip;</button>
+</div>
+<dialog class="img-lb" id="img-lb" aria-label="Screenshot preview">
+  <div class="lb-head">
+    <div class="lb-meta"><b id="lb-title"></b><span id="lb-cap"></span></div>
+    <div class="lb-acts">
+      <a class="btn" id="lb-open" href="#" target="_blank" rel="noopener">Open original &nearr;</a>
+      <button type="button" class="lb-close" id="lb-close" aria-label="Close (Esc)">&times;</button>
+    </div>
+  </div>
+  <div class="lb-body"><img id="lb-img" alt=""></div>
+</dialog>
+<dialog class="help tgt-dlg" id="targets-dlg" aria-label="Refresh and delta sync targets">
+  <div class="help-in">
+    <button class="help-close" type="button" data-close-targets>Close</button>
+    <h2>Refresh &amp; Delta Targets</h2>
+    <p class="lead" id="tgt-lead">Every source DANDORI watches across Asana, Slack, Meetings, Email, Notion, and Miro, kept fast and watermark-gated.</p>
+    <div id="tgt-body" class="tgt-body"><p class="sp-empty">Loading targets…</p></div>
+  </div>
+</dialog>
 {render_dialogs.help_dialog()}
 {render_dialogs.settings_dialog()}"""
     # Which items are closed right now. The page remembers this set, so when

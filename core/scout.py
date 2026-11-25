@@ -57,6 +57,7 @@ import calendar_sync  # noqa: E402
 import plugins  # noqa: E402
 import prioritize  # noqa: E402
 import settings  # noqa: E402
+import targets  # noqa: E402
 
 SEEN = settings.STATE_DIR / "scout-seen.json"
 DELTA = settings.TMP_DIR / "delta.json"
@@ -133,16 +134,12 @@ def _utc_since(stamp: str, overlap_secs: int = 120) -> str:
 
 
 def _slack_ts(url: str) -> tuple[str, str] | None:
-    m = SLACK_TS_RE.search(url or "")
-    if not m:
-        return None
-    parent = THREAD_TS_RE.search(url or "")
-    return m.group(1), parent.group(1) if parent else f"{m.group(2)}.{m.group(3)}"
+    return targets.slack_ts(url)
 
 
 def _slack_msg_key(url: str) -> str:
-    """Canonical `CHANNEL:TS` from a Slack permalink (reply or parent)."""
-    m = SLACK_TS_RE.search(url or "")
+    """Canonical `CHANNEL:TS` from a Slack permalink or `CHAN/p...` shorthand."""
+    m = targets.SLACK_URL_RE.search(url or "")
     if not m:
         return ""
     return f"{m.group(1)}:{m.group(2)}.{m.group(3)}"
@@ -223,6 +220,36 @@ def pre_room_sync(b: dict, now: datetime | None = None) -> dict | None:
     return None
 
 
+def huddle_stale_today(b: dict, now: datetime | None = None) -> dict | None:
+    """Return huddle metadata when today runs a `huddle` room (before it ends)
+    and `board.huddle.for_date` has not been updated for today yet."""
+    now = now or settings.now()
+    today = now.date().isoformat()
+    dow = settings.DAYS[now.weekday()]
+    now_mins = now.hour * 60 + now.minute
+    h_for = str((b.get("huddle") or {}).get("for_date") or "").strip()
+    if h_for == today:
+        return None
+    for a in settings.meeting().get("also") or []:
+        if not isinstance(a, dict) or str(a.get("kind") or "") != "huddle":
+            continue
+        if dow not in (a.get("days") or []):
+            continue
+        at_str = str(a.get("time_local") or "").strip()
+        r_mins = _hhmm_mins(at_str)
+        if r_mins is not None and now_mins > r_mins + 30:
+            continue
+        return {
+            "active": True,
+            "date": today,
+            "at": at_str,
+            "room": str(a.get("name") or "Team Huddle"),
+            "link": str(a.get("link") or ""),
+            "was_date": h_for or "never",
+        }
+    return None
+
+
 def _sync_seen_with_board(b: dict, seen: dict) -> dict:
     """Promote pending watermarks to `swept` once `board.checked_at` has advanced."""
     b_checked = str(b.get("checked_at") or "")
@@ -230,14 +257,20 @@ def _sync_seen_with_board(b: dict, seen: dict) -> dict:
     swept_mod = dict(seen.get("swept_asana_mod") or {})
     swept_slack = set(seen.get("swept_slack_keys") or [])
     swept_canvas = dict(seen.get("swept_canvas_hash") or {})
+    swept_email = set(seen.get("swept_email_ids") or [])
+    swept_notion_notes = set(seen.get("swept_notion_note_ids") or [])
 
     if b_checked and b_checked != prev_b:
         swept_mod.update(seen.get("pending_asana_mod") or {})
         swept_slack.update(seen.get("pending_slack_keys") or [])
         swept_canvas.update(seen.get("pending_canvas_hash") or {})
+        swept_email.update(seen.get("pending_email_ids") or [])
+        swept_notion_notes.update(seen.get("pending_notion_note_ids") or [])
         seen["pending_asana_mod"] = {}
         seen["pending_slack_keys"] = []
         seen["pending_canvas_hash"] = {}
+        seen["pending_email_ids"] = []
+        seen["pending_notion_note_ids"] = []
         seen["board_checked_at"] = b_checked
 
     # Bound state size over months of running.
@@ -248,6 +281,8 @@ def _sync_seen_with_board(b: dict, seen: dict) -> dict:
     seen["swept_asana_mod"] = swept_mod
     seen["swept_slack_keys"] = swept_slack_list
     seen["swept_canvas_hash"] = swept_canvas
+    seen["swept_email_ids"] = sorted(swept_email)[-200:]
+    seen["swept_notion_note_ids"] = sorted(swept_notion_notes)[-200:]
     return seen
 
 
@@ -292,7 +327,7 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
         "assignee_any": "me",
         "completed": False,
         "opt_fields": (
-            "name,completed,modified_at,assignee.name,projects.gid,"
+            "name,completed,due_on,modified_at,assignee.name,projects.gid,"
             "memberships.section.name,custom_fields.name,custom_fields.display_value"
         ),
         "limit": 100,
@@ -408,6 +443,17 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
         if dm_oldest:
             dm_args["oldest"] = dm_oldest
         queries.append({"tag": "slack_lead_dm", "tool": "mcp__slack__slack_read_channel", "args": dm_args})
+        if lead_dm != me_slack:
+            queries.append({
+                "tag": "slack_from_lead",
+                "tool": "mcp__slack__slack_search_public_and_private",
+                "args": {
+                    "query": f"from:<@{lead_dm}> after:{after_day}",
+                    "sort": "timestamp",
+                    "include_context": False,
+                    "response_format": "detailed",
+                },
+            })
 
     cut = (base_dt.date() if base_dt else settings.now().date()) - timedelta(days=SLACK_LIVE_DAYS)
     lasts: dict[tuple[str, str], str] = {}
@@ -431,15 +477,22 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
 
     for t in b.get("tickets") or []:
         open_items = [i for i in t.get("items") or [] if B.is_open(i)]
+        asana = t.get("asana") or {}
         b_stage = str(((t.get("internal_ticket") or {}).get("build") or {}).get("stage") or "").strip().lower()
-        in_refinement = b_stage == "refining" and not (t.get("asana") or {}).get("completed")
-        if not open_items and not in_refinement:
+        in_refinement = b_stage == "refining" and not asana.get("completed")
+        in_active_cycle = (
+            not asana.get("completed")
+            and ("this cycle" in str(asana.get("section") or "").lower() or "current cycle" in str(asana.get("section") or "").lower())
+            and str(asana.get("status") or "").strip().lower() not in {"実装完了", "対応完了", "実装しない", "完了", "done", "closed"}
+        )
+        if not open_items and not in_refinement and not in_active_cycle:
             continue
         ref = str(t.get("ref") or "")
         links = [
             str(th.get("url") or "")
             for th in (t.get("threads") or [])
             if open_items
+            or in_active_cycle
             or "refinement" in str(th.get("where") or "").lower()
             or "refinement" in str(th.get("label") or "").lower()
         ]
@@ -482,11 +535,10 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
             checked_urls.append(url)
             thread_meta[tag] = {"ticket": ref, "channel_id": key[0], "message_ts": key[1], "url": url, "last_at": last_str}
 
-    # Prioritization channel check if a round just ran and is not recorded yet.
-    if prio_cfg:
-        ran = prioritize.previous(prio_cfg).get("date") or ""
-        if ran and str((p_block.get("last_round") or {}).get("date") or "") < ran and prio_cfg.get("channel_id"):
-            old_channels.add(str(prio_cfg["channel_id"]))
+    # Always monitor the CDL / prioritization lead channel (`prioritization.channel_id`),
+    # because the lead assigns investigations and posts cycle updates there between rounds.
+    if prio_cfg and prio_cfg.get("channel_id"):
+        old_channels.add(str(prio_cfg["channel_id"]))
 
     for ch in sorted(old_channels):
         queries.append({
@@ -536,6 +588,50 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
             "args": {"canvas_id": cid},
         })
 
+    # 6. Email: lightweight read-only Gmail search for client-domain emails (1 call).
+    mcps = targets.configured_mcps()
+    gmail_q, _ = targets.email_query(gate_base, overlap_secs=overlap)
+    if gmail_q and "google" in mcps:
+        queries.append({
+            "tag": "gmail_client",
+            "tool": "mcp__google__gmail_search_messages",
+            "args": {"query": gmail_q, "max_results": 10},
+        })
+
+    # 7. Notion meeting notes: only when a scheduled room ended today without its
+    #    board note record (`meeting_note` / `migration_note`) or a Gemini doc yet.
+    notion_rooms = calendar_sync.unfolded_room_notes(b) if "notion" in mcps else []
+    notion_room_meta: dict[str, dict] = {}
+    for nr in notion_rooms:
+        ntag = f"notion_notes:{nr['record']}:{nr['kind']}"
+        title_kw = (str(nr.get("notes_title") or "").strip().split() or [nr.get("notes_title", "")])[0]
+        queries.append({
+            "tag": ntag,
+            "tool": "mcp__notion__notion-query-meeting-notes",
+            "args": {
+                "filter": {
+                    "operator": "and",
+                    "filters": [
+                        {
+                            "property": "title",
+                            "filter": {
+                                "operator": "string_contains",
+                                "value": {"type": "exact", "value": title_kw},
+                            },
+                        },
+                        {
+                            "property": "created_time",
+                            "filter": {
+                                "operator": "date_is",
+                                "value": {"type": "relative", "value": "today"},
+                            },
+                        },
+                    ],
+                }
+            },
+        })
+        notion_room_meta[ntag] = nr
+
     meta = {
         "gate_base": gate_base,
         "gate_since": gate_since,
@@ -545,6 +641,7 @@ def build_queries(b: dict, seen: dict) -> tuple[list[dict], dict]:
         "thread_meta": thread_meta,
         "all_board_threads": all_board_threads,
         "canvases": canvases,
+        "notion_room_meta": notion_room_meta,
     }
     return queries, meta
 
@@ -831,6 +928,8 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
     swept_mod: dict[str, str] = seen.get("swept_asana_mod") or {}
     swept_slack: set[str] = set(seen.get("swept_slack_keys") or []) | _board_known_slack_keys(b)
     swept_canvas: dict[str, str] = seen.get("swept_canvas_hash") or {}
+    swept_email: set[str] = set(seen.get("swept_email_ids") or [])
+    swept_notion_notes: set[str] = set(seen.get("swept_notion_note_ids") or [])
 
     checked_dt = _parse_iso(str(b.get("checked_at") or ""))
     floor_epoch = (checked_dt.timestamp() - 240.0) if checked_dt else 0.0
@@ -903,10 +1002,14 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
     slack_replies: list[dict] = []
     slack_messages: list[dict] = []
     canvas_changes: list[dict] = []
+    email_messages: list[dict] = []
+    notion_meeting_notes: list[dict] = []
 
     new_pending_mod: dict[str, str] = {}
     new_pending_slack: set[str] = set()
     new_pending_canvas: dict[str, str] = {}
+    new_pending_email: set[str] = set()
+    new_pending_notion_notes: set[str] = set()
     census_ran = False
 
     def is_new_mod(gid: str, mod_str: str) -> bool:
@@ -938,6 +1041,7 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                 cat_val = cf.get("Category", "").strip()
                 sev_val = (cf.get("Severity 深刻度") or cf.get("Severity") or "").strip()
                 assignee = _task_assignee(r).strip()
+                due_on = str(r.get("due_on") or "").strip()
                 mod = str(r.get("modified_at") or "")
 
                 if gid not in tickets_by_gid:
@@ -950,6 +1054,7 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                         "category": cat_val,
                         "severity": sev_val,
                         "assignee": assignee,
+                        "due_on": due_on,
                         "modified_at": mod,
                     })
                     if mod:
@@ -966,6 +1071,8 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                     diffs["section"] = {"board": b_sec, "asana": secs[0]}
                 if prio_val and prio_val != str(ba.get("priority") or "").strip():
                     diffs["priority"] = {"board": ba.get("priority"), "asana": prio_val}
+                if "due_on" in ba and due_on != str(ba.get("due_on") or "").strip():
+                    diffs["due_on"] = {"board": ba.get("due_on"), "asana": due_on}
                 if ba.get("completed") is True:
                     diffs["completed"] = {"board": True, "asana": False}
                 if diffs:
@@ -1122,13 +1229,16 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                     "messages": msg_text[:3000],
                 })
 
-        elif tag in ("slack_from_me", "slack_mentions") or tag.startswith(("slack_chan:", "slack_hint:")):
+        elif tag in ("slack_from_me", "slack_mentions", "slack_from_lead") or tag.startswith(("slack_chan:", "slack_hint:")):
             res_str = str(obj.get("results") if isinstance(obj, dict) else raw_text)
             hits = _parse_slack_search_blocks(res_str)
             prio_cfg = prioritize.config() if settings.prioritization() else {}
             prio_chan = str(prio_cfg.get("channel_id") or "")
             prio_lead_id = str(prio_cfg.get("slack_user_id") or "")
             prio_lead_name = str(prio_cfg.get("who") or "").strip().lower()
+            owner_first = (str(settings.owner_name() or "").strip().split() or [""])[0].lower()
+            client_short = str(settings.client_short() or "").strip().lower()
+            workstream_kw = str(settings.section("owner").get("workstream") or "").strip().lower()
 
             for h in hits:
                 if h["key"] in swept_slack:
@@ -1139,7 +1249,27 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                     ts_f = 0.0
                 if floor_epoch and ts_f and ts_f < floor_epoch:
                     continue
-                if tag.startswith(("slack_chan:", "slack_hint:")):
+                if tag == "slack_from_lead":
+                    low_text = h["text"].lower()
+                    wakes_thread = (
+                        bool(h["thread_ts"])
+                        and (h["channel_id"], h["thread_ts"]) in meta["all_board_threads"]
+                    )
+                    mentions_board = any(n in low_text for n in board_needles if len(n) >= 2)
+                    in_work_chan = h["channel_id"] == prio_chan or any(
+                        h["channel_id"] == ch_id for ch_id, _ in meta["all_board_threads"]
+                    )
+                    mentions_work = (
+                        "asana.com" in low_text
+                        or "cdl" in low_text
+                        or (owner_first and len(owner_first) >= 3 and owner_first in low_text)
+                        or (client_short and len(client_short) >= 2 and client_short in low_text)
+                        or (workstream_kw and len(workstream_kw) >= 3 and workstream_kw in low_text)
+                    )
+                    if not (in_work_chan or wakes_thread or mentions_board or mentions_work):
+                        swept_slack.add(h["key"])
+                        continue
+                elif tag.startswith(("slack_chan:", "slack_hint:")):
                     sender = h["from"].lower()
                     if sender in BOT_NAMES:
                         swept_slack.add(h["key"])
@@ -1206,6 +1336,53 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
                     "matching_lines": relevant_lines[:25],
                 })
 
+        elif tag == "gmail_client":
+            items_raw = []
+            if isinstance(obj, dict):
+                items_raw = obj.get("messages") or obj.get("items") or obj.get("results") or []
+            elif isinstance(obj, list):
+                items_raw = obj
+            for em in items_raw if isinstance(items_raw, list) else []:
+                if not isinstance(em, dict):
+                    continue
+                mid = str(em.get("id") or em.get("message_id") or "").strip()
+                if not mid or mid in swept_email:
+                    continue
+                subj = str(em.get("subject") or em.get("snippet") or "").strip()
+                sender = str(em.get("from") or em.get("sender") or "").strip()
+                # Ignore automated calendar RSVP / Meet invite notifications already in calendar_sync.
+                if re.match(r"^(?:Invitation|Updated invitation|Accepted|Declined|Tentative|Canceled event):", subj, re.I):
+                    swept_email.add(mid)
+                    continue
+                new_pending_email.add(mid)
+                email_messages.append({
+                    "id": mid,
+                    "thread_id": str(em.get("thread_id") or em.get("threadId") or ""),
+                    "from": sender,
+                    "subject": subj[:180],
+                    "date": str(em.get("date") or em.get("internalDate") or ""),
+                    "snippet": str(em.get("snippet") or "")[:300],
+                })
+
+        elif tag.startswith("notion_notes:"):
+            rmeta = (meta.get("notion_room_meta") or {}).get(tag) or {}
+            txt = json.dumps(obj, ensure_ascii=False) if obj is not None else str(raw_text or "")
+            # Look for a Notion page URL or 32-hex ID in the query-meeting-notes response.
+            urls = re.findall(r"https?://(?:www\.notion\.so|app\.notion\.com)/[^\s\"')<>]+", txt)
+            if not urls and ("results\":[]" in txt.replace(" ", "") or "no meeting notes" in txt.lower() or len(txt.strip()) < 25):
+                continue
+            page_key = urls[0] if urls else hashlib.sha1(txt[:500].encode("utf-8")).hexdigest()[:16]
+            if page_key in swept_notion_notes:
+                continue
+            new_pending_notion_notes.add(page_key)
+            notion_meeting_notes.append({
+                "room": rmeta.get("name", ""),
+                "notes_title": rmeta.get("notes_title", ""),
+                "record": rmeta.get("record", "migration_note"),
+                "date": rmeta.get("date", today),
+                "url": urls[0] if urls else "",
+            })
+
     # Local checks: unread Gemini meeting notes and missing morning brief on a new weekday.
     standup_st = calendar_sync.standup_notes(b)
     standup_ready = standup_st if (standup_st and standup_st.get("ready") and standup_st.get("docs")) else None
@@ -1240,6 +1417,8 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
         for r in x.get("tickets") or []:
             touched_refs.add(str(r))
 
+    huddle_stale = huddle_stale_today(b, now)
+
     changed = bool(
         census_added
         or census_missing
@@ -1249,9 +1428,12 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
         or slack_replies
         or slack_messages
         or canvas_changes
+        or email_messages
+        or notion_meeting_notes
         or standup_ready
         or unread_docs
         or brief_missing
+        or huddle_stale
     )
 
     return {
@@ -1268,17 +1450,25 @@ def analyze_results(b: dict, seen: dict, meta: dict, paired: list[tuple[dict, st
         "slack_replies": slack_replies,
         "slack_messages": slack_messages,
         "canvas_changes": canvas_changes,
+        "email_messages": email_messages,
+        "notion_meeting_notes": notion_meeting_notes,
+        "standup_ready": standup_ready,
         "standup_notes": standup_ready,
         "unread_notes": unread_docs[:6],
         "brief_missing": brief_missing,
+        "huddle_stale": huddle_stale,
         "checked_urls": meta["checked_urls"],
         "pre_room_prep_sync": pre_room_sync(b, now) if changed else None,
         "_pending": {
             "asana_mod": new_pending_mod,
             "slack_keys": sorted(new_pending_slack),
             "canvas_hash": new_pending_canvas,
+            "email_ids": sorted(new_pending_email),
+            "notion_note_ids": sorted(new_pending_notion_notes),
             "swept_slack": sorted(swept_slack)[-600:],
             "swept_canvas": swept_canvas,
+            "swept_email": sorted(swept_email)[-200:],
+            "swept_notion_notes": sorted(swept_notion_notes)[-200:],
             "brief_date": today if brief_missing else seen.get("brief_triggered_for", ""),
         },
     }
@@ -1312,7 +1502,7 @@ def check(
 
     LOCK.parent.mkdir(parents=True, exist_ok=True)
     LOCK.write_text(f"{os.getpid()} {time.strftime('%H:%M:%S')}\n", encoding="utf-8")
-    began = time.time()
+    began = time.monotonic()
     started_iso = settings.now().isoformat(timespec="seconds")
 
     try:
@@ -1329,11 +1519,13 @@ def check(
 
         hook_dir = Path(tempfile.mkdtemp(prefix="dandori-scout-"))
         needed_tools = sorted({q["tool"] for q in queries})
+        needed_servers = sorted({t.split("__")[1] for t in needed_tools if t.startswith("mcp__")})
         cmd = [
             kind.binary, "--print", "--model", model(),
             "--effort", "low",
             "--tools", "ToolSearch",
             "--setting-sources", "user",
+            *agent.strict_mcp_flags(needed_servers),
             "--settings", json.dumps({
                 "apiKeyHelper": "printenv ANTHROPIC_API_KEY",
                 "env": {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"},
@@ -1355,7 +1547,7 @@ def check(
 
         db = settings.database_mcp()
         disallowed = [
-            "mcp__dandori__*", "mcp__google__*", "mcp__notion__*", "mcp__glean*",
+            "mcp__dandori__*", "mcp__incident_io__*", "mcp__miro__*", "mcp__glean*",
             *((f"mcp__{db}__*",) if db else ()),
             "mcp__asana__add_*", "mcp__asana__create*", "mcp__asana__update*",
             "mcp__asana__delete*", "mcp__asana__*portfolio*", "mcp__asana__*agent*",
@@ -1365,6 +1557,38 @@ def check(
             "mcp__slack__slack_create*", "mcp__slack__slack_update*",
             "mcp__slack__slack_add*", "mcp__slack__slack_get_reactions",
         ]
+        if "mcp__google__gmail_search_messages" in needed_tools:
+            disallowed += [
+                "mcp__google__calendar_*", "mcp__google__drive_*",
+                "mcp__google__sheets_*", "mcp__google__slides_*", "mcp__google__search_*",
+                "mcp__google__gmail_send*", "mcp__google__gmail_create*",
+                "mcp__google__gmail_delete*", "mcp__google__gmail_trash*",
+                "mcp__google__gmail_untrash*", "mcp__google__gmail_archive*",
+                "mcp__google__gmail_modify*", "mcp__google__gmail_rename*",
+                "mcp__google__gmail_set*", "mcp__google__gmail_get*",
+                "mcp__google__gmail_list*",
+            ]
+        else:
+            disallowed.append("mcp__google__*")
+        if "mcp__notion__notion-query-meeting-notes" in needed_tools:
+            disallowed += [
+                "mcp__notion__notion-create*", "mcp__notion__notion-update*",
+                "mcp__notion__notion-delete*", "mcp__notion__notion-restore*",
+                "mcp__notion__notion-move*", "mcp__notion__notion-duplicate*",
+                "mcp__notion__notion-upload*", "mcp__notion__notion-download*",
+                "mcp__notion__notion-convert*", "mcp__notion__notion-link-*",
+                "mcp__notion__notion-set-*", "mcp__notion__notion-resolve-*",
+                "mcp__notion__notion-calendar-*", "mcp__notion__notion-fetch",
+                "mcp__notion__notion-search", "mcp__notion__*session*",
+                "mcp__notion__*skill*", "mcp__notion__*agents*",
+                "mcp__notion__notion-list-*", "mcp__notion__notion-get-*",
+                "mcp__notion__notion-query-data-sources",
+                "mcp__notion__notion-query-multiple*",
+                "mcp__notion__notion-memory-*", "mcp__notion__notion-connector-*",
+                "mcp__notion__notion-complete-*", "mcp__notion__notion-view-*",
+            ]
+        else:
+            disallowed.append("mcp__notion__*")
         if "mcp__asana__get_task" not in needed_tools:
             disallowed.append("mcp__asana__get_task")
         if "mcp__slack__slack_read_canvas" not in needed_tools:
@@ -1407,6 +1631,8 @@ def check(
 
         if proc.returncode != 0 and not stdout.strip():
             shutil.rmtree(hook_dir, ignore_errors=True)
+            if agent.KEY_REFUSED_RE.search(f"{stdout}\n{stderr}"):
+                kind.forget_credential()
             return {"error": f"scout exited {proc.returncode}: {(stderr or '')[-200:].strip()}"}
 
         try:
@@ -1414,19 +1640,23 @@ def check(
         finally:
             shutil.rmtree(hook_dir, ignore_errors=True)
         if not paired:
+            if agent.KEY_REFUSED_RE.search(f"{stdout}\n{stderr}"):
+                kind.forget_credential()
             tail = (stderr or stdout)[-240:].strip()
             return {"error": f"scout received no MCP results ({tail})"}
 
         analysis = analyze_results(b, seen, meta, paired)
         if not analysis["census_ran"] and any(q["tag"] == "census" for q in queries):
-            _log_run("incomplete", time.time() - began, stats)
+            _log_run("incomplete", time.monotonic() - began, stats)
             return {"error": "scout did not complete the Asana census"}
 
         pending = analysis.pop("_pending")
-        took = round(time.time() - began, 1)
+        took = round(time.monotonic() - began, 1)
         seen["checked_at"] = analysis["checked_at"]
         seen["swept_slack_keys"] = pending["swept_slack"]
         seen["swept_canvas_hash"] = pending["swept_canvas"]
+        seen["swept_email_ids"] = pending["swept_email"]
+        seen["swept_notion_note_ids"] = pending["swept_notion_notes"]
         seen["last_stats"] = {"took_secs": took, **stats["usage"], "calls": stats["calls"]}
 
         if not analysis["changed"]:
@@ -1447,6 +1677,8 @@ def check(
         seen["pending_asana_mod"] = {**(seen.get("pending_asana_mod") or {}), **pending["asana_mod"]}
         seen["pending_slack_keys"] = sorted(set(seen.get("pending_slack_keys") or []) | set(pending["slack_keys"]))
         seen["pending_canvas_hash"] = {**(seen.get("pending_canvas_hash") or {}), **pending["canvas_hash"]}
+        seen["pending_email_ids"] = sorted(set(seen.get("pending_email_ids") or []) | set(pending["email_ids"]))
+        seen["pending_notion_note_ids"] = sorted(set(seen.get("pending_notion_note_ids") or []) | set(pending["notion_note_ids"]))
         if pending["brief_date"]:
             seen["brief_triggered_for"] = pending["brief_date"]
         save_seen(seen)
@@ -1473,8 +1705,14 @@ def check(
             reasons.append(f"{len(analysis['slack_messages'])} Slack message(s)")
         if analysis["canvas_changes"]:
             reasons.append(f"{len(analysis['canvas_changes'])} canvas edit(s)")
-        if analysis["standup_notes"] or analysis["unread_notes"]:
-            n_docs = (1 if analysis["standup_notes"] else 0) + len(analysis["unread_notes"])
+        if analysis["email_messages"]:
+            reasons.append(f"{len(analysis['email_messages'])} client email(s)")
+        if analysis["standup_notes"] or analysis["unread_notes"] or analysis["notion_meeting_notes"]:
+            n_docs = (
+                (1 if analysis["standup_notes"] else 0)
+                + len(analysis["unread_notes"])
+                + len(analysis["notion_meeting_notes"])
+            )
             reasons.append(f"{n_docs} meeting note(s)")
         if analysis["brief_missing"]:
             reasons.append("morning brief due")

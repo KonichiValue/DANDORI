@@ -36,10 +36,20 @@
     var secs = s.seconds || 0;
     var clock = Math.floor(secs / 60) + ":" + ("0" + (secs % 60)).slice(-2);
     var title = { refresh: "Refresh", delta: "Delta", prep: "Prep" }[s.job] || "Working";
+    if (s.queued === "prep" && s.job !== "prep") title += " -> Prep";
     var doing = s.last || s.message || "Starting";
     var parts = [["rn-time", clock], ["rn-doing", doing.slice(0, 70)]];
     if (s.steps) parts.push(["rn-n", s.steps + " step" + (s.steps > 1 ? "s" : "")]);
     chip(title, s.message || "", parts);
+    if (s.background) {
+      ready();
+    } else if (s.job || s.queued) {
+      var activeRun = "/api/" + (s.queued || s.job);
+      runners.forEach(function (b) {
+        b.disabled = true;
+        b.textContent = b.dataset.run === activeRun ? b.dataset.busy : (b.dataset.label || b.textContent);
+      });
+    }
   }
 
   // The same chip for a sign-in walk, which has phases rather than steps.
@@ -207,9 +217,10 @@
     // the foot of a card counts as open: an empty reply line is not theirs.
     var open = document.querySelector(".ask-box:not([hidden]),.qe-slot:not([hidden])");
     var pal = document.getElementById("pal");
+    var anyDlg = document.querySelector && document.querySelector("dialog[open]");
     var help = document.getElementById("help");
     var syncOpen = syncPop && !syncPop.hidden;
-    var over = (pal && !pal.hidden) || (help && help.open) || syncOpen || !!document.querySelector(".ai-menu");
+    var over = (pal && !pal.hidden) || !!anyDlg || (help && help.open) || syncOpen || !!document.querySelector(".ai-menu");
     return !half && !open && !over && !ticking();
   }
 
@@ -389,7 +400,7 @@
           // putting the button back as if the press had never happened.
           return r.json().then(function (j) {
             started = false;
-            if (j.state !== "running") ready();
+            ready();
             say(j.message || "Something is already running", "bad");
             later(1500);
           });
@@ -439,7 +450,7 @@
     if (spTitle && spSub) {
       if (autoMins > 0) {
         spTitle.textContent = "Auto-sync active";
-        spSub.textContent = "Checks Asana & Slack every " + autoMins + "m on weekdays, and after posting";
+        spSub.textContent = "Checks Asana, Slack, Meetings & Email every " + autoMins + "m on weekdays";
       } else {
         spTitle.textContent = "Manual sync mode";
         spSub.textContent = "Auto-sync is off in Settings; use Check now or Full refresh";
@@ -571,6 +582,16 @@
         .catch(function () { calBtn.disabled = false; });
       return;
     }
+    if (e.target.closest && e.target.closest("[data-open-targets]")) {
+      closeSyncPop();
+      openTargetsModal();
+      return;
+    }
+    if (e.target.closest && e.target.closest("[data-close-targets]")) {
+      var tdClose = document.getElementById("targets-dlg");
+      if (tdClose && tdClose.open) tdClose.close();
+      return;
+    }
     if (e.target.closest && e.target.closest("[data-open-conn]")) {
       closeSyncPop();
       var setDlg = document.getElementById("settings");
@@ -584,8 +605,55 @@
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && syncPop && !syncPop.hidden) {
       closeSyncPop();
+      return;
+    }
+    if (e.key === "T" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing) {
+      var tg = (e.target && e.target.tagName || "").toLowerCase();
+      if (tg === "input" || tg === "textarea" || tg === "select" || (e.target && e.target.isContentEditable)) return;
+      e.preventDefault();
+      openTargetsModal();
     }
   });
+
+  function openTargetsModal() {
+    var dlg = document.getElementById("targets-dlg");
+    var body = document.getElementById("tgt-body");
+    if (!dlg || !body || typeof dlg.showModal !== "function") return;
+    if (!dlg._wired) {
+      dlg._wired = true;
+      dlg.addEventListener("click", function (ev) { if (ev.target === dlg) dlg.close(); });
+    }
+    body.innerHTML = '<p class="sp-empty">Loading live sync targets\u2026</p>';
+    if (!dlg.open) dlg.showModal();
+    fetch("/api/targets").then(function (r) {
+      if (!r.ok) throw new Error("Could not load targets");
+      return r.json();
+    }).then(function (j) {
+      var stats = '<div class="tgt-stats">' +
+        '<span class="tgt-pill"><b>Stage 1 Scout:</b> ' + esc(j.scout_calls || 0) + ' parallel calls every ' + esc(j.auto_sweep_mins || "off") + 'm</span>' +
+        '<span class="tgt-pill"><b>Daily Full Sweep:</b> ' + esc(j.morning_sweep || "08:15") + '</span>' +
+        (j.last_scout && j.last_scout.took_secs ? '<span class="tgt-pill"><b>Last scout:</b> ' + esc(j.last_scout.took_secs) + 's (' + esc(j.last_scout.output_tokens || 0) + ' out tokens)</span>' : '') +
+        (j.gate_watermark ? '<span class="tgt-pill"><b>Watermark:</b> ' + esc(String(j.gate_watermark).slice(0, 16).replace("T", " ")) + '</span>' : '') +
+      '</div>';
+      var cards = (j.sources || []).map(function (s) {
+        var items = (s.items || []).map(function (ln) { return "<li>" + esc(ln) + "</li>"; }).join("");
+        return '<details class="tgt-card">' +
+          '<summary>' +
+            '<span class="tgt-dot ' + esc(s.status || "ok") + '"></span>' +
+            '<span class="tgt-name">' + esc(s.name || "") + '</span>' +
+            '<span class="tgt-cad">' + esc(s.cadence || "") + '</span>' +
+            '<span class="tgt-cost">' + esc(s.cost || "") + '</span>' +
+            '<span class="fold-hint"></span>' +
+            '<span class="tgt-sum">' + esc(s.summary || "") + '</span>' +
+          '</summary>' +
+          (items ? '<ul class="tgt-list">' + items + '</ul>' : '') +
+        '</details>';
+      }).join("");
+      body.innerHTML = stats + '<div class="tgt-grid">' + cards + '</div>';
+    }).catch(function (err) {
+      body.innerHTML = '<p class="sp-empty">' + esc(err.message || "Could not load targets") + '</p>';
+    });
+  }
 
   // Test connections, in Settings. It lives here rather than in base.js because
   // it needs the server key, and base.js is the half of the front end that runs
@@ -1028,44 +1096,60 @@
     renderPanelImages(panel);
   });
 
-  // Inline Quick AI (`✦ Revise` on drafts & speaking scripts, `✦ Quick AI` on jobs).
+  // Inline Ask / Revise AI (`✦ Ask / Revise` on scripts, drafts, jobs, & tickets + highlight-to-ask).
   var QE_PRESETS = {
     draft_ja: [
-      ["Shorter", "Make this shorter and simpler while keeping all key facts and polite register."],
+      ["Explain & check", "Explain any non-obvious part of this draft in plain concrete English, and fact-check every claim, date, and number against the ticket."],
       ["Plainer JP", "Rewrite in plainer, easier-to-read Japanese sentences while keeping house vocabulary and furigana readings."],
-      ["Softer", "Soften the tone slightly while keeping the exact point and question clear."],
-      ["More direct", "Lead with the conclusion directly and cut unnecessary preamble."],
-      ["Check facts", "Fact-check every claim, date, and number in this draft against the ticket and prepared findings without changing the text."]
+      ["Shorter", "Make this shorter and simpler while keeping all key facts and polite register."],
+      ["Softer", "Soften the tone slightly while keeping the exact point and question clear."]
     ],
     draft_en: [
+      ["Explain & check", "Fact-check every claim, date, and number in this draft against the ticket and prepared findings, and explain anything unclear."],
       ["Shorter", "Make this shorter and sharper while keeping all key facts."],
       ["Clearer", "Rewrite with one clear idea per sentence, leading with the conclusion."],
-      ["Ask, don't propose", "Ensure every technical point is phrased as an observation-based question rather than an AI code proposal."],
-      ["Check facts", "Fact-check every claim, date, and number in this draft against the ticket and prepared findings without changing the text."]
+      ["Ask, don't propose", "Ensure every technical point is phrased as an observation-based question rather than an AI code proposal."]
     ],
     script: [
-      ["Shorter", "Shorten this speaking script to two crisp, natural sentences."],
-      ["Easier aloud", "Rewrite these lines so they are effortless to read out loud at normal pace, keeping furigana readings."],
-      ["Softer", "Make the wording slightly softer and more diplomatic for the client room."],
+      ["Explain & check", "Explain what each spoken line means in concrete terms (who does what and where), and verify every claim against the ticket."],
+      ["Plainer JP", "Rewrite these lines so they are effortless to read out loud in plain-polite Japanese, keeping furigana readings."],
+      ["Shorter", "Shorten this speaking script to one or two crisp, natural sentences."],
       ["Status only", "Make this a brief status-only update with no question asked of the client."]
     ],
+    ticket: [
+      ["Explain step by step", "Break down how this ticket works and what happens next as a clear visual step-by-step flow: who does each step and on which screen or place."],
+      ["What do I actually do?", "Tell me concretely what I personally click, paste, or say next, and what the client does."],
+      ["Likely questions", "What are the 2 most likely questions the client might ask me in the room on this ticket, and how should I answer them?"],
+      ["Rewrite walkthrough", "Rewrite this ticket's walkthrough (`explainer`) so every step is concrete, visual, and jargon-free."]
+    ],
     job: [
+      ["Walk through steps", "Walk me through each step on this job concretely: which screen or link I open, what I click or paste, and what to watch out for."],
       ["What's left?", "Summarize in 2 short sentences what is left for me to do on this job right now."],
-      ["Tighten steps", "Simplify and tighten the steps on this job so each step is one concrete action."],
-      ["Verify status", "Check whether where_it_stands and the steps match the latest timeline events on this ticket."]
+      ["Tighten steps", "Simplify and tighten the steps on this job so each step is one concrete action."]
     ]
   };
 
   function findQeSlot(btn) {
-    var dh = btn.closest && btn.closest(".draft-head");
+    if (!btn || !btn.closest) return null;
+    var dh = btn.closest(".draft-head");
     if (dh && dh.nextElementSibling && dh.nextElementSibling.hasAttribute("data-qe-slot")) {
       return dh.nextElementSibling;
     }
-    var sc = btn.closest && btn.closest(".say.script");
+    var sc = btn.closest(".say.script");
     if (sc) return sc.querySelector("[data-qe-slot]");
-    var cr = btn.closest && btn.closest(".act-cursor-row");
+    var lab = btn.closest(".act-lab");
+    if (lab && lab.nextElementSibling && lab.nextElementSibling.hasAttribute("data-qe-slot")) {
+      return lab.nextElementSibling;
+    }
+    var cr = btn.closest(".act-cursor-row");
     if (cr && cr.nextElementSibling && cr.nextElementSibling.hasAttribute("data-qe-slot")) {
       return cr.nextElementSibling;
+    }
+    var brief = btn.closest("details.st-brief");
+    if (brief) return brief.querySelector(".exp-qe-slot");
+    var tkHead = btn.closest(".tk-head");
+    if (tkHead && tkHead.nextElementSibling && tkHead.nextElementSibling.hasAttribute("data-qe-slot")) {
+      return tkHead.nextElementSibling;
     }
     return null;
   }
@@ -1126,30 +1210,178 @@
     }
   }
 
+  function renderQeAnswerHtml(j) {
+    var html = '<div class="qe-ans-card">';
+    if (j.answer_html) {
+      html += '<div class="qe-ans-prose">' + j.answer_html + '</div>';
+    } else {
+      html += '<div class="qe-ans-prose"><p>' + esc(j.summary || "Answered.") + '</p></div>';
+    }
+    if (Array.isArray(j.flow) && j.flow.length) {
+      html += '<ol class="qe-flow">' + j.flow.map(function (f, idx) {
+        return '<li class="qe-fcard">' +
+          '<div class="qe-ftop"><span class="qe-fstep">' + esc(f.step || ("Step " + (idx + 1))) + '</span>' +
+          (f.who ? '<span class="qe-fwho">' + esc(f.who) + '</span>' : '') + '</div>' +
+          '<p class="qe-fbody">' + esc(f.detail || "") + '</p></li>';
+      }).join("") + '</ol>';
+    }
+    if (Array.isArray(j.files) && j.files.length) {
+      html += '<div class="qe-shots">' + j.files.map(function (v) {
+        var fb = v.fallback && v.fallback !== v.href
+          ? ' data-fb="' + esc(v.fallback) + '" onerror="if(this.dataset.fb&&this.src!==this.dataset.fb){this.src=this.dataset.fb;var a=this.closest(\'a\');if(a)a.href=this.dataset.fb}"'
+          : '';
+        return '<a class="qe-shot" href="' + esc(v.href) + '" data-lightbox="' + esc(v.label || "Screenshot") + '"' +
+          ' data-caption="' + esc(v.caption || "") + '" target="_blank" rel="noopener">' +
+          '<img src="' + esc(v.href) + '" alt="' + esc(v.label || "") + '" loading="lazy"' + fb + '>' +
+          '<span>' + esc(v.label || "Screenshot") + '</span></a>';
+      }).join("") + '</div>';
+    }
+    if (j.suggested_prompt) {
+      html += '<div class="qe-suggest">' +
+        '<button type="button" class="qe-apply-sug" data-qe-prompt="' + esc(j.suggested_prompt) + '">' +
+        '\u2726 Apply fix: ' + esc(j.suggested_prompt) + '</button></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // One saved exchange, labelled with what it did, so an answer that left the
+  // draft alone reads differently from an edit that changed it.
+  var QE_NOUN = { draft: "draft", script: "script", ticket: "walkthrough", job: "job" };
+  function qeWhen(iso) {
+    var d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d.getTime())) return "";
+    var hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toDateString() === new Date().toDateString()
+      ? hm
+      : d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + hm;
+  }
+  function renderQeTurn(t) {
+    var noun = QE_NOUN[t.kind] || "card";
+    var quote = t.quote || "";
+    var qHead = (quote ? '<span class="qe-turn-qref">“' + esc(quote.slice(0, 90)) + (quote.length > 90 ? '…' : '') + '”</span> ' : '') +
+      esc(t.instruction || (t.images ? "(screenshot)" : ""));
+    var badge, body;
+    if (t.action === "edit") {
+      badge = t.undone_at
+        ? '<span class="qe-badge edit undone">Changed the ' + noun + '</span><span class="qe-badge">Undone</span>'
+        : '<span class="qe-badge edit">Changed the ' + noun + '</span>';
+      body = '<div class="qe-turn-edit"><span>✓ ' + esc(t.summary || "Updated.") + '</span>' +
+        (t.undo_id && !t.undone_at ? '<button type="button" class="qe-undo" data-qe-undo="' + esc(t.undo_id) + '">↺ Undo</button>' : '') +
+        '</div>';
+    } else if (t.action === "error") {
+      badge = '<span class="qe-badge error">Failed</span>';
+      body = '<div class="qe-turn-edit"><span>' + esc(t.summary || "The request failed.") + '</span></div>';
+    } else {
+      badge = '<span class="qe-badge">Answer · ' + noun + ' unchanged</span>';
+      body = renderQeAnswerHtml(t);
+    }
+    var meta = '<div class="qe-turn-meta">' + badge +
+      '<span>' + esc(qeWhen(t.at)) + (t.tier ? ' · ' + (t.tier === "sonnet" ? "Sonnet" : "Opus") : '') + '</span></div>';
+    var el = document.createElement("div");
+    el.className = "qe-turn" + (t.action === "error" ? " error" : "");
+    if (t.id) el.dataset.turn = t.id;
+    el.innerHTML = '<div class="qe-turn-q">' + qHead + '</div>' + meta + body;
+    return el;
+  }
+  function qeHistHead(histEl) {
+    var head = histEl.querySelector(".qe-hist-head");
+    if (!head) {
+      head = document.createElement("div");
+      head.className = "qe-hist-head";
+      histEl.insertBefore(head, histEl.firstChild);
+    }
+    var n = histEl.querySelectorAll(".qe-turn:not(.pending)").length;
+    var asking = histEl.querySelector(".qe-turn.pending");
+    head.innerHTML = '<b>Conversation</b><span>' +
+      (n ? n + (n === 1 ? " exchange" : " exchanges") + ", kept on this card" : "kept on this card") +
+      (asking ? " · asking now" : "") + '</span>' +
+      (n ? '<button type="button" class="qe-hist-clear" data-qe-clear-hist>Clear</button>' : '');
+  }
+  function appendQeTurn(tray, t) {
+    var histEl = tray.querySelector(".qe-history");
+    if (!histEl || !t) return;
+    histEl.hidden = false;
+    histEl.appendChild(renderQeTurn(t));
+    qeHistHead(histEl);
+    histEl.scrollTop = histEl.scrollHeight;
+  }
+  function qeSlotBody(tray) {
+    return {
+      kind: tray.dataset.qeKind,
+      ref: tray.dataset.qeRef,
+      draft: tray.dataset.qeDraft ? parseInt(tray.dataset.qeDraft, 10) : 1
+    };
+  }
+  function loadQeHistory(tray) {
+    var histEl = tray.querySelector(".qe-history");
+    if (!histEl) return;
+    var body = qeSlotBody(tray);
+    body.history = true;
+    fetch("/api/quick-edit?k=" + encodeURIComponent(key), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      var turns = (j && Array.isArray(j.turns)) ? j.turns : [];
+      if (!turns.length) return;
+      // Anything this tray already drew while the fetch was out stays below.
+      var live = [].slice.call(histEl.querySelectorAll(".qe-turn"));
+      var seen = {};
+      live.forEach(function (el) { if (el.dataset.turn) seen[el.dataset.turn] = true; });
+      var frag = document.createDocumentFragment();
+      turns.forEach(function (t) { if (!seen[t.id]) frag.appendChild(renderQeTurn(t)); });
+      var head = histEl.querySelector(".qe-hist-head");
+      histEl.insertBefore(frag, head ? head.nextSibling : histEl.firstChild);
+      histEl.hidden = false;
+      qeHistHead(histEl);
+      histEl.scrollTop = histEl.scrollHeight;
+    }).catch(function () { /* the tray still works without its past */ });
+  }
+
+  function setQeQuote(tray, quoteText) {
+    if (!tray) return;
+    var q = (quoteText || "").trim();
+    tray._quote = q;
+    var qEl = tray.querySelector(".qe-quote");
+    if (!qEl) return;
+    if (!q) {
+      qEl.hidden = true;
+      qEl.innerHTML = "";
+      return;
+    }
+    var clipped = q.length > 160 ? q.slice(0, 157) + "\u2026" : q;
+    qEl.hidden = false;
+    qEl.innerHTML = '<span class="qe-q-lbl">Selected</span><span class="qe-q-txt">\u201c' + esc(clipped) + '\u201d</span>' +
+      '<button type="button" class="qe-q-rm" data-qe-clear-quote title="Clear quote">&times;</button>';
+  }
+
   function runQuickEdit(tray, instruction) {
     var text = (instruction || "").trim();
     var imgs = panelImages(tray).slice();
+    var quote = tray._quote || "";
     var input = tray.querySelector(".qe-in");
     if (!text && !imgs.length) {
       if (input) input.focus();
       return;
     }
     var statusEl = tray.querySelector(".qe-status");
+    var histEl = tray.querySelector(".qe-history");
     var sendBtn = tray.querySelector(".qe-send");
-    var chips = [].slice.call(tray.querySelectorAll(".qe-chip"));
+    var chips = [].slice.call(tray.querySelectorAll(".qe-chip,.qe-apply-sug"));
     var tierSel = tray.querySelector(".qe-tier");
-    var tier = tierSel ? tierSel.value : "sonnet";
+    var tier = tierSel ? tierSel.value : "opus";
 
     if (sendBtn) sendBtn.disabled = true;
     chips.forEach(function (c) { c.disabled = true; });
     var secs = 0;
     statusEl.hidden = false;
     statusEl.className = "qe-status run";
-    statusEl.innerHTML = '<span class="qe-dot" aria-hidden="true"></span><span class="qe-msg">Working\u2026</span>';
+    statusEl.innerHTML = '<span class="qe-dot" aria-hidden="true"></span><span class="qe-msg">Thinking with ' + (tier === "sonnet" ? "Sonnet 5.5" : "Opus 5.5") + '\u2026</span>';
     var msgSpan = statusEl.querySelector(".qe-msg");
     var tickTimer = setInterval(function () {
       secs += 1;
-      if (msgSpan) msgSpan.textContent = "Working\u2026 " + secs + "s";
+      if (msgSpan) msgSpan.textContent = "Thinking with " + (tier === "sonnet" ? "Sonnet 5.5" : "Opus 5.5") + "\u2026 " + secs + "s";
     }, 1000);
 
     if (input && input.value.trim() === text) {
@@ -1158,43 +1390,60 @@
     }
     tray._imgs = [];
     renderPanelImages(tray);
+    setQeQuote(tray, "");
 
+    // The question shows the moment it is sent, so the owner sees what is being
+    // answered; the server's saved turn replaces it when the reply lands.
+    var pendingEl = null;
+    if (histEl) {
+      pendingEl = renderQeTurn({ instruction: text, quote: quote, images: imgs.length, action: "answer", summary: "" });
+      pendingEl.classList.add("pending");
+      pendingEl.innerHTML = pendingEl.querySelector(".qe-turn-q").outerHTML;
+      histEl.hidden = false;
+      histEl.appendChild(pendingEl);
+      qeHistHead(histEl);
+      histEl.scrollTop = histEl.scrollHeight;
+    }
+    function settle(turn) {
+      if (pendingEl && pendingEl.parentNode) pendingEl.parentNode.removeChild(pendingEl);
+      if (turn) appendQeTurn(tray, turn);
+      else if (histEl) qeHistHead(histEl);
+    }
+
+    var body = qeSlotBody(tray);
+    body.tier = tier;
+    body.instruction = text;
+    body.quote = quote;
+    body.images = imgs;
     inflight += 1;
     fetch("/api/quick-edit?k=" + encodeURIComponent(key), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        kind: tray.dataset.qeKind,
-        ref: tray.dataset.qeRef,
-        draft: tray.dataset.qeDraft ? parseInt(tray.dataset.qeDraft, 10) : 1,
-        tier: tier,
-        instruction: text,
-        prior: tray._prior || "",
-        images: imgs
-      })
+      body: JSON.stringify(body)
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         clearInterval(tickTimer);
         inflight -= 1;
         if (sendBtn) sendBtn.disabled = false;
         chips.forEach(function (c) { c.disabled = false; });
-        if (!r.ok) throw new Error(j.error || "Quick edit failed");
+        if (!r.ok) {
+          var err = new Error(j.error || "Quick AI request failed");
+          err.turn = j.turn;
+          throw err;
+        }
         adopt(j);
+        // Saved before the page goes: the tray shows it again when reopened.
+        settle(j.turn);
         if (j.reload) {
           reloadKeepingPlace();
           return;
         }
-        var summary = j.summary || "Updated.";
-        tray._prior = "Request: " + text + "\nResult: " + summary;
-        if (j.action === "edit") {
-          applyQeDomUpdate(tray, j);
-          statusEl.className = "qe-status ok";
-          statusEl.innerHTML =
-            '<span class="qe-msg">\u2713 ' + esc(summary) + '</span>' +
-            (j.undo_id ? '<button type="button" class="qe-undo" data-qe-undo="' + esc(j.undo_id) + '">\u21ba Undo</button>' : '');
-        } else {
+        statusEl.hidden = true;
+        if (j.action === "edit") applyQeDomUpdate(tray, j);
+        if (!j.turn && j.action !== "edit") {
+          statusEl.hidden = false;
           statusEl.className = "qe-status ans";
-          statusEl.innerHTML = '<span class="qe-msg">' + esc(summary) + '</span>';
+          statusEl.innerHTML = renderQeAnswerHtml(j);
         }
       });
     }).catch(function (err) {
@@ -1202,8 +1451,14 @@
       inflight -= 1;
       if (sendBtn) sendBtn.disabled = false;
       chips.forEach(function (c) { c.disabled = false; });
+      settle(err && err.turn);
+      if (err && err.turn) {
+        statusEl.hidden = true;
+        return;
+      }
+      statusEl.hidden = false;
       statusEl.className = "qe-status bad";
-      statusEl.innerHTML = '<span class="qe-msg">' + esc(err.message || "Could not reach server") + '</span>';
+      statusEl.innerHTML = '<span class="qe-msg">' + esc((err && err.message) || "Could not reach server") + '</span>';
     });
   }
 
@@ -1211,13 +1466,15 @@
     var kind = btn.dataset.qeKind || "draft";
     var lang = btn.dataset.qeLang || "en";
     var presetKey = kind === "draft" ? ("draft_" + lang) : kind;
-    var presets = QE_PRESETS[presetKey] || QE_PRESETS.draft_en;
-    var savedTier = (window.deskPref && window.deskPref.get && window.deskPref.get("desk-qe-tier")) || "sonnet";
+    var presets = QE_PRESETS[presetKey] || QE_PRESETS.ticket;
+    var savedTier = (window.deskPref && window.deskPref.get && window.deskPref.get("desk-qe-tier")) || "opus";
     var ph = kind === "draft"
-      ? "Tell AI what to change in this draft, or ask a quick question\u2026 (paste screenshot \u00b7 Enter)"
+      ? "Ask what a phrase means, check accuracy, or tell Opus how to revise this draft\u2026 (Enter)"
       : kind === "script"
-      ? "Tell AI how to adjust these speaking lines\u2026 (Enter)"
-      : "Ask a quick question or tell AI how to update this job\u2026 (Enter)";
+      ? "Ask what a line means, check accuracy, or tell Opus how to adjust what you say\u2026 (Enter)"
+      : kind === "ticket"
+      ? "Ask anything about this ticket, how a step works, or what the client might ask\u2026 (Enter)"
+      : "Ask how to run these steps, or tell Opus what to update on this job\u2026 (Enter)";
 
     var chipsHtml = presets.map(function (p) {
       return '<button type="button" class="qe-chip" data-qe-prompt="' + esc(p[1]) + '">' + esc(p[0]) + '</button>';
@@ -1229,17 +1486,19 @@
         '<div class="qe-top">' +
           chipsHtml +
           '<span class="qe-right">' +
-            '<select class="qe-tier" aria-label="AI Model" title="Model speed vs depth">' +
+            '<select class="qe-tier" aria-label="AI Model" title="Model depth vs speed">' +
+              '<option value="opus"' + (savedTier === "opus" ? " selected" : "") + '>Opus 5.5 \u00b7 smart</option>' +
               '<option value="sonnet"' + (savedTier === "sonnet" ? " selected" : "") + '>Sonnet 5.5 \u00b7 fast</option>' +
-              '<option value="opus"' + (savedTier === "opus" ? " selected" : "") + '>Opus 5.5 \u00b7 deep</option>' +
             '</select>' +
             '<button type="button" class="qe-close" data-qe-close aria-label="Close">&times;</button>' +
           '</span>' +
         '</div>' +
+        '<div class="qe-history" hidden></div>' +
+        '<div class="qe-quote" hidden></div>' +
         '<div class="ask-imgs" hidden></div>' +
         '<div class="qe-bar">' +
           '<textarea class="qe-in" rows="1" placeholder="' + esc(ph) + '"></textarea>' +
-          '<button type="button" class="qe-send" data-qe-send aria-label="Apply" title="Apply (Enter)">' +
+          '<button type="button" class="qe-send" data-qe-send aria-label="Send" title="Ask or apply (Enter)">' +
             '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 13.5 8l-1.4 1.4-3.1-3.1V13.5H7V6.3L3.9 9.4 2.5 8z"/></svg>' +
           '</button>' +
         '</div>' +
@@ -1248,21 +1507,67 @@
     slot._btn = btn;
   }
 
+  function openQeForButton(openBtn, quoteText, autoPrompt) {
+    if (!openBtn) return null;
+    var parentFold = openBtn.closest && openBtn.closest("details");
+    if (parentFold && !parentFold.open) parentFold.open = true;
+    var slot = findQeSlot(openBtn);
+    if (!slot) return null;
+    if (!slot.querySelector(".qe-tray")) {
+      buildQeTray(openBtn, slot);
+      loadQeHistory(slot.querySelector(".qe-tray"));
+    }
+    slot.hidden = false;
+    openBtn.setAttribute("aria-expanded", "true");
+    var tray = slot.querySelector(".qe-tray");
+    if (quoteText) setQeQuote(tray, quoteText);
+    if (autoPrompt) {
+      runQuickEdit(tray, autoPrompt);
+    } else {
+      var inp = slot.querySelector(".qe-in");
+      if (inp) inp.focus();
+    }
+    return tray;
+  }
+
   document.addEventListener("click", function (e) {
     var openBtn = e.target && e.target.closest && e.target.closest("[data-qe-kind].qe-btn");
     if (openBtn) {
+      e.preventDefault();
+      e.stopPropagation();
       var slot = findQeSlot(openBtn);
       if (!slot) return;
-      var willOpen = slot.hidden;
-      if (willOpen && !slot.querySelector(".qe-tray")) {
-        buildQeTray(openBtn, slot);
+      var parentFold = openBtn.closest && openBtn.closest("details");
+      if (!slot.hidden && (!parentFold || parentFold.open)) {
+        slot.hidden = true;
+        openBtn.setAttribute("aria-expanded", "false");
+        return;
       }
-      slot.hidden = !willOpen;
-      openBtn.setAttribute("aria-expanded", String(willOpen));
-      if (willOpen) {
-        var inp = slot.querySelector(".qe-in");
-        if (inp) inp.focus();
-      }
+      openQeForButton(openBtn, "", "");
+      return;
+    }
+
+    var clearH = e.target && e.target.closest && e.target.closest("[data-qe-clear-hist]");
+    if (clearH) {
+      var hTray = clearH.closest(".qe-tray");
+      if (!hTray || !window.confirm("Forget this card's Ask/Revise conversation?")) return;
+      var hBody = qeSlotBody(hTray);
+      hBody.clear_history = true;
+      fetch("/api/quick-edit?k=" + encodeURIComponent(key), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(hBody)
+      }).then(function (r) {
+        if (!r.ok) throw new Error("clear failed");
+        var h = hTray.querySelector(".qe-history");
+        if (h) { h.innerHTML = ""; h.hidden = true; }
+      }).catch(function () { clearH.textContent = "Could not clear"; });
+      return;
+    }
+
+    var clearQ = e.target && e.target.closest && e.target.closest("[data-qe-clear-quote]");
+    if (clearQ) {
+      setQeQuote(clearQ.closest(".qe-tray"), "");
       return;
     }
 
@@ -1309,6 +1614,16 @@
           adopt(j);
           if (j.reload) { reloadKeepingPlace(); return; }
           applyQeDomUpdate(uTray, j);
+          var uTurn = undoBtn.closest(".qe-turn");
+          if (uTurn) {
+            var eb = uTurn.querySelector(".qe-badge.edit");
+            if (eb) {
+              eb.classList.add("undone");
+              eb.insertAdjacentHTML("afterend", '<span class="qe-badge">Undone</span>');
+            }
+            undoBtn.remove();
+            return;
+          }
           if (uStatus) {
             uStatus.className = "qe-status ans";
             uStatus.innerHTML = '<span class="qe-msg">\u21ba ' + esc(j.summary || "Restored previous version.") + '</span>';
@@ -1360,6 +1675,99 @@
     }
   });
 
+  // Highlight-to-Ask: selecting any phrase inside a draft, script, walkthrough, job,
+  // or ticket offers a 1-click floating `✦ Explain / Check` & `Ask / Revise…` pill.
+  var selBar = document.getElementById("sel-ai");
+  var selState = null;
+
+  function nearestQeButton(node) {
+    var el = node && (node.nodeType === 1 ? node : node.parentElement);
+    if (!el || !el.closest) return null;
+    if (el.closest(".qe-tray,.ask-box,.pal,dialog,header.top")) return null;
+    var dr = el.closest(".act-draft.live");
+    if (dr) { var db = dr.querySelector(".draft-head .qe-btn"); if (db) return db; }
+    var sc = el.closest(".say.script");
+    if (sc) { var sb = sc.querySelector(".qe-btn"); if (sb) return sb; }
+    var br = el.closest("details.st-brief");
+    if (br) { var bb = br.querySelector(".exp-ask-btn"); if (bb) return bb; }
+    var act = el.closest(".act");
+    if (act) { var jb = act.querySelector(".steps-qe-btn,.bar-qe"); if (jb) return jb; }
+    var stTk = el.closest(".st-tk");
+    if (stTk) { var stb = stTk.querySelector(".exp-ask-btn,.say.script .qe-btn"); if (stb) return stb; }
+    var tk = el.closest(".tk");
+    if (tk) { var tb = tk.querySelector(".tk-qe-btn"); if (tb) return tb; }
+    return null;
+  }
+
+  function updateSelectionBar() {
+    if (!selBar || typeof window.getSelection !== "function") return;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) {
+      selBar.hidden = true;
+      selState = null;
+      return;
+    }
+    var txt = (sel.toString() || "").trim();
+    if (txt.length < 4 || txt.length > 900) {
+      selBar.hidden = true;
+      selState = null;
+      return;
+    }
+    var btn = nearestQeButton(sel.anchorNode) || nearestQeButton(sel.focusNode);
+    if (!btn) {
+      selBar.hidden = true;
+      selState = null;
+      return;
+    }
+    var rect = sel.getRangeAt(0).getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) {
+      selBar.hidden = true;
+      selState = null;
+      return;
+    }
+    selState = { btn: btn, quote: txt };
+    selBar.hidden = false;
+    var bw = selBar.offsetWidth || 240;
+    var left = Math.max(12, Math.min(window.innerWidth - bw - 12, rect.left + rect.width / 2 - bw / 2));
+    var top = rect.top > 56 ? (rect.top - 40) : (rect.bottom + 8);
+    selBar.style.left = Math.round(left) + "px";
+    selBar.style.top = Math.round(top) + "px";
+  }
+
+  if (selBar && document.addEventListener) {
+    document.addEventListener("mouseup", function () { setTimeout(updateSelectionBar, 20); });
+    document.addEventListener("keyup", function (e) {
+      if (e.key === "Escape") { selBar.hidden = true; selState = null; }
+      else setTimeout(updateSelectionBar, 20);
+    });
+    if (window.addEventListener) {
+      window.addEventListener("scroll", function () { if (selBar && !selBar.hidden) selBar.hidden = true; });
+    }
+    document.addEventListener("mousedown", function (e) {
+      if (!selBar.hidden && !(e.target && e.target.closest && e.target.closest("#sel-ai"))) {
+        selBar.hidden = true;
+      }
+    });
+    selBar.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    selBar.addEventListener("click", function (e) {
+      var actBtn = e.target && e.target.closest && e.target.closest("[data-sel-act]");
+      if (!actBtn || !selState) return;
+      var st = selState;
+      selBar.hidden = true;
+      selState = null;
+      try { window.getSelection().removeAllRanges(); } catch (err) {}
+      if (actBtn.dataset.selAct === "explain") {
+        openQeForButton(
+          st.btn,
+          st.quote,
+          "Explain clearly in plain concrete English what this highlighted part means (who does what and on which screen or document), and tell me honestly if anything in it is inaccurate or confusing."
+        );
+      } else {
+        openQeForButton(st.btn, st.quote, "");
+      }
+    });
+  }
+
   // Unified AI Split Button & Target Switcher (`Cursor`, `Claude Code`, `Claude Desktop`, `Copy`).
   var AI_META = {
     "cursor": {
@@ -1401,7 +1809,7 @@
     if (aiMenuPickBtn) { aiMenuPickBtn.setAttribute("aria-expanded", "false"); aiMenuPickBtn = null; }
   }
 
-  function triggerAiButton(b, overrideTarget, forceCopy) {
+  function triggerAiButton(b, overrideTarget, forceCopy, overrideMode) {
     if (!b || b.disabled) return;
     var inChat = b.closest && b.closest(".chat-box");
     var askBox = inChat ? (typeof chatBody === "function" ? chatBody() : null) : (b.closest && b.closest(".ask"));
@@ -1410,7 +1818,7 @@
     var qeTray = nearSlot && !nearSlot.hidden ? nearSlot.querySelector(".qe-tray") : null;
     if (qeTray) panel = qeTray;
     var ref = b.dataset.ctxRef || (askBox && askBox.dataset && askBox.dataset.ask) || "board";
-    var mode = b.dataset.ctxMode || "default";
+    var mode = overrideMode || b.dataset.ctxMode || "default";
     var draftNum = b.dataset.ctxDraft ? parseInt(b.dataset.ctxDraft, 10) : 0;
     var field = panel && panel.querySelector && panel.querySelector("textarea");
     var question = field && field.value ? field.value.trim() : "";
@@ -1509,15 +1917,39 @@
         '<span class="am-sub">' + esc(info.sub) + '</span>' +
       '</button>';
     }).join("");
+    var btnRef = goBtn.dataset.ctxRef || "";
+    var btnMode = goBtn.dataset.ctxMode || "default";
+    var hasDraft = !!goBtn.dataset.ctxDraft;
+    var altModeHtml = "";
+    if (!hasDraft && (btnRef.indexOf("ticket:") === 0 || btnRef.indexOf("item:") === 0)) {
+      if (btnMode === "work") {
+        altModeHtml =
+          '<button type="button" role="menuitem" data-ai-choice="mode:catchup">' +
+            '<span class="am-ic"><svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 12 4.2"/><path d="M13.5 2.5v3h-3"/></svg></span>' +
+            '<span class="am-t">Check new replies only</span>' +
+            '<span class="am-chk"></span>' +
+            '<span class="am-sub">Only sweep Asana &amp; Slack since last timestamp</span>' +
+          '</button>';
+      } else {
+        altModeHtml =
+          '<button type="button" role="menuitem" data-ai-choice="mode:work">' +
+            '<span class="am-ic"><svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 5"/></svg></span>' +
+            '<span class="am-t">Work on remaining tasks</span>' +
+            '<span class="am-chk"></span>' +
+            '<span class="am-sub">Execute remaining steps together with full context</span>' +
+          '</button>';
+      }
+    }
     m.innerHTML =
       '<div class="ai-menu-h">Open this spot in</div>' +
       rows +
       '<hr>' +
+      altModeHtml +
       '<button type="button" role="menuitem" data-ai-choice="copy">' +
         '<span class="am-ic"><svg class="ai-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 10.5V3.5A1.5 1.5 0 0 1 4.5 2H11"/></svg></span>' +
         '<span class="am-t">Copy context bundle</span>' +
         '<span class="am-chk"></span>' +
-        '<span class="am-sub">Copy Markdown + DB X-Ray to clipboard</span>' +
+        '<span class="am-sub">Copy lean Markdown context to clipboard</span>' +
       '</button>';
 
     document.body.appendChild(m);
@@ -1542,6 +1974,10 @@
       closeAiMenu();
       if (choice === "copy") {
         triggerAiButton(goBtn, "", true);
+        return;
+      }
+      if (choice.indexOf("mode:") === 0) {
+        triggerAiButton(goBtn, "", false, choice.slice(5));
         return;
       }
       if (window.deskPref && window.deskPref.set) window.deskPref.set("desk-ai-target", choice);

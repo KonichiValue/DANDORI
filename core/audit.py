@@ -345,6 +345,103 @@ def check_form_channels(b: dict, rep: Report) -> None:
                     )
 
 
+RUBY = re.compile(r"\{([^|{}]+)\|[^{}]+\}")
+MENTION_LINE = re.compile(r"^\s*(?:cc\s*)?@\S+(?:\s+@\S+)*\s*$", re.I)
+# 「〇〇の件ですが、」「〇〇について、」; a counted 件 (「27件は、」) is news, not a topic.
+TOPIC_OPENER_JA = re.compile(r"^.{2,60}?(?:(?<![0-9０-９何数])件|について|に関して)(?:ですが|では|は|で)?[、,]")
+TOPIC_OPENER_EN = re.compile(
+    r"^(?:regarding\b|re:|as for\b|as regards\b|about the\b|on the [^:.]{2,80}:)", re.I
+)
+
+
+def _opening_sentence(text: str) -> str:
+    """The first line that is not an @mention or CC line, cut at its first full stop."""
+    for line in RUBY.sub(r"\1", text).splitlines():
+        line = line.strip()
+        if line and not MENTION_LINE.match(line):
+            return re.split(r"[。.!?！？]", line, maxsplit=1)[0]
+    return ""
+
+
+def check_comment_restates_ticket(b: dict, rep: Report) -> None:
+    """A draft posted in an Asana ticket that opens by saying which ticket it is.
+
+    The reader of an Asana comment is standing in that ticket, under its title
+    and the comments before it, so 「〇〇の件ですが、」 or "Regarding the X" is
+    a line they skip. Only Asana drafts are checked: a Slack post or a spoken
+    line has no ticket open beside it and should still say what it is about.
+    """
+    for ticket, item in B.items(b):
+        if not B.is_open(item):
+            continue
+        names = [str(ticket.get(k) or "").strip() for k in ("ref", "title_ja", "title_en")]
+        names = [n for n in names if len(n) >= 3]
+        for n, d in enumerate(B.drafts(item), 1):
+            if not B.unsent(d):
+                continue
+            target = str(d.get("target") or "").lower()
+            link = str(d.get("link") or "").lower()
+            if "slack" in target or "slack" in link:
+                continue
+            if "app.asana.com" not in link and "comment" not in target:
+                continue
+            hits = []
+            for field in ("body_ruby", "body_en", "body"):
+                first = _opening_sentence(str(d.get(field) or ""))
+                if not first:
+                    continue
+                if TOPIC_OPENER_JA.match(first) or TOPIC_OPENER_EN.match(first):
+                    hits.append(first)
+                elif any(first.startswith(nm) for nm in names):
+                    hits.append(first)
+            if hits:
+                rep.add(
+                    "Asana comment opens by naming its own ticket",
+                    f"  {item.get('id')} draft {n} ({ticket.get('ref')}): \"{hits[0][:50]}\". "
+                    f"The reader is already in that ticket; open with the news instead.",
+                )
+            body = str(d.get("body_ruby") or d.get("body_en") or d.get("body") or "")
+            if body and "@" not in body:
+                rep.add(
+                    "Asana comment @s nobody",
+                    f"  {item.get('id')} draft {n} ({ticket.get('ref')}): an Asana comment "
+                    f"with no @mention notifies nobody. @ whoever asked or owns the ticket.",
+                )
+
+
+REMIND_MAX = 3
+
+
+def check_reminders(b: dict, rep: Report) -> None:
+    """Phone reminders are for the job that must not be missed, so few and current.
+
+    Every open job once went to Apple Reminders and the owner learned to ignore
+    them all. A `remind` whose day has passed has already rung; one past the cap
+    is a sign the bar slipped.
+    """
+    today = date.today()
+    live = []
+    for ticket, item in B.items(b):
+        rem = item.get("remind")
+        if not isinstance(rem, dict) or not B.is_open(item):
+            continue
+        on = as_date(rem.get("on"))
+        if on and on < today:
+            rep.add(
+                "Reminder that has already rung",
+                f"  {item.get('id')} ({ticket.get('ref')}): remind.on {rem.get('on')} has "
+                f"passed. Set `remind` to null, or move it if the moment moved.",
+            )
+        else:
+            live.append(str(item.get("id")))
+    if len(live) > REMIND_MAX:
+        rep.add(
+            "Too many phone reminders",
+            f"  {len(live)} jobs carry `remind` ({', '.join(live)}). Keep it to the "
+            f"{REMIND_MAX} where missing the moment does real harm.",
+        )
+
+
 def check_terminal_steps(b: dict, rep: Report) -> None:
     """A step telling the owner to type a command the page does in one press.
 
@@ -519,6 +616,26 @@ def check_sessions(b: dict, rep: Report) -> None:
         )
 
 
+def check_prioritization(b: dict, rep: Report) -> None:
+    """Every build marked to raise has a short 1-sentence motivation and is not already in a Wave."""
+    import prioritize as P
+
+    for row in ((b.get("prioritization") or {}).get("builds") or []):
+        if not isinstance(row, dict):
+            continue
+        k = P.kind(row)
+        if k != "raise":
+            continue
+        why = str(row.get("why") or "").strip()
+        if len(why) > 165 or ". " in why.rstrip("."):
+            rep.add(
+                "Prioritization motivation too long",
+                f"  {row.get('kt', '?')}: `why` is {len(why)} chars / multi-sentence. "
+                f"Keep `why` to one short sentence stating why this build needs raising now, "
+                f"or set `push: false` if it does not need raising.",
+            )
+
+
 CHECKS = (
     check_dates,
     check_freshness,
@@ -527,12 +644,15 @@ CHECKS = (
     check_asana_status,
     check_duplicate_targets,
     check_form_channels,
+    check_comment_restates_ticket,
+    check_reminders,
     check_terminal_steps,
     check_step_shape,
     check_milestones,
     check_prepared,
     check_prepared_size,
     check_sessions,
+    check_prioritization,
 )
 
 

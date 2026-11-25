@@ -58,9 +58,14 @@ targets = [
     Path.home() / ".cursor/mcp.json",
     Path.home() / ".claude.json",
 ]
-claude_dir = Path.home() / "Library/Application Support/Claude"
-if claude_dir.exists():
-    targets.append(claude_dir / "claude_desktop_config.json")
+# Every Claude desktop profile, not just the consumer one: an enterprise build
+# runs as "Claude-3p" with its own config, and its Code tab starts the CLI with
+# --strict-mcp-config built from that file alone, so a profile left out here
+# opens sessions with no dandori tools and no board widget.
+support = Path.home() / "Library/Application Support"
+for claude_dir in sorted([support / "Claude", *support.glob("Claude-*")]):
+    if claude_dir.is_dir():
+        targets.append(claude_dir / "claude_desktop_config.json")
 
 for mcp_file in targets:
     mcp_file.parent.mkdir(parents=True, exist_ok=True)
